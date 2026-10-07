@@ -12,18 +12,40 @@ extension AppDelegate {
     func resetCreditBadge(for kind: AppProviderKind) -> MenuBarResetCreditBadge? {
         guard let service = kind.runtimeService else { return nil }
         return MenuBarResetCreditBadge.resolve(
-            summary: resetCreditSummary(for: service), seen: ResetCreditSeenStore.seen(service),
+            summary: resetCreditSummary(for: service),
+            isNew: ResetCreditSeenStore.isNew(accountKey: resetCreditAccountKey(for: service)),
             mode: AppSettings.shared.resetCreditMenuBarMode(for: kind))
     }
 
-    /// 팝오버에서 본 서비스의 초기화권은 닫을 때 신규에서 뺀다.
-    func markViewedResetCreditsSeen() {
-        let services = resetCreditViewedServices
-        resetCreditViewedServices.removeAll()
-        guard !services.isEmpty else { return }
-        for service in services {
-            ResetCreditSeenStore.markSeen(resetCreditSummary(for: service), service: service)
+    func resetCreditAccountKey(for service: PopoverService) -> String? {
+        usageAccountsController.orderedAccounts(for: service)
+            .first { usageAccountsController.isRuntime($0) && $0.identity.mergeKey != nil }?.id
+    }
+
+    func observeResetCredits() {
+        for service in [PopoverService.claude, .codex] {
+            let summary = resetCreditSummary(for: service)
+            let count =
+                service == .codex
+                ? runtimeProviderSnapshot(for: .codex).codexUsage?.resetCredits?.availableCount()
+                : summary?.availableCount
+            ResetCreditSeenStore.observe(
+                summary: summary, count: count, accountKey: resetCreditAccountKey(for: service))
         }
+    }
+
+    func recordVisibleResetCredits(_ receipt: ResetCreditSeenReceipt) {
+        guard popover?.isShown == true, popoverViewModel.selectedService == receipt.service,
+            resetCreditAccountKey(for: receipt.service) == receipt.accountKey
+        else { return }
+        resetCreditViewedReceipts[receipt.accountKey] = receipt
+    }
+
+    func markViewedResetCreditsSeen() {
+        let receipts = Array(resetCreditViewedReceipts.values)
+        resetCreditViewedReceipts.removeAll()
+        for receipt in receipts { ResetCreditSeenStore.markSeen(receipt) }
         updateMenuBar()
+        updatePopoverViewModel()
     }
 }

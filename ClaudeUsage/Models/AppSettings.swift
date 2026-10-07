@@ -7,7 +7,6 @@
 
 import Foundation
 import Combine
-import ServiceManagement
 import SwiftUI
 
 struct NotificationPreset: Codable, Identifiable, Hashable, Sendable {
@@ -259,6 +258,7 @@ class AppSettings: ObservableObject {
     }
 
     private let defaults: UserDefaults
+    private let launchAtLoginController: LaunchAtLoginController
     private let popoverDisplayPreferencesStore:
         PopoverDisplayPreferencesStore
     private let providerSelectionPreferencesStore:
@@ -314,6 +314,9 @@ class AppSettings: ObservableObject {
     }
     @Published var notificationPresets: [NotificationPreset] {
         didSet { NotificationThresholdStorage.save(notificationPresets, to: defaults) }
+    }
+    @Published var menuBarQuotaPreferences: MenuBarQuotaPreferences {
+        didSet { menuBarQuotaPreferences.save(to: defaults) }
     }
     @Published var notificationTargets: NotificationTargetPreferences {
         didSet { if notificationTargets != oldValue { notificationTargets.save(to: defaults) } }
@@ -403,12 +406,12 @@ class AppSettings: ObservableObject {
     }
     @Published var launchAtLogin: Bool {
         didSet {
-            guard !isReconcilingLaunchAtLogin else { return }
-            defaults.set(launchAtLogin, forKey: "launchAtLogin")
-            updateLaunchAtLogin(launchAtLogin)
+            guard !isReconcilingLaunchAtLogin, oldValue != launchAtLogin else { return }
+            setLaunchAtLogin(launchAtLogin)
         }
     }
-    @Published private(set) var launchAtLoginRequiresApproval = false
+    @Published private(set) var launchAtLoginState: LaunchAtLoginState
+
     private var isReconcilingLaunchAtLogin = false
     @Published var preferredOrganizationID: String {
         didSet { defaults.set(preferredOrganizationID, forKey: "preferredOrganizationID") }
@@ -549,6 +552,7 @@ class AppSettings: ObservableObject {
         let notificationsEnabled: Bool
         let notificationPresets: [NotificationPreset]
         let notificationTargets: NotificationTargetPreferences
+        let menuBarQuotaPreferences: MenuBarQuotaPreferences
         let alertRemainingMode: Bool
         let usageDisplayMode: UsageDisplayMode
         let showClaudeIcon: Bool
@@ -600,6 +604,7 @@ class AppSettings: ObservableObject {
             notificationsEnabled: notificationsEnabled,
             notificationPresets: notificationPresets,
             notificationTargets: notificationTargets,
+            menuBarQuotaPreferences: menuBarQuotaPreferences,
             alertRemainingMode: alertRemainingMode,
             usageDisplayMode: usageDisplayMode,
             showClaudeIcon: showClaudeIcon,
@@ -660,6 +665,7 @@ class AppSettings: ObservableObject {
         notificationsEnabled = snapshot.notificationsEnabled
         notificationPresets = snapshot.notificationPresets
         notificationTargets = snapshot.notificationTargets
+        menuBarQuotaPreferences = snapshot.menuBarQuotaPreferences
         alertRemainingMode = snapshot.alertRemainingMode
         usageDisplayMode = snapshot.usageDisplayMode
         showClaudeIcon = snapshot.showClaudeIcon
@@ -973,6 +979,7 @@ class AppSettings: ObservableObject {
             $menuBarStyle.map { _ in () }.eraseToAnyPublisher(),
             $menuBarColorMode.map { _ in () }.eraseToAnyPublisher(),
             $resetCreditMenuBarModes.map { _ in () }.eraseToAnyPublisher(),
+            $menuBarQuotaPreferences.map { _ in () }.eraseToAnyPublisher(),
             $percentageDisplay.map { _ in () }.eraseToAnyPublisher(),
             $showBatteryPercent.map { _ in () }.eraseToAnyPublisher(),
             $resetTimeDisplay.map { _ in () }.eraseToAnyPublisher(),
@@ -1027,6 +1034,9 @@ class AppSettings: ObservableObject {
             return
         }
 
+        if menuBarQuotaPreferences.providers[kind.rawValue] != nil {
+            menuBarQuotaPreferences.providers[kind.rawValue] = MenuBarQuotaSelection()
+        }
         setProviderShowIcon(false, for: kind)
         setProviderPercentageDisplay(.none, for: kind)
         setProviderResetTimeDisplay(.none, for: kind)
@@ -1040,6 +1050,7 @@ class AppSettings: ObservableObject {
 
     func applyMenuBarDisplayPreset(_ preset: ProviderMenuBarDisplayPreset, for kind: AppProviderKind) {
         guard Self.ownsGenericMenuBarDisplay(kind) else { return }
+        if preset != .custom { menuBarQuotaPreferences.providers[kind.rawValue] = nil }
         switch preset {
         case .basic:
             setProviderShowIcon(true, for: kind)
@@ -1093,7 +1104,8 @@ class AppSettings: ObservableObject {
                 timeFormat: timeFormat,
                 circularDisplayMode: circularDisplayMode,
                 iconMetric: iconMetric,
-                colorMode: menuBarColorMode, design: menuBarDesign, basisOverride: usageDisplayMode.basis
+                colorMode: menuBarColorMode, design: menuBarDesign, basisOverride: usageDisplayMode.basis,
+                quotaSelection: menuBarQuotaPreferences.providers[kind.rawValue]
             )
         case .codex:
             return ProviderMenuBarDisplayConfig(
@@ -1106,7 +1118,8 @@ class AppSettings: ObservableObject {
                 timeFormat: codexTimeFormat,
                 circularDisplayMode: codexCircularDisplayMode,
                 iconMetric: codexIconMetric,
-                colorMode: menuBarColorMode, design: menuBarDesign, basisOverride: usageDisplayMode.basis
+                colorMode: menuBarColorMode, design: menuBarDesign, basisOverride: usageDisplayMode.basis,
+                quotaSelection: menuBarQuotaPreferences.providers[kind.rawValue]
             )
         case .antigravity:
             // AGY의 서비스별 표시는 typed 설정이 소유하며 공통 표시 기준은 runtime mapper에 별도로 전달한다.
@@ -1263,13 +1276,19 @@ class AppSettings: ObservableObject {
     }
 
     private func isMenuBarConfigVisible(_ config: ProviderMenuBarDisplayConfig) -> Bool {
-        config.showIcon
+        if let selection = config.quotaSelection {
+            return config.showIcon || (config.style != .none && !selection.gaugeIDs.isEmpty)
+                || !selection.percentageIDs.isEmpty
+                || !selection.resetIDs.isEmpty
+        }
+        return config.showIcon
             || config.percentageDisplay != .none
             || config.resetTimeDisplay != .none
             || config.style != .none
     }
 
     private func hasExplicitMenuBarCustomization(for kind: AppProviderKind) -> Bool {
+        if menuBarQuotaPreferences.providers[kind.rawValue] != nil { return true }
         switch kind {
         case .claude:
             return true
@@ -1319,6 +1338,7 @@ class AppSettings: ObservableObject {
         notificationsEnabled = false
         notificationPresets = Self.defaultNotificationPresets
         notificationTargets = NotificationTargetPreferences()
+        menuBarQuotaPreferences = MenuBarQuotaPreferences()
         alertRemainingMode = false
         usageDisplayMode = .remaining
         defaults.removeObject(forKey: "hasCompletedSetupWizard")
@@ -1374,30 +1394,24 @@ class AppSettings: ObservableObject {
 
     // MARK: - Launch at Login
 
-    private func updateLaunchAtLogin(_ enabled: Bool) {
-        let service = SMAppService.mainApp
-        do {
-            if enabled {
-                if service.status == .notRegistered {
-                    try service.register()
-                }
-            } else {
-                if service.status != .notRegistered {
-                    try service.unregister()
-                }
-            }
-        } catch {
-            Logger.error("로그인 시 자동 시작 설정 실패: \(error)")
-        }
+    func setLaunchAtLogin(_ requested: Bool) {
+        applyLaunchAtLoginState(launchAtLoginController.request(requested))
+    }
 
-        launchAtLoginRequiresApproval = service.status == .requiresApproval
-        let actualEnabled = service.status == .enabled
-        defaults.set(actualEnabled, forKey: "launchAtLogin")
-        if launchAtLogin != actualEnabled {
-            isReconcilingLaunchAtLogin = true
-            launchAtLogin = actualEnabled
-            isReconcilingLaunchAtLogin = false
-        }
+    func refreshLaunchAtLoginStatus() {
+        applyLaunchAtLoginState(launchAtLoginController.refresh(launchAtLoginState))
+    }
+
+    func openLoginItemSettings() { launchAtLoginController.openSystemSettings() }
+
+    private func applyLaunchAtLoginState(_ state: LaunchAtLoginState) {
+        if launchAtLoginState != state { launchAtLoginState = state }
+        // Keep the legacy saved Boolean as actual authorization, not a pending request.
+        defaults.set(state.isEnabled, forKey: "launchAtLogin")
+        guard launchAtLogin != state.isEnabled else { return }
+        isReconcilingLaunchAtLogin = true
+        launchAtLogin = state.isEnabled
+        isReconcilingLaunchAtLogin = false
     }
 
     // MARK: - Init
@@ -1405,7 +1419,13 @@ class AppSettings: ObservableObject {
     /// 기본은 standard지만 테스트에서 suite 기반 UserDefaults를 주입할 수 있다.
     /// AppSettings는 지금까지 singleton+UserDefaults.standard에 묶여 있어 어떤
     /// 초기화/마이그레이션 회귀도 테스트로 잡을 수 없었다.
-    init(defaults: UserDefaults = .standard, hasExistingAccountStorage: Bool? = nil) {
+    init(
+        defaults: UserDefaults = .standard, hasExistingAccountStorage: Bool? = nil,
+        launchAtLoginController: LaunchAtLoginController? = nil
+    ) {
+        let loginController = launchAtLoginController ?? LaunchAtLoginController()
+        let loginState = loginController.initialState()
+        self.launchAtLoginController = loginController
         let experience = AppExperiencePreferences.load(
             from: defaults,
             hasAccountStorage: hasExistingAccountStorage
@@ -1465,6 +1485,7 @@ class AppSettings: ObservableObject {
         let storedAlertRemainingMode = defaults.object(forKey: "alertRemainingMode") as? Bool ?? false
         self.alertRemainingMode = storedAlertRemainingMode
         self.notificationTargets = NotificationTargetPreferences.load(from: defaults)
+        self.menuBarQuotaPreferences = MenuBarQuotaPreferences.load(from: defaults)
         // 기존 사용자는 끔, 새 사용자는 항상으로 시작한다. 처음 정한 값을 저장해 두지 않으면 다음 실행부터
         // 기존 설치로 판정돼 끔으로 바뀐다.
         if let stored = defaults.dictionary(forKey: Self.resetCreditMenuBarKey) as? [String: String] {
@@ -1512,11 +1533,9 @@ class AppSettings: ObservableObject {
         defaults.set(legacyPinned, forKey: "popoverPinned")
         defaults.set(normalizedCompact, forKey: "popoverCompact")
         // 시스템 상태에서 실제 등록 여부 확인
-        let launchAtLoginStatus = SMAppService.mainApp.status
-        let isLaunchAtLoginEnabled = launchAtLoginStatus == .enabled
-        self.launchAtLogin = isLaunchAtLoginEnabled
-        self.launchAtLoginRequiresApproval = launchAtLoginStatus == .requiresApproval
-        defaults.set(isLaunchAtLoginEnabled, forKey: "launchAtLogin")
+        self.launchAtLoginState = loginState
+        self.launchAtLogin = loginState.isEnabled
+        defaults.set(loginState.isEnabled, forKey: "launchAtLogin")
         self.preferredOrganizationID = defaults.string(forKey: "preferredOrganizationID")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         self.showCodexIcon = defaults.object(forKey: "showCodexIcon") as? Bool ?? true
         let cpd = defaults.string(forKey: "codexPercentageDisplay") ?? PercentageDisplay.fiveHour.rawValue

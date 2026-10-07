@@ -99,23 +99,26 @@ nonisolated struct ResetCreditSummary: Equatable, Sendable {
     }
 
     struct Item: Equatable, Sendable {
-        let id: String
+        let id: String?
         let serverTitle: String?
         let scope: Scope
         let expiresAt: Date?
+        var doesNotExpire = false
     }
 
     /// 만료가 빠른 순
     let items: [Item]
     let availableCount: Int
     let atLimit: Bool
+    var identityDetailsComplete = true
+    var detailMetadata: CodexResetCreditMetadata? = nil
 
     static let expiringWindow: TimeInterval = 48 * 3600
 
     var nextExpiry: Date? { items.compactMap(\.expiresAt).min() }
 
     func isExpiringSoon(now: Date = Date()) -> Bool {
-        guard availableCount > 0, let expiry = nextExpiry else { return false }
+        guard detailMetadata?.isCurrent != false, availableCount > 0, let expiry = nextExpiry else { return false }
         return expiry.timeIntervalSince(now) <= Self.expiringWindow
     }
 
@@ -127,13 +130,25 @@ nonisolated struct ResetCreditSummary: Equatable, Sendable {
         return "\(text) 뒤 만료"
     }
 
+    var hasCompleteExpirationDetails: Bool {
+        items.count >= availableCount && items.allSatisfy { $0.expiresAt != nil || $0.doesNotExpire }
+    }
+
+    func expirationDescription(now: Date = Date()) -> String {
+        if let notice = detailMetadata?.notice {
+            if let text = expiryText(now: now) { return notice + " / " + text }
+            return notice
+        }
+        if let text = expiryText(now: now) { return text }
+        if availableCount > 0, hasCompleteExpirationDetails, items.allSatisfy(\.doesNotExpire) {
+            return "만료 없음"
+        }
+        return "만료 정보 없음"
+    }
+
     var scopeText: String {
         let scope = items.first?.scope.title ?? Scope.all.title
         return availableCount > 1 ? "\(scope) 외 \(availableCount - 1)개" : scope
-    }
-
-    func hasNewItems(seen: Set<String>) -> Bool {
-        availableCount > 0 && items.contains { !seen.contains($0.id) }
     }
 
     static func claude(_ grants: ClaudeResetGrants?, now: Date = Date()) -> ResetCreditSummary? {
@@ -157,17 +172,17 @@ nonisolated struct ResetCreditSummary: Equatable, Sendable {
         guard let usage, let credits = usage.resetCredits else { return nil }
         let count = credits.availableCount(at: now)
         guard count > 0 else { return nil }
-        var items = credits.availableCredits(at: now).enumerated().map { index, credit in
+        let items = credits.availableCredits(at: now).map { credit in
             Item(
-                id: credit.id ?? "codex-credit-\(index)", serverTitle: credit.title, scope: .all,
-                expiresAt: credit.expiresDate)
-        }
-        if items.isEmpty {
-            // 개수만 알 때는 개수로 신규 여부를 판단한다.
-            items = [Item(id: "codex-count-\(count)", serverTitle: nil, scope: .all, expiresAt: nil)]
+                id: credit.id, serverTitle: credit.title, scope: .all,
+                expiresAt: credit.expiresDate, doesNotExpire: credit.doesNotExpire)
         }
         let atLimit = [usage.primaryPercentage, usage.secondaryPercentage].contains { $0 >= 100 }
-        return ResetCreditSummary(items: sorted(items), availableCount: count, atLimit: atLimit)
+        return ResetCreditSummary(
+            items: sorted(items), availableCount: count, atLimit: atLimit,
+            identityDetailsComplete: usage.resetCreditMetadata?.isCurrent != false
+                && Set(items.compactMap(\.id)).count >= count,
+            detailMetadata: usage.resetCreditMetadata)
     }
 
     private static func sorted(_ items: [Item]) -> [Item] {
@@ -202,30 +217,12 @@ nonisolated struct MenuBarResetCreditBadge: Equatable, Sendable {
 
     /// 곧 만료(48시간)가 신규보다 우선이다. 0개면 그리지 않는다.
     static func resolve(
-        summary: ResetCreditSummary?, seen: Set<String>, mode: ResetCreditMenuBarMode, now: Date = Date()
+        summary: ResetCreditSummary?, isNew: Bool, mode: ResetCreditMenuBarMode, now: Date = Date()
     ) -> MenuBarResetCreditBadge? {
         guard mode != .off, let summary, summary.availableCount > 0 else { return nil }
         let tone: Tone =
-            summary.isExpiringSoon(now: now) ? .expiring : summary.hasNewItems(seen: seen) ? .new : .normal
+            summary.isExpiringSoon(now: now) ? .expiring : isNew ? .new : .normal
         guard mode == .always || tone != .normal else { return nil }
         return MenuBarResetCreditBadge(count: summary.availableCount, tone: tone)
-    }
-}
-
-/// 팝오버에서 한 번 본 초기화권은 신규 표시를 끈다.
-nonisolated enum ResetCreditSeenStore {
-    static let key = AppIdentifiers.defaultsKey("seenResetCredits")
-
-    static func seen(_ service: PopoverService, defaults: UserDefaults = .standard) -> Set<String> {
-        Set((defaults.dictionary(forKey: key)?[service.rawValue] as? [String]) ?? [])
-    }
-
-    static func markSeen(_ summary: ResetCreditSummary?, service: PopoverService, defaults: UserDefaults = .standard) {
-        guard let summary else { return }
-        var all = defaults.dictionary(forKey: key) ?? [:]
-        let ids = summary.items.map(\.id)
-        guard Set(ids) != seen(service, defaults: defaults) else { return }
-        all[service.rawValue] = ids
-        defaults.set(all, forKey: key)
     }
 }

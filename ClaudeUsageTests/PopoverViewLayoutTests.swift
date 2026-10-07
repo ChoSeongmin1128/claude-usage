@@ -841,3 +841,46 @@ private func decodeCodexUsageResponse(_ json: String) -> CodexUsageResponse {
 private func makePopoverItems(_ items: (String, Bool)...) -> [PopoverItemConfig] {
     items.map { PopoverItemConfig(id: $0.0, visible: $0.1) }
 }
+
+@MainActor
+extension PopoverViewLayoutTests {
+    func testCodexResetCreditDetailStatesRenderInBothDensities() throws {
+        for compact in [false, true] {
+            let statuses: [CodexResetCreditMetadata.Status] = [.loading, .fresh, .partial, .failed(.http(403))]
+            let summaries = try statuses.map { status in
+                var usage = try JSONDecoder().decode(CodexUsageResponse.self, from: Data("{}".utf8))
+                usage.resetCredits = CodexResetCreditsResponse(
+                    credits: [
+                        CodexResetCredit(
+                            id: "credit-a", status: "available",
+                            expiresAtISO: ISO8601DateFormatter().string(from: Date(timeIntervalSinceNow: 86_400))),
+                        CodexResetCredit(id: "credit-b", status: "available", doesNotExpire: true),
+                    ], availableCountField: 2)
+                usage.resetCreditMetadata = .init(status: status, updatedAt: status == .loading ? nil : Date())
+                return try XCTUnwrap(ResetCreditSummary.codex(usage))
+            }
+            let width: CGFloat = compact ? 296 : 368
+            let content = VStack(spacing: 12) {
+                ForEach(Array(summaries.enumerated()), id: \.offset) { index, summary in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(["확인 중", "정상", "일부 정보 없음", "이전 확인 정보"][index]).font(.caption)
+                        let data = PopoverResetCreditsSectionData(summary: summary, isNew: false)
+                        if compact { CompactResetCreditsRow(data: data) } else { ResetCreditsView(data: data) }
+                    }
+                }
+            }
+            .padding(16)
+            .frame(width: width)
+            .background(Color(NSColor.windowBackgroundColor))
+            .preferredColorScheme(.dark)
+            let renderer = ImageRenderer(content: content)
+            renderer.scale = 2
+            let image = try XCTUnwrap(renderer.nsImage)
+            XCTAssertEqual(image.size.width, width, accuracy: 0.1)
+            let attachment = XCTAttachment(image: image)
+            attachment.name = compact ? "Codex reset-credit details compact" : "Codex reset-credit details standard"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+    }
+}

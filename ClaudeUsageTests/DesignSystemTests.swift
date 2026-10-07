@@ -1977,3 +1977,55 @@ private struct PopoverValueBaselineProbe: Layout {
         subviews.first?.dimensions(in: proposal)[guide]
     }
 }
+
+extension DesignSystemTests {
+    func testModelQuotaSettingsBindingsAndNativeTableAtMinimumWidth() async throws {
+        let suite = "DesignSystemTests.modelQuotaSettings.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults)
+        let usage = ClaudeUsageResponse(
+            fiveHour: .init(utilization: 8, resetsAt: nil), sevenDay: .init(utilization: 20, resetsAt: nil),
+            scopedLimits: [
+                .init(
+                    kind: "weekly_scoped", percent: 31, resetsAt: "2030-01-04T05:00:00Z", modelID: "fable",
+                    modelName: "Fable")
+            ])
+        let dependencies = await makeSettingsGalleryDependencies(defaults: defaults, settings: settings)
+        defer { dependencies.antigravity.stopObserving() }
+        let view = SettingsView(
+            claudeAPIService: dependencies.claude, antigravitySettings: dependencies.antigravity,
+            settings: settings, updateRuntimeState: dependencies.updates, claudeAccountStore: dependencies.accountStore,
+            sessionKeyLoader: { _ in nil }, codexAuthStatusReader: dependencies.codex.status,
+            claudeOAuthMigrationCoordinator: dependencies.migration, claudeLastUsage: { usage }, initialPanel: .claude,
+            initialSection: .limits)
+        let model = try XCTUnwrap(UsageLimitCatalog.claude(usage).first(where: \.isModelScoped))
+        let row = LimitSettingsRow(id: model.id, title: model.title, quotaID: model.id, notificationLimit: model)
+        try XCTUnwrap(view.quotaNumberBinding(row, provider: .claude)).wrappedValue = true
+        try XCTUnwrap(view.menuBarResetBinding(row, provider: .claude)).wrappedValue = true
+        XCTAssertTrue(
+            settings.menuBarDisplayConfig(for: .claude)?.quotaSelection?.percentageIDs.contains(model.id) == true)
+        XCTAssertTrue(settings.menuBarDisplayConfig(for: .claude)?.quotaSelection?.resetIDs.contains(model.id) == true)
+        let image = try await renderSettingsNativeVerified(
+            view.frame(width: AppDesign.Window.settingsMinimum.width, height: AppDesign.Window.settingsMinimum.height)
+                .background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(.dark),
+            size: AppDesign.Window.settingsMinimum, appearance: .darkAqua)
+        attach(image, "Model-quota-settings-minimum-width")
+        let pending = SettingsView(
+            claudeAPIService: dependencies.claude, antigravitySettings: dependencies.antigravity,
+            settings: settings, updateRuntimeState: dependencies.updates, claudeAccountStore: dependencies.accountStore,
+            sessionKeyLoader: { _ in nil }, codexAuthStatusReader: dependencies.codex.status,
+            claudeOAuthMigrationCoordinator: dependencies.migration)
+        let missingBase = LimitSettingsRow(id: "currentSession", title: "5시간", menuBarSlot: .fiveHour)
+        XCTAssertNil(pending.quotaNumberBinding(missingBase, provider: .claude))
+        XCTAssertNil(pending.menuBarResetBinding(missingBase, provider: .claude))
+        settings.menuBarQuotaPreferences = MenuBarQuotaPreferences()
+        try XCTUnwrap(pending.menuBarResetBinding(missingBase, provider: .claude)).wrappedValue = true
+        XCTAssertEqual(settings.menuBarDisplayConfig(for: .claude)?.resetTimeDisplay, .fiveHour)
+        let weekly = LimitSettingsRow(id: "weeklyLimit", title: "주간", menuBarSlot: .weekly)
+        try XCTUnwrap(pending.menuBarResetBinding(weekly, provider: .claude)).wrappedValue = true
+        XCTAssertEqual(settings.menuBarDisplayConfig(for: .claude)?.resetTimeDisplay, .dual)
+        XCTAssertEqual(dependencies.reader.readCountSync, 1, "Only the injected empty reader is used")
+        XCTAssertEqual(dependencies.updateEngine.checks, 0)
+    }
+}

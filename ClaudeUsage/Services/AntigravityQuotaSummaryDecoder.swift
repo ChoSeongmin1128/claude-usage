@@ -235,10 +235,14 @@ nonisolated enum AntigravityQuotaSummaryDecoder {
         bucketLabel: String?
     ) -> AntigravityQuotaScope {
         if groupID != nil || groupLabel != nil {
-            if matchesGemini([groupID, groupLabel]) {
+            let tokens = normalizedTokens(in: [groupID, groupLabel])
+            let sharedTokens: Set<String> = [
+                "gemini", "models", "model", "quota", "quotas", "3p", "third", "party", "claude", "gpt", "and",
+            ]
+            if tokens.allSatisfy(sharedTokens.contains), matchesGemini([groupID, groupLabel]) {
                 return .gemini
             }
-            if matchesThirdParty([groupID, groupLabel]) {
+            if tokens.allSatisfy(sharedTokens.contains), matchesThirdParty([groupID, groupLabel]) {
                 return .thirdPartyModels
             }
             return .unknown(

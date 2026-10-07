@@ -71,6 +71,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
                 [menuBarSelection.lane]
                     .compactMap { $0 }
                     + additionalMenuBarLanes,
+            availableLanes: orderedLanes,
             groups: groups,
             identityRail: identityRail,
             settings: settings,
@@ -498,6 +499,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
 
     private static func menuBarPresentation(
         selectedLanes: [AntigravityQuotaLanePresentation],
+        availableLanes: [AntigravityQuotaLanePresentation],
         groups: [AntigravityQuotaGroupPresentation],
         identityRail: ProviderIdentityRailProjection,
         settings: AntigravityDisplaySettings,
@@ -532,43 +534,30 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             )
         }
 
-        let regularText = selectedLanes.compactMap { lane -> String? in
-            guard let percentageText = lane.percentageText else {
-                return nil
-            }
-            var components = [lane.menuLabel]
-            if settings.menuBar.showsSelectedLanePercentage {
-                components.append(percentageText)
-            }
-            if settings.menuBar.showsSelectedLaneResetTime {
-                components.append(
+        let numbers =
+            settings.menuBar.percentageLaneIDs
+            ?? (settings.menuBar.showsSelectedLanePercentage ? selectedLanes.map(\.id) : [])
+        let times =
+            settings.menuBar.resetLaneIDs
+            ?? (settings.menuBar.showsSelectedLaneResetTime ? selectedLanes.map(\.id) : [])
+        var textIDs = numbers
+        for id in times where !textIDs.contains(id) { textIDs.append(id) }
+        let legacy = settings.menuBar.percentageLaneIDs == nil && settings.menuBar.resetLaneIDs == nil
+        let textLanes = legacy ? selectedLanes : textIDs.compactMap { id in availableLanes.first { $0.id == id } }
+        func components(_ lane: AntigravityQuotaLanePresentation, withLabel: Bool) -> String? {
+            guard let percentage = lane.percentageText else { return nil }
+            var values = withLabel ? [lane.menuLabel] : []
+            if numbers.contains(lane.id) { values.append(percentage) }
+            if times.contains(lane.id), withLabel || !numbers.contains(lane.id) {
+                values.append(
                     menuBarResetText(
-                        lane,
-                        timeFormat: settings.menuBar.timeFormat,
-                        now: now,
-                        locale: locale,
-                        timeZone: timeZone
-                    )
-                )
+                        lane, timeFormat: settings.menuBar.timeFormat,
+                        now: now, locale: locale, timeZone: timeZone))
             }
-            return components.joined(separator: " ")
+            return values.isEmpty ? nil : values.joined(separator: " ")
         }
-        let condensedText = selectedLanes.compactMap {
-            lane -> String? in
-            if settings.menuBar.showsSelectedLanePercentage {
-                return lane.percentageText
-            }
-            if settings.menuBar.showsSelectedLaneResetTime {
-                return menuBarResetText(
-                    lane,
-                    timeFormat: settings.menuBar.timeFormat,
-                    now: now,
-                    locale: locale,
-                    timeZone: timeZone
-                )
-            }
-            return nil
-        }
+        let regularText = textLanes.compactMap { components($0, withLabel: true) }
+        let condensedText = textLanes.compactMap { components($0, withLabel: false) }
 
         return AntigravityMenuBarQuotaPresentation(
             isVisible: settings.menuBar.isVisible,

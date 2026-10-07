@@ -18,7 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var lastPopoverOpenedAt: Date?
     var resetFollowUpTimers: [PopoverService: Timer] = [:]
     var popoverCloseObserver: NSObjectProtocol?
-    var resetCreditViewedServices: Set<PopoverService> = []
+    var resetCreditViewedReceipts: [String: ResetCreditSeenReceipt] = [:]
     let usageAccountsController = AppDelegate.makeUsageAccountsController()
     var usageAccountsObserver: NSObjectProtocol?
     var usageAccountsProviderObservation: AnyCancellable?

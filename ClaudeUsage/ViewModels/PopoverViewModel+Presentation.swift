@@ -288,9 +288,8 @@ extension PopoverViewModel {
             codexError: snapshot(for: .codex)?.error,
             claudeOverageUpdatedAt: snapshot(for: .claude)?.claudeOverageUpdatedAt,
             claudeOverageIsStale: snapshot(for: .claude)?.claudeOverageIsStale ?? false,
-            seenResetCreditIDs: [
-                .claude: ResetCreditSeenStore.seen(.claude), .codex: ResetCreditSeenStore.seen(.codex),
-            ]
+            resetCreditNewness: resetCreditNewness,
+            resetCreditReceipts: resetCreditReceipts
         )
     }
 }

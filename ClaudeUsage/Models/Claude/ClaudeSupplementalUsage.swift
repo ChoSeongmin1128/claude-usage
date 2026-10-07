@@ -1,6 +1,5 @@
 import Foundation
 
-/// Extra usage has the same account boundary as quota, but a slower refresh cadence.
 struct ClaudeSupplementalUsage {
     let accountID: String
     let value: OverageSpendLimitResponse
@@ -8,9 +7,33 @@ struct ClaudeSupplementalUsage {
     var lastRefreshFailed = false
 }
 
-/// A skipped refresh does not erase a successful value or its failure marker.
-enum ClaudeSupplementalRefreshResult {
+enum ClaudeSupplementalRefreshResult: Sendable {
     case unchanged
     case success(OverageSpendLimitResponse, fetchedAt: Date)
     case failed
+
+    private nonisolated static let fallbackRefreshInterval: TimeInterval = 300
+
+    nonisolated static func refresh(
+        embeddedUsage: OverageSpendLimitResponse?,
+        source: ClaudeUsageSource,
+        lastAttemptAt: Date? = nil,
+        now: Date = Date(),
+        fetchFallback: @Sendable () async throws -> OverageSpendLimitResponse
+    ) async throws -> Self {
+        if embeddedUsage != nil || source == .oauth {
+            return .success(embeddedUsage ?? .notEnabled, fetchedAt: now)
+        }
+        if let lastAttemptAt, now.timeIntervalSince(lastAttemptAt) < fallbackRefreshInterval {
+            return .unchanged
+        }
+        do {
+            return .success(try await fetchFallback(), fetchedAt: Date())
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            Logger.debug("추가 사용량 조회 실패: \(error.localizedDescription)")
+            return .failed
+        }
+    }
 }

@@ -11,6 +11,7 @@ final class CodexRefreshController {
     private let clearPresentation: () -> Void
     private let applySuccess: (CodexUsageSnapshot) -> Void
     private let applyFailure: (APIError) -> Void
+    private let applyDetails: (CodexUsageSnapshot) -> Void
     private var preparation: Task<Void, Never>?
     private var request: Task<Void, Never>?
     private var preparationID: UUID?
@@ -22,7 +23,8 @@ final class CodexRefreshController {
         isEnabled: @escaping () -> Bool, prepare: @escaping (Bool) -> Bool,
         clearPresentation: @escaping () -> Void,
         applySuccess: @escaping (CodexUsageSnapshot) -> Void,
-        applyFailure: @escaping (APIError) -> Void
+        applyFailure: @escaping (APIError) -> Void,
+        applyDetails: @escaping (CodexUsageSnapshot) -> Void
     ) {
         self.authManager = authManager
         self.apiService = apiService
@@ -31,6 +33,7 @@ final class CodexRefreshController {
         self.clearPresentation = clearPresentation
         self.applySuccess = applySuccess
         self.applyFailure = applyFailure
+        self.applyDetails = applyDetails
     }
 
     func refresh(force: Bool, budget: CodexRequestBudget = CodexRequestBudget(), mayRetryCredentialChange: Bool = true)
@@ -53,7 +56,7 @@ final class CodexRefreshController {
                     clearPresentation()
                 }
                 guard prepare(force || changed) else { return }
-                start(credential, budget: budget, mayRetryCredentialChange: mayRetryCredentialChange)
+                start(credential, budget: budget, mayRetryCredentialChange: mayRetryCredentialChange, force: force)
             } catch is CancellationError {
                 return
             } catch {
@@ -68,8 +71,9 @@ final class CodexRefreshController {
     }
 
     private func start(
-        _ credential: CodexCredentialSnapshot, budget: CodexRequestBudget, mayRetryCredentialChange: Bool
+        _ credential: CodexCredentialSnapshot, budget: CodexRequestBudget, mayRetryCredentialChange: Bool, force: Bool
     ) {
+        request?.cancel()
         let id = UUID()
         requestID = id
         request = Task { [weak self] in
@@ -86,6 +90,11 @@ final class CodexRefreshController {
                 guard requestID == id, isEnabled() else { return }
                 credentialGeneration = result.credential.generation
                 applySuccess(result)
+                let detailed = try await apiService.fetchResetCreditDetails(for: result, force: force)
+                try await authManager.validate(detailed.credential)
+                try Task.checkCancellation()
+                guard requestID == id, isEnabled() else { return }
+                applyDetails(detailed)
             } catch is CancellationError {
                 return
             } catch let failure as CodexUsageFailure {

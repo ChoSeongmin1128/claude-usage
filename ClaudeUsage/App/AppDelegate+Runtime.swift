@@ -4,6 +4,7 @@ extension AppDelegate {
     // MARK: - Runtime Presentation
 
     func syncRuntimePresentation() {
+        observeResetCredits()
         updateMenuBar()
         updatePopoverViewModel()
         refreshAdaptiveSchedule()
@@ -556,7 +557,8 @@ extension AppDelegate {
                 self.syncRuntimePresentation()
             },
             applySuccess: { [weak self] result in self?.applyCodexUsage(result) },
-            applyFailure: { [weak self] error in self?.applyCodexFailure(error) }
+            applyFailure: { [weak self] error in self?.applyCodexFailure(error) },
+            applyDetails: { [weak self] result in self?.applyCodexResetCreditDetails(result) }
         )
     }
 
@@ -573,6 +575,16 @@ extension AppDelegate {
         setRuntimeProviderState(state, for: .codex)
         syncRuntimePresentation()
         NotificationManager.shared.checkCodex(usage, accountID: accountID)
+    }
+
+    private func applyCodexResetCreditDetails(_ result: CodexUsageSnapshot) {
+        var state = runtimeProviderState(for: .codex)
+        guard case .codex(var usage)? = state.lastSuccessfulPayload else { return }
+        usage.resetCredits = result.usage.resetCredits
+        usage.resetCreditMetadata = result.usage.resetCreditMetadata
+        state.lastSuccessfulPayload = .codex(usage)
+        setRuntimeProviderState(state, for: .codex)
+        syncRuntimePresentation()
     }
 
     private func applyCodexFailure(_ error: APIError) {

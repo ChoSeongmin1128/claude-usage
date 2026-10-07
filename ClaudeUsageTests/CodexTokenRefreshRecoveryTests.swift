@@ -116,187 +116,138 @@ final class CodexTokenRefreshRecoveryTests: XCTestCase {
         XCTAssertEqual((file?["tokens"] as? [String: Any])?["access_token"] as? String, "access-b")
     }
 
-    func testNewLoginBeforeCreditEnrichmentCannotMixHeaders() async throws {
+    func testNewLoginBeforeDetailRequestCannotMixHeaders() async throws {
         let (path, manager) = try fixture()
         let recorder = CodexRequestRecorder()
-        let owner = TestCodexOwner(resetCreditReads: recorder) { _, _, _ in throw CodexOwnerError.unavailable }
-        let service = service(manager, owner: owner) { request in
+        let service = service(manager) { request in
             recorder.record(request)
-            if request.url?.path.hasSuffix("wham/usage") == true {
-                try? writeAuthJSON(accessToken: "access-b", refreshToken: "refresh-b", to: path, accountID: "account-b")
-            }
-            return httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 10))
+            try? writeAuthJSON(accessToken: "access-b", refreshToken: "refresh-b", to: path, accountID: "account-b")
+            return httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 10, resetCount: 2))
         }
         do { _ = try await service.fetchUsage(); XCTFail("changed account must invalidate usage") } catch {
             XCTAssertEqual(error as? CodexCredentialError, .changed)
         }
-        XCTAssertEqual(recorder.count { $0.url.scheme == "owner" }, 0)
+        XCTAssertEqual(recorder.count { $0.url.path.hasSuffix("rate-limit-reset-credits") }, 0)
     }
 
-    func testConcurrentRequestsShareOneUsageAndCreditFetch() async throws {
+    func testConcurrentRequestsShareOneFlightPerStage() async throws {
         let (_, manager) = try fixture()
         let recorder = CodexRequestRecorder()
-        let owner = TestCodexOwner(resetCreditReads: recorder) { _, _, _ in throw CodexOwnerError.unavailable }
+        let owner = TestCodexOwner { _, _, _ in XCTFail("healthy usage/details must not launch the CLI") }
         let service = service(manager, owner: owner) { request in
             recorder.record(request)
             try? await Task.sleep(for: .milliseconds(100))
-            return httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27))
+            let body =
+                request.url?.path.hasSuffix("wham/usage") == true
+                ? usageJSON(primary: 27, resetCount: 2) : detailJSON(count: 2)
+            return httpResponse(for: request, statusCode: 200, body: body)
         }
-        let results = try await withThrowingTaskGroup(of: Double.self) { group in
-            for _ in 0..<8 { group.addTask { try await service.fetchUsage().usage.primaryPercentage } }
-            var values: [Double] = []
+        let results = try await withThrowingTaskGroup(of: CodexUsageSnapshot.self) { group in
+            for _ in 0..<8 { group.addTask { try await service.fetchUsage() } }
+            var values: [CodexUsageSnapshot] = []
             for try await value in group { values.append(value) }
             return values
         }
-        XCTAssertEqual(results, Array(repeating: 27, count: 8))
+        XCTAssertEqual(results.map { $0.usage.primaryPercentage }, Array(repeating: 27, count: 8))
         XCTAssertEqual(recorder.count { $0.url.path.hasSuffix("wham/usage") }, 1)
-        XCTAssertEqual(recorder.count { $0.url.scheme == "owner" }, 1)
-        let again = try await service.fetchUsage()
-        XCTAssertEqual(again.usage.resetCredits?.availableCount(), 1)
-        XCTAssertEqual(recorder.count { $0.url.scheme == "owner" }, 1, "reset credits are reused for five minutes")
-    }
-
-    func testUsageResetCountSurvivesMissingOwnerSummary() async throws {
-        let (_, manager) = try fixture()
-        let owner = TestCodexOwner(resetCreditAction: { _, _, _ in nil }) { _, _, _ in }
-        let service = service(manager, owner: owner) { request in
-            httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: 2))
+        XCTAssertEqual(recorder.count { $0.url.path.hasSuffix("rate-limit-reset-credits") }, 0)
+        let details = try await withThrowingTaskGroup(of: CodexUsageSnapshot.self) { group in
+            for base in results { group.addTask { try await service.fetchResetCreditDetails(for: base) } }
+            var values: [CodexUsageSnapshot] = []
+            for try await value in group { values.append(value) }
+            return values
         }
-        let result = try await service.fetchUsage()
-        XCTAssertEqual(result.usage.resetCredits?.availableCount(), 2)
-        XCTAssertEqual(ResetCreditSummary.codex(result.usage)?.availableCount, 2)
+        XCTAssertTrue(details.allSatisfy { $0.usage.resetCredits?.availableCount() == 2 })
+        XCTAssertEqual(recorder.count { $0.url.path.hasSuffix("rate-limit-reset-credits") }, 1)
     }
 
-    func testUsageResetCountSurvivesUnavailableOwner() async throws {
+    func testCurrentUsageReplacesCachedCountAndDiscardsOldDetails() async throws {
         let (_, manager) = try fixture()
-        let owner = TestCodexOwner(resetCreditAction: { _, _, _ in throw CodexOwnerError.unavailable }) { _, _, _ in }
-        let service = service(manager, owner: owner) { request in
-            httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: 2))
-        }
-        let result = try await service.fetchUsage()
-        XCTAssertEqual(result.usage.resetCredits?.availableCount(), 2)
-        XCTAssertEqual(result.usage.primaryPercentage, 27)
-    }
-
-    func testCurrentUsageReplacesCachedResetCountAndDiscardsOldDetails() async throws {
-        let (_, manager) = try fixture()
-        let requests = OSAllocatedUnfairLock(initialState: 0)
-        let recorder = CodexRequestRecorder()
-        let old = CodexResetCredit(
-            id: "old-credit", status: "available",
-            expiresAtISO: ISO8601DateFormatter().string(from: Date(timeIntervalSinceNow: 86_400)))
-        let owner = TestCodexOwner(
-            resetCreditReads: recorder,
-            resetCreditAction: { _, _, _ in CodexResetCreditsResponse(credits: [old], availableCountField: 1) }
-        ) { _, _, _ in }
-        let service = service(manager, owner: owner) { request in
-            let index = requests.withLock {
+        let usageRequests = OSAllocatedUnfairLock(initialState: 0)
+        let service = service(manager) { request in
+            if request.url?.path.hasSuffix("rate-limit-reset-credits") == true {
+                return httpResponse(for: request, statusCode: 200, body: detailJSON(count: 1))
+            }
+            let index = usageRequests.withLock {
                 $0 += 1; return $0
             }
             return httpResponse(
-                for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: index == 2 ? 2 : nil))
+                for: request, statusCode: 200,
+                body: usageJSON(primary: 27, resetCount: index == 1 ? 1 : index == 2 ? 2 : nil))
         }
-        let first = try await service.fetchUsage()
-        XCTAssertEqual(first.usage.resetCredits?.availableCount(), 1)
-        XCTAssertEqual(first.usage.resetCredits?.credits, [old])
+        let basic = try await service.fetchUsage()
+        let first = try await service.fetchResetCreditDetails(for: basic)
+        XCTAssertEqual(first.usage.resetCredits?.credits.count, 1)
         let second = try await service.fetchUsage()
         XCTAssertEqual(second.usage.resetCredits?.availableCount(), 2)
         XCTAssertEqual(second.usage.resetCredits?.credits, [])
-        XCTAssertNil(ResetCreditSummary.codex(second.usage)?.nextExpiry)
         let third = try await service.fetchUsage()
         XCTAssertEqual(third.usage.resetCredits?.availableCount(), 2)
         XCTAssertEqual(third.usage.resetCredits?.credits, [])
-        XCTAssertEqual(requests.withLock { $0 }, 3)
-        XCTAssertEqual(recorder.count { $0.url.scheme == "owner" }, 1)
+        XCTAssertEqual(third.usage.resetCreditMetadata?.countIsCurrent, false)
+        XCTAssertEqual(ResetCreditSummary.codex(third.usage)?.expirationDescription(), "이전 개수 / 상세 확인 필요")
     }
 
-    func testZeroUsageResetCountClearsCachedCredits() async throws {
+    func testZeroUsageCountClearsCacheAndMissingCountDoesNotReuseItAsCurrent() async throws {
         let (_, manager) = try fixture()
-        let requests = OSAllocatedUnfairLock(initialState: 0)
-        let recorder = CodexRequestRecorder()
-        let owner = TestCodexOwner(
-            resetCreditReads: recorder,
-            resetCreditAction: { _, _, _ in CodexResetCreditsResponse(credits: [], availableCountField: 2) }
-        ) { _, _, _ in }
-        let service = service(manager, owner: owner) { request in
-            let index = requests.withLock {
+        let usageRequests = OSAllocatedUnfairLock(initialState: 0)
+        let detailRequests = OSAllocatedUnfairLock(initialState: 0)
+        let service = service(manager) { request in
+            if request.url?.path.hasSuffix("rate-limit-reset-credits") == true {
+                detailRequests.withLock { $0 += 1 }
+                return httpResponse(for: request, statusCode: 200, body: detailJSON(count: 2))
+            }
+            let index = usageRequests.withLock {
                 $0 += 1; return $0
             }
             return httpResponse(
-                for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: index == 2 ? 0 : nil))
+                for: request, statusCode: 200,
+                body: usageJSON(primary: 27, resetCount: index == 1 ? 2 : index == 2 ? 0 : nil))
         }
-        let first = try await service.fetchUsage()
-        XCTAssertEqual(first.usage.resetCredits?.availableCount(), 2)
-        let second = try await service.fetchUsage()
-        XCTAssertEqual(second.usage.resetCredits?.availableCount(), 0)
-        XCTAssertNil(ResetCreditSummary.codex(second.usage))
-        let third = try await service.fetchUsage()
-        XCTAssertEqual(third.usage.resetCredits?.availableCount(), 0)
-        XCTAssertEqual(requests.withLock { $0 }, 3)
-        XCTAssertEqual(recorder.count { $0.url.scheme == "owner" }, 1)
+        let basic = try await service.fetchUsage()
+        _ = try await service.fetchResetCreditDetails(for: basic)
+        let zero = try await service.fetchUsage()
+        let zeroDetails = try await service.fetchResetCreditDetails(for: zero)
+        XCTAssertEqual(zeroDetails.usage.resetCredits?.availableCount(), 0)
+        XCTAssertNil(ResetCreditSummary.codex(zeroDetails.usage))
+        XCTAssertEqual(detailRequests.withLock { $0 }, 1)
+        let missing = try await service.fetchUsage()
+        XCTAssertEqual(missing.usage.resetCreditMetadata?.countIsCurrent, false)
+        let confirmed = try await service.fetchResetCreditDetails(for: missing)
+        XCTAssertEqual(confirmed.usage.resetCredits?.availableCount(), 2)
+        XCTAssertEqual(detailRequests.withLock { $0 }, 2)
     }
 
-    func testMatchingUsageResetCountPreservesCachedExpiryDetails() async throws {
-        let (_, manager) = try fixture()
-        let recorder = CodexRequestRecorder()
-        let credit = CodexResetCredit(
-            id: "credit-a", status: "available",
-            expiresAtISO: ISO8601DateFormatter().string(from: Date(timeIntervalSinceNow: 86_400)))
-        let owner = TestCodexOwner(
-            resetCreditReads: recorder,
-            resetCreditAction: { _, _, _ in CodexResetCreditsResponse(credits: [credit], availableCountField: 2) }
-        ) { _, _, _ in }
-        let service = service(manager, owner: owner) { request in
-            recorder.record(request)
-            return httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: 2))
-        }
-        _ = try await service.fetchUsage()
-        let second = try await service.fetchUsage()
-        XCTAssertEqual(second.usage.resetCredits?.availableCount(), 2)
-        XCTAssertEqual(second.usage.resetCredits?.credits, [credit])
-        XCTAssertNotNil(ResetCreditSummary.codex(second.usage)?.nextExpiry)
-        XCTAssertEqual(recorder.count { $0.url.path.hasSuffix("wham/usage") }, 2)
-        XCTAssertEqual(recorder.count { $0.url.scheme == "owner" }, 1)
-    }
-
-    func testFreshOwnerResetCountTakesPrecedenceOverUsageSummary() async throws {
+    func testFreshHTTPDetailCountTakesPrecedenceOverEarlierUsageSummary() async throws {
         for count in [0, 1] {
             let (_, manager) = try fixture()
-            let owner = TestCodexOwner(
-                resetCreditAction: { _, _, _ in CodexResetCreditsResponse(credits: [], availableCountField: count) }
-            ) { _, _, _ in }
-            let service = service(manager, owner: owner) { request in
-                httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: 2))
+            let service = service(manager) { request in
+                let body =
+                    request.url?.path.hasSuffix("wham/usage") == true
+                    ? usageJSON(primary: 27, resetCount: 2) : detailJSON(count: count)
+                return httpResponse(for: request, statusCode: 200, body: body)
             }
-            let result = try await service.fetchUsage()
-            XCTAssertEqual(result.usage.resetCredits?.availableCount(), count)
+            let basic = try await service.fetchUsage()
+            XCTAssertEqual(basic.usage.resetCredits?.availableCount(), 2)
+            let detailed = try await service.fetchResetCreditDetails(for: basic)
+            XCTAssertEqual(detailed.usage.resetCredits?.availableCount(), count)
+            XCTAssertEqual(detailed.usage.primaryPercentage, 27)
         }
     }
 
-    func testOwnerResetCreditCancellationIsNotReplacedWithUsageCount() async throws {
-        let (_, manager) = try fixture()
-        let owner = TestCodexOwner(resetCreditAction: { _, _, _ in throw CancellationError() }) { _, _, _ in }
-        let service = service(manager, owner: owner) { request in
-            httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: 2))
-        }
-        do { _ = try await service.fetchUsage(); XCTFail("cancellation must stop enrichment") } catch {
-            XCTAssertTrue(error is CancellationError)
-        }
-    }
-
-    func testResetCountFromAnotherHTTPAccountIsRejectedBeforeEnrichment() async throws {
+    func testResetCountFromAnotherUsageAccountIsRejectedBeforeDetails() async throws {
         let (_, manager) = try fixture()
         let recorder = CodexRequestRecorder()
-        let owner = TestCodexOwner(resetCreditReads: recorder) { _, _, _ in }
-        let service = service(manager, owner: owner) { request in
-            httpResponse(
+        let service = service(manager) { request in
+            recorder.record(request)
+            return httpResponse(
                 for: request, statusCode: 200,
                 body: usageJSON(primary: 27, resetCount: 2, accountID: "account-b"))
         }
-        do { _ = try await service.fetchUsage(); XCTFail("another account's reset count must be rejected") } catch {
+        do { _ = try await service.fetchUsage(); XCTFail("another account's count must be rejected") } catch {
             XCTAssertEqual(error as? CodexCredentialError, .changed)
         }
-        XCTAssertEqual(recorder.count { $0.url.scheme == "owner" }, 0)
+        XCTAssertEqual(recorder.count { $0.url.path.hasSuffix("rate-limit-reset-credits") }, 0)
     }
 
     func testTimeoutAndCancellationDoNotBecomeLoginFailure() async throws {
@@ -346,7 +297,7 @@ final class CodexTokenRefreshRecoveryTests: XCTestCase {
                 shown.append(result.credential.token.accountID ?? "missing")
                 XCTAssertEqual(result.usage.primaryPercentage, 80)
                 published.fulfill()
-            }, applyFailure: { _ in XCTFail("account change must recover") }
+            }, applyFailure: { _ in XCTFail("account change must recover") }, applyDetails: { _ in }
         )
         controller.refresh(force: true)
         await fulfillment(of: [published], timeout: 3)
@@ -373,7 +324,7 @@ final class CodexTokenRefreshRecoveryTests: XCTestCase {
                     return XCTFail("one UI request must have one owner recovery budget")
                 }
                 failed.fulfill()
-            }
+            }, applyDetails: { _ in XCTFail("rejected credentials must not display details") }
         )
         controller.refresh(force: true)
         await fulfillment(of: [failed], timeout: 3)
@@ -434,39 +385,20 @@ final class CodexTokenRefreshRecoveryTests: XCTestCase {
     private func service(
         _ manager: CodexAuthManager,
         owner: any CodexOwnerRefreshing = TestCodexOwner { _, _, _ in throw CodexOwnerError.unavailable },
+        now: @escaping @Sendable () -> Date = { Date() },
         handler: @escaping CodexURLProtocolStub.Handler
     ) -> CodexAPIService {
         CodexAPIService(
             baseURL: URL(string: "https://chatgpt.test/backend-api")!,
-            urlSession: makeStubbedSession(handler: handler), authManager: manager, owner: owner)
+            urlSession: makeStubbedSession(handler: handler), authManager: manager, owner: owner, now: now)
     }
 }
 
 private struct TestCodexOwner: CodexOwnerRefreshing {
     let action: @Sendable (URL, String, CodexRequestBudget) async throws -> Void
-    var resetCreditReads: CodexRequestRecorder?
-    let resetCreditAction: @Sendable (URL, String, CodexRequestBudget) async throws -> CodexResetCreditsResponse?
-    init(
-        resetCreditReads: CodexRequestRecorder? = nil,
-        resetCreditAction:
-            @escaping @Sendable (URL, String, CodexRequestBudget) async throws -> CodexResetCreditsResponse? = {
-                _, _, _ in
-                CodexResetCreditsResponse(credits: [], availableCountField: 1)
-            },
-        _ action: @escaping @Sendable (URL, String, CodexRequestBudget) async throws -> Void
-    ) {
-        self.action = action
-        self.resetCreditReads = resetCreditReads
-        self.resetCreditAction = resetCreditAction
-    }
+    init(_ action: @escaping @Sendable (URL, String, CodexRequestBudget) async throws -> Void) { self.action = action }
     func refresh(sourceURL: URL, expectedAccountID: String, budget: CodexRequestBudget) async throws {
         try await action(sourceURL, expectedAccountID, budget)
-    }
-    func readResetCredits(sourceURL: URL, expectedAccountID: String, budget: CodexRequestBudget) async throws
-        -> CodexResetCreditsResponse?
-    {
-        resetCreditReads?.record(URLRequest(url: URL(string: "owner://account/rateLimits/read")!))
-        return try await resetCreditAction(sourceURL, expectedAccountID, budget)
     }
 }
 
@@ -499,7 +431,7 @@ private final class CodexRequestRecorder: @unchecked Sendable {
 
 private final class CodexURLProtocolStub: URLProtocol, @unchecked Sendable {
     private let loading = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
-    typealias Handler = @Sendable (URLRequest) async -> (HTTPURLResponse, Data)
+    typealias Handler = @Sendable (URLRequest) async throws -> (HTTPURLResponse, Data)
     private static let handlerState = OSAllocatedUnfairLock<Handler?>(initialState: nil)
     static var handler: Handler? {
         get { handlerState.withLock { $0 } }
@@ -522,11 +454,16 @@ private final class CodexURLProtocolStub: URLProtocol, @unchecked Sendable {
 
         let request = request
         let task = Task {
-            let (response, data) = await handler(request)
-            guard !Task.isCancelled else { return }
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: data)
-            client?.urlProtocolDidFinishLoading(self)
+            do {
+                let (response, data) = try await handler(request)
+                guard !Task.isCancelled else { return }
+                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: data)
+                client?.urlProtocolDidFinishLoading(self)
+            } catch {
+                guard !Task.isCancelled else { return }
+                client?.urlProtocol(self, didFailWithError: error)
+            }
         }
         loading.withLock { $0 = task }
     }
@@ -539,7 +476,7 @@ private final class CodexURLProtocolStub: URLProtocol, @unchecked Sendable {
 }
 
 private func makeStubbedSession(
-    handler: @escaping @Sendable (URLRequest) async -> (HTTPURLResponse, Data)
+    handler: @escaping @Sendable (URLRequest) async throws -> (HTTPURLResponse, Data)
 ) -> URLSession {
     CodexURLProtocolStub.handler = handler
     let configuration = URLSessionConfiguration.ephemeral
@@ -656,4 +593,518 @@ final class CodexAppServerResetCreditsTests: XCTestCase {
         XCTAssertEqual(
             CodexOwnerCLI.resetCredits(from: ["availableCount": 0, "credits": NSNull()])?.availableCount(), 0)
     }
+}
+
+@MainActor
+extension CodexTokenRefreshRecoveryTests {
+    func testAlreadyExpiredDetailBudgetDoesNotTurnValidUsageIntoFailure() async throws {
+        let (_, manager) = try fixture()
+        let recorder = CodexRequestRecorder()
+        let service = service(manager) { request in
+            recorder.record(request)
+            return httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: 2))
+        }
+        let base = try await service.fetchUsage()
+        let result = try await service.fetchResetCreditDetails(for: base, budget: CodexRequestBudget(timeout: 0))
+        XCTAssertEqual(result.usage.resetCreditMetadata?.status, .failed(.timeout))
+        XCTAssertEqual(result.usage.primaryPercentage, 27)
+        XCTAssertEqual(result.usage.resetCredits?.availableCount(), 2)
+        XCTAssertEqual(recorder.count { $0.url.path.hasSuffix("rate-limit-reset-credits") }, 0)
+    }
+
+    func testFailureAfterForcedRefreshDoesNotReuseUnexpiredSuccessAsCurrent() async throws {
+        let (_, manager) = try fixture()
+        let calls = OSAllocatedUnfairLock(initialState: 0)
+        let service = service(manager) { request in
+            if request.url?.path.hasSuffix("rate-limit-reset-credits") == true {
+                let attempt = calls.withLock {
+                    $0 += 1; return $0
+                }
+                return httpResponse(
+                    for: request, statusCode: attempt == 2 ? 403 : 200,
+                    body: attempt == 2 ? "{}" : detailJSON(count: 2))
+            }
+            return httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: 2))
+        }
+        let base = try await service.fetchUsage()
+        let first = try await service.fetchResetCreditDetails(for: base)
+        let failed = try await service.fetchResetCreditDetails(for: base, force: true)
+        XCTAssertEqual(failed.usage.resetCreditMetadata?.status, .failed(.http(403)))
+        XCTAssertEqual(failed.usage.resetCreditMetadata?.updatedAt, first.usage.resetCreditMetadata?.updatedAt)
+        let next = try await service.fetchUsage()
+        XCTAssertEqual(next.usage.resetCreditMetadata?.status, .loading)
+        let retried = try await service.fetchResetCreditDetails(for: next)
+        XCTAssertEqual(retried.usage.resetCreditMetadata?.status, .fresh)
+        XCTAssertEqual(calls.withLock { $0 }, 3)
+    }
+
+    func testCancelledLastDetailWaiterCannotPopulateCache() async throws {
+        let (_, manager) = try fixture()
+        let started = expectation(description: "detail started")
+        let gate = CodexTestGate()
+        let calls = OSAllocatedUnfairLock(initialState: 0)
+        let service = service(manager) { request in
+            if request.url?.path.hasSuffix("rate-limit-reset-credits") == true {
+                let attempt = calls.withLock {
+                    $0 += 1; return $0
+                }
+                if attempt == 1 { started.fulfill(); await gate.wait() }
+                return httpResponse(for: request, statusCode: 200, body: detailJSON(count: 2))
+            }
+            return httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: 2))
+        }
+        let base = try await service.fetchUsage()
+        let task = Task { try await service.fetchResetCreditDetails(for: base) }
+        await fulfillment(of: [started], timeout: 2)
+        task.cancel()
+        do { _ = try await task.value; XCTFail("cancelled details must stop") } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+        await gate.open()
+        let next = try await service.fetchUsage()
+        XCTAssertEqual(next.usage.resetCredits?.credits, [])
+        let retried = try await service.fetchResetCreditDetails(for: next)
+        XCTAssertEqual(retried.usage.resetCreditMetadata?.status, .fresh)
+        XCTAssertEqual(calls.withLock { $0 }, 2)
+        await service.shutdown()
+    }
+
+    func testSharedDetailsMergeIntoEachCallersOwnUsageSnapshot() async throws {
+        let (_, manager) = try fixture()
+        let started = expectation(description: "detail started")
+        let gate = CodexTestGate()
+        let usageCalls = OSAllocatedUnfairLock(initialState: 0)
+        let service = service(manager) { request in
+            if request.url?.path.hasSuffix("rate-limit-reset-credits") == true {
+                started.fulfill()
+                await gate.wait()
+                return httpResponse(for: request, statusCode: 200, body: detailJSON(count: 2))
+            }
+            let call = usageCalls.withLock {
+                $0 += 1; return $0
+            }
+            return httpResponse(
+                for: request, statusCode: 200, body: usageJSON(primary: call == 1 ? 27 : 68, resetCount: 2))
+        }
+        let old = try await service.fetchUsage()
+        let first = Task { try await service.fetchResetCreditDetails(for: old) }
+        await fulfillment(of: [started], timeout: 2)
+        let current = try await service.fetchUsage()
+        let second = Task { try await service.fetchResetCreditDetails(for: current) }
+        try await Task.sleep(for: .milliseconds(30))
+        await gate.open()
+        let a = try await first.value
+        let b = try await second.value
+        XCTAssertEqual(a.usage.primaryPercentage, 27)
+        XCTAssertEqual(b.usage.primaryPercentage, 68)
+        XCTAssertEqual(a.usage.resetCredits, b.usage.resetCredits)
+    }
+
+    func testMissingIDsRemainPartialEvenWithKnownExpiry() async throws {
+        let (_, manager) = try fixture()
+        let service = service(manager) { request in
+            let body =
+                request.url?.path.hasSuffix("wham/usage") == true
+                ? usageJSON(primary: 27, resetCount: 1)
+                : #"{"available_count":1,"credits":[{"status":"available","expires_at":null}]}"#
+            return httpResponse(for: request, statusCode: 200, body: body)
+        }
+        let base = try await service.fetchUsage()
+        let detailed = try await service.fetchResetCreditDetails(for: base)
+        XCTAssertEqual(detailed.usage.resetCreditMetadata?.status, .partial)
+        XCTAssertNil(detailed.usage.resetCredits?.credits.first?.id)
+        XCTAssertFalse(try XCTUnwrap(ResetCreditSummary.codex(detailed.usage)).identityDetailsComplete)
+    }
+
+    func testDetailsUseCapturedHeadersAndSuccessfulCacheWithoutWritingCredential() async throws {
+        let (path, manager) = try fixture()
+        let original = try Data(contentsOf: path)
+        let recorder = CodexRequestRecorder()
+        let service = service(manager) { request in
+            recorder.record(request)
+            if request.url?.path.hasSuffix("rate-limit-reset-credits") == true {
+                XCTAssertEqual(request.httpMethod, "GET")
+                XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer access-a")
+                XCTAssertEqual(request.value(forHTTPHeaderField: "ChatGPT-Account-Id"), "account-a")
+                XCTAssertEqual(request.cachePolicy, .reloadIgnoringLocalCacheData)
+                return httpResponse(for: request, statusCode: 200, body: detailJSON(count: 2))
+            }
+            return httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: 2))
+        }
+        for _ in 0..<2 {
+            let basic = try await service.fetchUsage()
+            let detailed = try await service.fetchResetCreditDetails(for: basic)
+            XCTAssertEqual(detailed.usage.primaryPercentage, 27)
+            XCTAssertEqual(ResetCreditSummary.codex(detailed.usage)?.expirationDescription(), "만료 없음")
+        }
+        XCTAssertEqual(recorder.count { $0.url.path.hasSuffix("rate-limit-reset-credits") }, 1)
+        let basic = try await service.fetchUsage()
+        XCTAssertEqual(basic.usage.resetCreditMetadata?.status, .cached)
+        _ = try await service.fetchResetCreditDetails(for: basic, force: true)
+        XCTAssertEqual(recorder.count { $0.url.path.hasSuffix("rate-limit-reset-credits") }, 2)
+        XCTAssertEqual(try Data(contentsOf: path), original)
+    }
+
+    func testFailedDetailsRetryWithoutFiveMinuteFailureCacheAndPreserveUsage() async throws {
+        for (status, body, reason) in [
+            (401, "{}", CodexResetCreditFailure.http(401)), (403, "{}", .http(403)),
+            (500, "{}", .http(500)), (200, "{}", .invalidResponse), (200, "invalid", .invalidResponse),
+            (200, #"{"available_count":-1}"#, .invalidResponse),
+        ] {
+            let (_, manager) = try fixture()
+            let calls = OSAllocatedUnfairLock(initialState: 0)
+            let owner = TestCodexOwner { _, _, _ in XCTFail("detail failure must not rotate credentials") }
+            let service = service(manager, owner: owner) { request in
+                if request.url?.path.hasSuffix("rate-limit-reset-credits") == true {
+                    let attempt = calls.withLock {
+                        $0 += 1; return $0
+                    }
+                    return httpResponse(
+                        for: request, statusCode: attempt == 1 ? status : 200,
+                        body: attempt == 1 ? body : detailJSON(count: 2))
+                }
+                return httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: 2))
+            }
+            let basic = try await service.fetchUsage()
+            let failed = try await service.fetchResetCreditDetails(for: basic)
+            XCTAssertEqual(failed.usage.primaryPercentage, 27)
+            XCTAssertEqual(failed.usage.resetCredits?.availableCount(), 2)
+            XCTAssertEqual(failed.usage.resetCreditMetadata?.status, .failed(reason))
+            XCTAssertEqual(ResetCreditSummary.codex(failed.usage)?.expirationDescription(), "상세 조회 지연")
+            let next = try await service.fetchUsage()
+            let retried = try await service.fetchResetCreditDetails(for: next)
+            XCTAssertEqual(retried.usage.resetCreditMetadata?.status, .fresh)
+            XCTAssertEqual(calls.withLock { $0 }, 2)
+        }
+    }
+
+    func testExpiredSuccessfulCacheIsLabeledAndRetriedAfterFailure() async throws {
+        let (_, manager) = try fixture()
+        let clock = OSAllocatedUnfairLock(initialState: Date())
+        let calls = OSAllocatedUnfairLock(initialState: 0)
+        let service = service(manager, now: { clock.withLock { $0 } }) { request in
+            if request.url?.path.hasSuffix("rate-limit-reset-credits") == true {
+                let attempt = calls.withLock {
+                    $0 += 1; return $0
+                }
+                return httpResponse(
+                    for: request, statusCode: attempt == 2 ? 403 : 200,
+                    body: attempt == 2 ? "{}" : detailJSON(count: 2, expiresAt: Date(timeIntervalSinceNow: 3600)))
+            }
+            return httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: 2))
+        }
+        let initial = try await service.fetchUsage()
+        let first = try await service.fetchResetCreditDetails(for: initial)
+        clock.withLock { $0 = $0.addingTimeInterval(301) }
+        let basic = try await service.fetchUsage()
+        XCTAssertEqual(basic.usage.resetCreditMetadata?.status, .loading)
+        let stale = try await service.fetchResetCreditDetails(for: basic)
+        XCTAssertEqual(stale.usage.resetCredits, first.usage.resetCredits)
+        XCTAssertEqual(stale.usage.resetCreditMetadata?.status, .failed(.http(403)))
+        let summary = try XCTUnwrap(ResetCreditSummary.codex(stale.usage))
+        XCTAssertTrue(summary.expirationDescription().hasPrefix("이전 확인 정보 / "))
+        XCTAssertFalse(summary.isExpiringSoon())
+        XCTAssertFalse(summary.identityDetailsComplete)
+        let next = try await service.fetchUsage()
+        let recovered = try await service.fetchResetCreditDetails(for: next)
+        XCTAssertEqual(recovered.usage.resetCreditMetadata?.status, .fresh)
+        XCTAssertEqual(calls.withLock { $0 }, 3)
+    }
+
+    func testAccountIdentityOmissionAcceptedButExplicitMismatchRejected() async throws {
+        for account in [nil, "account-a", "account-b"] as [String?] {
+            let (_, manager) = try fixture()
+            let service = service(manager) { request in
+                let body =
+                    request.url?.path.hasSuffix("wham/usage") == true
+                    ? usageJSON(primary: 27, resetCount: 2) : detailJSON(count: 2, accountID: account)
+                return httpResponse(for: request, statusCode: 200, body: body)
+            }
+            let base = try await service.fetchUsage()
+            do {
+                let result = try await service.fetchResetCreditDetails(for: base)
+                XCTAssertNotEqual(account, "account-b")
+                XCTAssertEqual(result.usage.resetCreditMetadata?.status, .fresh)
+            } catch { XCTAssertEqual(error as? CodexCredentialError, .changed); XCTAssertEqual(account, "account-b") }
+        }
+    }
+
+    func testCredentialReplacementInvalidatesSameWorkspaceCache() async throws {
+        let (path, manager) = try fixture()
+        let calls = OSAllocatedUnfairLock(initialState: 0)
+        let service = service(manager) { request in
+            if request.url?.path.hasSuffix("rate-limit-reset-credits") == true {
+                calls.withLock { $0 += 1 }
+                return httpResponse(for: request, statusCode: 200, body: detailJSON(count: 2))
+            }
+            return httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: 2))
+        }
+        let first = try await service.fetchUsage()
+        _ = try await service.fetchResetCreditDetails(for: first)
+        try writeAuthJSON(accessToken: "access-b", refreshToken: "refresh-b", to: path)
+        let second = try await service.fetchUsage()
+        XCTAssertNotEqual(second.credential.generation, first.credential.generation)
+        XCTAssertEqual(second.usage.resetCredits?.credits, [])
+        _ = try await service.fetchResetCreditDetails(for: second)
+        XCTAssertEqual(calls.withLock { $0 }, 2)
+        do {
+            _ = try await service.fetchResetCreditDetails(for: first);
+            XCTFail("old cache must not bypass auth validation")
+        } catch { XCTAssertEqual(error as? CodexCredentialError, .changed) }
+    }
+
+    func testAccountChangeDuringDetailsRejectsResponseAndFailureFallback() async throws {
+        for status in [200, 403] {
+            let (path, manager) = try fixture()
+            let service = service(manager) { request in
+                if request.url?.path.hasSuffix("rate-limit-reset-credits") == true {
+                    try? writeAuthJSON(
+                        accessToken: "access-b", refreshToken: "refresh-b", to: path, accountID: "account-b")
+                    return httpResponse(for: request, statusCode: status, body: detailJSON(count: 2))
+                }
+                return httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: 2))
+            }
+            let base = try await service.fetchUsage()
+            do {
+                _ = try await service.fetchResetCreditDetails(for: base);
+                XCTFail("changed credentials must reject details")
+            } catch { XCTAssertEqual(error as? CodexCredentialError, .changed) }
+        }
+    }
+
+    func testLateDetailsCannotResurrectCountOrOldIDs() async throws {
+        let (_, manager) = try fixture()
+        let detailStarted = expectation(description: "old detail request started")
+        let gate = CodexTestGate()
+        let usageCalls = OSAllocatedUnfairLock(initialState: 0)
+        let service = service(manager) { request in
+            if request.url?.path.hasSuffix("rate-limit-reset-credits") == true {
+                detailStarted.fulfill()
+                await gate.wait()
+                return httpResponse(for: request, statusCode: 200, body: detailJSON(count: 2))
+            }
+            let call = usageCalls.withLock {
+                $0 += 1; return $0
+            }
+            return httpResponse(
+                for: request, statusCode: 200,
+                body: usageJSON(primary: call == 1 ? 27 : 68, resetCount: call == 1 ? 2 : 1))
+        }
+        let old = try await service.fetchUsage()
+        let details = Task { try await service.fetchResetCreditDetails(for: old) }
+        await fulfillment(of: [detailStarted], timeout: 2)
+        let current = try await service.fetchUsage()
+        XCTAssertEqual(current.usage.resetCredits?.availableCount(), 1)
+        await gate.open()
+        let late = try await details.value
+        XCTAssertEqual(late.usage.resetCredits?.availableCount(), 1)
+        XCTAssertEqual(late.usage.resetCredits?.credits, [])
+        let next = try await service.fetchUsage()
+        XCTAssertEqual(next.usage.resetCredits?.availableCount(), 1)
+        XCTAssertEqual(next.usage.resetCredits?.credits, [])
+    }
+
+    func testPartialRowsPreserveCountAndRetryWithoutInventingMissingData() async throws {
+        let (_, manager) = try fixture()
+        let detailCalls = OSAllocatedUnfairLock(initialState: 0)
+        let service = service(manager) { request in
+            if request.url?.path.hasSuffix("rate-limit-reset-credits") == true {
+                detailCalls.withLock { $0 += 1 }
+                return httpResponse(
+                    for: request, statusCode: 200,
+                    body:
+                        #"{"available_count":2,"credits":[{"id":"a","status":"available","expires_at":null},{"id":"b","status":"unknown","expires_at":null}]}"#
+                )
+            }
+            return httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: 2))
+        }
+        for _ in 0..<2 {
+            let base = try await service.fetchUsage()
+            let result = try await service.fetchResetCreditDetails(for: base)
+            let summary = try XCTUnwrap(ResetCreditSummary.codex(result.usage))
+            XCTAssertEqual(summary.availableCount, 2)
+            XCTAssertEqual(summary.items.map(\.id), ["a"])
+            XCTAssertEqual(result.usage.resetCreditMetadata?.status, .partial)
+            XCTAssertEqual(summary.expirationDescription(), "일부 상세 정보 없음")
+            XCTAssertFalse(summary.identityDetailsComplete)
+        }
+        XCTAssertEqual(detailCalls.withLock { $0 }, 2)
+    }
+
+    func testMissingUsageCountKeepsLastCountButStillRefreshesDetails() async throws {
+        let (_, manager) = try fixture()
+        let usageCalls = OSAllocatedUnfairLock(initialState: 0)
+        let detailCalls = OSAllocatedUnfairLock(initialState: 0)
+        let service = service(manager) { request in
+            if request.url?.path.hasSuffix("rate-limit-reset-credits") == true {
+                detailCalls.withLock { $0 += 1 }
+                return httpResponse(for: request, statusCode: 200, body: detailJSON(count: 2))
+            }
+            let call = usageCalls.withLock {
+                $0 += 1; return $0
+            }
+            return httpResponse(
+                for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: call == 1 ? 2 : nil))
+        }
+        let first = try await service.fetchUsage()
+        _ = try await service.fetchResetCreditDetails(for: first)
+        let missing = try await service.fetchUsage()
+        XCTAssertEqual(missing.usage.resetCredits?.availableCount(), 2)
+        XCTAssertEqual(missing.usage.resetCreditMetadata?.countIsCurrent, false)
+        let refreshed = try await service.fetchResetCreditDetails(for: missing)
+        XCTAssertEqual(refreshed.usage.resetCreditMetadata?.countIsCurrent, true)
+        XCTAssertEqual(detailCalls.withLock { $0 }, 2)
+    }
+
+    func testDetailTimeoutAndNetworkFailureHaveSeparateDiagnosticsAndLeaveUsageValid() async throws {
+        for failure in [URLError(.timedOut), URLError(.notConnectedToInternet)] {
+            let (_, manager) = try fixture()
+            let service = service(manager) { request in
+                if request.url?.path.hasSuffix("rate-limit-reset-credits") == true { throw failure }
+                return httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: 2))
+            }
+            let base = try await service.fetchUsage()
+            let result = try await service.fetchResetCreditDetails(for: base)
+            let reason: CodexResetCreditFailure = failure.code == .timedOut ? .timeout : .network
+            XCTAssertEqual(result.usage.resetCreditMetadata?.status, .failed(reason))
+            XCTAssertEqual(result.usage.primaryPercentage, 27)
+            XCTAssertEqual(result.usage.resetCredits?.availableCount(), 2)
+            let diagnostic = OperationalDiagnostic.codexResetCredits(try XCTUnwrap(result.usage.resetCreditMetadata))
+            XCTAssertEqual(diagnostic.code, "codex.resetCredits." + reason.diagnosticCode)
+            XCTAssertFalse(String(describing: diagnostic).contains("access-a"))
+            XCTAssertFalse(String(describing: diagnostic).contains("account-a"))
+        }
+    }
+
+    func testDetailBudgetExpiryIsSupplementaryFailureNotQuotaFailure() async throws {
+        let (_, manager) = try fixture()
+        let started = expectation(description: "detail started")
+        let service = service(manager) { request in
+            if request.url?.path.hasSuffix("rate-limit-reset-credits") == true {
+                started.fulfill()
+                try? await Task.sleep(for: .seconds(30))
+            }
+            return httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: 2))
+        }
+        let base = try await service.fetchUsage()
+        let result = try await service.fetchResetCreditDetails(for: base, budget: CodexRequestBudget(timeout: 0.05))
+        await fulfillment(of: [started], timeout: 2)
+        XCTAssertEqual(result.usage.resetCreditMetadata?.status, .failed(.timeout))
+        XCTAssertEqual(result.usage.primaryPercentage, 27)
+    }
+
+    func testCancelledWaiterDoesNotCancelSharedDetailRequest() async throws {
+        let (_, manager) = try fixture()
+        let started = expectation(description: "detail started")
+        let gate = CodexTestGate()
+        let service = service(manager) { request in
+            if request.url?.path.hasSuffix("rate-limit-reset-credits") == true {
+                started.fulfill()
+                await gate.wait()
+                return httpResponse(for: request, statusCode: 200, body: detailJSON(count: 2))
+            }
+            return httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: 2))
+        }
+        let base = try await service.fetchUsage()
+        let one = Task { try await service.fetchResetCreditDetails(for: base) }
+        let two = Task { try await service.fetchResetCreditDetails(for: base) }
+        await fulfillment(of: [started], timeout: 2)
+        // Give both continuations a chance to register while the owned HTTP task is gated.
+        try await Task.sleep(for: .milliseconds(30))
+        one.cancel()
+        do { _ = try await one.value; XCTFail("cancelled waiter must stop") } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+        await gate.open()
+        let surviving = try await two.value
+        XCTAssertEqual(surviving.usage.resetCredits?.availableCount(), 2)
+        await service.shutdown()
+    }
+
+    func testControllerPublishesUsageBeforeDetailAndDoesNotRepublishQuotaOnDetailFailure() async throws {
+        let (_, manager) = try fixture()
+        let basicShown = expectation(description: "quota shown")
+        let detailStarted = expectation(description: "detail started")
+        let detailShown = expectation(description: "supplementary failure shown")
+        let gate = CodexTestGate()
+        let service = service(manager) { request in
+            if request.url?.path.hasSuffix("rate-limit-reset-credits") == true {
+                detailStarted.fulfill()
+                await gate.wait()
+                return httpResponse(for: request, statusCode: 403, body: "{}")
+            }
+            return httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: 2))
+        }
+        var basicCalls = 0
+        var detailCalls = 0
+        let controller = CodexRefreshController(
+            authManager: manager, apiService: service, isEnabled: { true }, prepare: { _ in true },
+            clearPresentation: {},
+            applySuccess: { result in
+                basicCalls += 1
+                XCTAssertEqual(result.usage.primaryPercentage, 27)
+                basicShown.fulfill()
+            }, applyFailure: { _ in XCTFail("supplement failure must not become quota/login failure") },
+            applyDetails: { result in
+                detailCalls += 1
+                XCTAssertEqual(result.usage.resetCreditMetadata?.status, .failed(.http(403)))
+                detailShown.fulfill()
+            })
+        controller.refresh(force: true)
+        await fulfillment(of: [basicShown, detailStarted], timeout: 2)
+        XCTAssertEqual(basicCalls, 1)
+        XCTAssertEqual(detailCalls, 0)
+        await gate.open()
+        await fulfillment(of: [detailShown], timeout: 2)
+        XCTAssertEqual(basicCalls, 1)
+        XCTAssertEqual(detailCalls, 1)
+        await controller.shutdown()
+    }
+
+    func testControllerRejectsOldSupplementAfterLoginChanges() async throws {
+        let (path, manager) = try fixture()
+        let firstShown = expectation(description: "old quota initially shown")
+        let detailStarted = expectation(description: "old details started")
+        let newShown = expectation(description: "new quota shown")
+        let newDetailShown = expectation(description: "new details shown")
+        let gate = CodexTestGate()
+        let service = service(manager) { request in
+            let old = request.value(forHTTPHeaderField: "Authorization") == "Bearer access-a"
+            if request.url?.path.hasSuffix("rate-limit-reset-credits") == true {
+                if old { detailStarted.fulfill(); await gate.wait() }
+                return httpResponse(for: request, statusCode: 200, body: detailJSON(count: old ? 2 : 1))
+            }
+            return httpResponse(
+                for: request, statusCode: 200, body: usageJSON(primary: old ? 27 : 68, resetCount: old ? 2 : 1))
+        }
+        let controller = CodexRefreshController(
+            authManager: manager, apiService: service, isEnabled: { true }, prepare: { _ in true },
+            clearPresentation: {},
+            applySuccess: { result in
+                if result.credential.token.accountID == "account-a" {
+                    firstShown.fulfill()
+                } else {
+                    XCTAssertEqual(result.usage.primaryPercentage, 68); newShown.fulfill()
+                }
+            }, applyFailure: { _ in XCTFail("login change must retry") },
+            applyDetails: { result in
+                XCTAssertEqual(result.credential.token.accountID, "account-b")
+                XCTAssertEqual(result.usage.resetCredits?.availableCount(), 1)
+                newDetailShown.fulfill()
+            })
+        controller.refresh(force: true)
+        await fulfillment(of: [firstShown, detailStarted], timeout: 2)
+        try writeAuthJSON(accessToken: "access-b", refreshToken: "refresh-b", to: path, accountID: "account-b")
+        await gate.open()
+        await fulfillment(of: [newShown, newDetailShown], timeout: 3)
+        await controller.shutdown()
+    }
+}
+
+private func detailJSON(count: Int, expiresAt: Date? = nil, accountID: String? = nil) -> String {
+    let expiry = expiresAt.map { "\"" + ISO8601DateFormatter().string(from: $0) + "\"" } ?? "null"
+    let rows = (0..<max(0, count)).map { #"{"id":"credit-\#($0)","status":"available","expires_at":\#(expiry)}"# }
+        .joined(separator: ",")
+    let account = accountID.map { ",\"account_id\":\"" + $0 + "\"" } ?? ""
+    return #"{"available_count":\#(count),"credits":[\#(rows)]\#(account)}"#
 }

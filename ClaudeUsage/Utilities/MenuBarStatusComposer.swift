@@ -228,6 +228,13 @@ enum MenuBarStatusComposer {
         renderImages: Bool = true,
         appearance: NSAppearance? = nil
     ) -> MenuBarProviderSnapshot {
+        let projection = usage.flatMap { usage in
+            config.quotaSelection.map {
+                MenuBarQuotaProjection(
+                    selection: $0, limits: UsageLimitCatalog.claude(usage),
+                    basis: config.usageValueBasis, timeFormat: config.timeFormat)
+            }
+        }
         let status = claudeStatus(
             config: config,
             usage: usage,
@@ -236,10 +243,8 @@ enum MenuBarStatusComposer {
             hasCredential: hasCredential,
             secondaryColor: secondaryColor
         )
-        let reset = resetText(
-            usage: usage,
-            config: config
-        )
+        let reset =
+            projection?.resetText ?? (config.quotaSelection == nil ? resetText(usage: usage, config: config) : nil)
         let renderKey = providerRenderKey(
             kind: .claude,
             regularText: status.text,
@@ -249,13 +254,13 @@ enum MenuBarStatusComposer {
             showsProviderIcon: config.showIcon,
             visualConfiguration:
                 providerVisualConfiguration(config),
-            visualValues: usage.map {
+            visualValues: (usage.map {
                 [
                     $0.gaugePercentage ?? 0,
                     $0.weeklyPercentage ?? 0,
                     $0.hasSessionWindow ? 1 : 0,
                 ]
-            } ?? [],
+            } ?? []) + (projection?.visualValues ?? []),
             systemStatus: systemStatus,
             accessibilityLabel: nil,
             accessibilityValue: nil,
@@ -272,7 +277,10 @@ enum MenuBarStatusComposer {
                 : nil,
             styleIcon:
                 renderImages
-                ? withAppearance(appearance) { styleIcon(usage: usage, config: config) }
+                ? withAppearance(appearance) {
+                    if let projection { return styleIcon(projection: projection, config: config) }
+                    return styleIcon(usage: usage, config: config)
+                }
                 : nil,
             resetText: reset,
             systemStatus: systemStatus,
@@ -292,6 +300,13 @@ enum MenuBarStatusComposer {
         renderImages: Bool = true,
         appearance: NSAppearance? = nil
     ) -> MenuBarProviderSnapshot {
+        let projection = usage.flatMap { usage in
+            config.quotaSelection.map {
+                MenuBarQuotaProjection(
+                    selection: $0, limits: UsageLimitCatalog.codex(usage),
+                    basis: config.usageValueBasis, timeFormat: config.timeFormat)
+            }
+        }
         let status = codexStatus(
             config: config,
             usage: usage,
@@ -300,10 +315,8 @@ enum MenuBarStatusComposer {
             isAuthenticated: isAuthenticated,
             secondaryColor: secondaryColor
         )
-        let reset = resetText(
-            usage: usage,
-            config: config
-        )
+        let reset =
+            projection?.resetText ?? (config.quotaSelection == nil ? resetText(usage: usage, config: config) : nil)
         let renderKey = providerRenderKey(
             kind: .codex,
             regularText: status.text,
@@ -313,13 +326,13 @@ enum MenuBarStatusComposer {
             showsProviderIcon: config.showIcon,
             visualConfiguration:
                 providerVisualConfiguration(config),
-            visualValues: usage.map {
+            visualValues: (usage.map {
                 [
                     $0.gaugePercentage ?? 0,
                     $0.weeklyPercentage,
                     $0.hasSessionWindow ? 1 : 0,
                 ]
-            } ?? [],
+            } ?? []) + (projection?.visualValues ?? []),
             systemStatus: systemStatus,
             accessibilityLabel: nil,
             accessibilityValue: nil,
@@ -336,7 +349,10 @@ enum MenuBarStatusComposer {
                 : nil,
             styleIcon:
                 renderImages
-                ? withAppearance(appearance) { styleIcon(usage: usage, config: config) }
+                ? withAppearance(appearance) {
+                    if let projection { return styleIcon(projection: projection, config: config) }
+                    return styleIcon(usage: usage, config: config)
+                }
                 : nil,
             resetText: reset,
             systemStatus: systemStatus,
@@ -772,6 +788,10 @@ enum MenuBarStatusComposer {
             config.basisOverride?.rawValue ?? "legacy",
             config.iconMetric.rawValue,
             config.colorMode.rawValue, config.design.rawValue,
+            config.quotaSelection == nil ? "legacy-quota" : "selected-quota",
+            config.quotaSelection?.percentageIDs.joined(separator: ",") ?? "",
+            config.quotaSelection?.resetIDs.joined(separator: ",") ?? "",
+            config.quotaSelection?.gaugeIDs.joined(separator: ",") ?? "",
         ]
     }
 
@@ -838,6 +858,16 @@ enum MenuBarStatusComposer {
             return MenuBarProviderStatus(text: "…", color: secondaryColor, tooltip: "로딩 중")
         }
 
+        if let selection = config.quotaSelection {
+            let projection = MenuBarQuotaProjection(
+                selection: selection, limits: UsageLimitCatalog.claude(usage),
+                basis: config.usageValueBasis, timeFormat: config.timeFormat)
+            return MenuBarProviderStatus(
+                text: projection.percentageText,
+                color: gaugeColor(for: projection.primary?.usedPercentage, config: config),
+                tooltip: projection.tooltip + staleNote(error: error, hasAuthError: hasAuthError))
+        }
+
         let hasPrimary = usage.hasSessionWindow
         let fiveHour = usage.fiveHourPercentage
         let weekly = usage.weeklyPercentage
@@ -885,6 +915,17 @@ enum MenuBarStatusComposer {
                 )
             }
             return MenuBarProviderStatus(text: "…", color: secondaryColor, tooltip: "로딩 중")
+        }
+
+        if let selection = config.quotaSelection {
+            let projection = MenuBarQuotaProjection(
+                selection: selection, limits: UsageLimitCatalog.codex(usage),
+                basis: config.usageValueBasis, timeFormat: config.timeFormat)
+            return MenuBarProviderStatus(
+                text: projection.percentageText,
+                color: gaugeColor(for: projection.primary?.usedPercentage, config: config),
+                tooltip: projection.tooltip + (usage.workspaceLimitNotice.map { "\n\($0)" } ?? "")
+                    + staleNote(error: error, hasAuthError: hasAuthError))
         }
 
         let hasPrimary = usage.hasSessionWindow
@@ -987,6 +1028,20 @@ enum MenuBarStatusComposer {
             if let first, let second { return "\(first) · \(second)" }
             return first ?? second
         }
+    }
+
+    private static func styleIcon(projection: MenuBarQuotaProjection, config: ProviderMenuBarDisplayConfig) -> NSImage?
+    {
+        guard !projection.selection.gaugeIDs.isEmpty else { return nil }
+        let primary = projection.primary?.usedPercentage
+        if projection.selection.gaugeIDs.count == 1,
+            config.style == .dualBattery || config.style == .sideBySideBattery || config.style == .concentricRings
+        {
+            return weeklyOnlyStyleIcon(weekly: primary, config: config)
+        }
+        return styleIcon(
+            primary: primary, secondary: projection.secondary?.usedPercentage, config: config,
+            metric: (primary, gaugeColor(for: primary, config: config)))
     }
 
     private static func styleIcon(usage: ClaudeUsageResponse?, config: ProviderMenuBarDisplayConfig) -> NSImage? {

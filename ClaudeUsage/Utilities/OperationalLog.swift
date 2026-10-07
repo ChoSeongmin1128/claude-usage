@@ -57,6 +57,39 @@ nonisolated struct OperationalDiagnostic: Equatable, Sendable {
         }
     }
 
+    static func codexResetCredits(_ metadata: CodexResetCreditMetadata) -> Self {
+        let code: String
+        let failed: Bool
+        switch metadata.status {
+        case .loading: code = "loading"; failed = false
+        case .fresh: code = "ready"; failed = false
+        case .cached: code = "cached"; failed = false
+        case .partial: code = "partial"; failed = false
+        case .failed(let reason): code = reason.diagnosticCode; failed = true
+        }
+        return Self(code: "codex.resetCredits." + code, source: "resetCreditsHTTP", isFailure: failed)
+    }
+
+    static let codexResetCreditAccountChanged = Self(
+        code: "codex.resetCredits.accountChanged", source: "resetCreditsHTTP", isFailure: true)
+
+    static func launchAtLogin(_ state: LaunchAtLoginState) -> Self {
+        let code: String
+        if let failure = state.failure {
+            let action = failure.action == .enable ? "register" : "unregister"
+            code = "loginItem." + action + "Failed" + (failure.code.map { "." + String($0) } ?? ".unconfirmed")
+        } else {
+            switch state.status {
+            case .enabled: code = "loginItem.enabled"
+            case .notRegistered: code = "loginItem.disabled"
+            case .requiresApproval: code = "loginItem.approvalRequired"
+            case .notFound: code = "loginItem.notFound"
+            case .unknown: code = "loginItem.unknown"
+            }
+        }
+        return Self(code: code, source: "serviceManagement", isFailure: state.failure != nil)
+    }
+
     enum UpdateOutcome: String, Sendable {
         case available, upToDate, cancelled, feedUnavailable, validationFailed
         case downloadFailed, installationFailed, configurationInvalid, connectionFailed, failed

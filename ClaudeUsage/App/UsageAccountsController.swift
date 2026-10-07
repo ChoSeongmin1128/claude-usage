@@ -424,6 +424,11 @@ final class UsageAccountsController: ObservableObject {
             guard (try? FileManager.default.trashItem(at: folder, resultingItemURL: nil)) != nil else { return false }
         }
         states[account.id] = nil
+        if account.sources.allSatisfy({ source in
+            folders.contains { source.reference == $0.path || source.reference.hasPrefix($0.path + "/") }
+        }) {
+            ResetCreditSeenStore.remove(accountKey: account.id, defaults: defaults)
+        }
         rediscover()
         return true
     }

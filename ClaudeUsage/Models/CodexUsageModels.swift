@@ -20,8 +20,9 @@ nonisolated struct CodexUsageResponse: Codable, Sendable {
     let spendControl: CodexSpendControl?
     /// 한도에 걸린 이유(workspace_member_credits_depleted 등). 공식 backend 모델 기준
     let rateLimitReachedType: String?
-    /// 사용량 응답의 수량을 읽고 공식 app-server의 상세 정보로 보강한다.
+    /// 사용량 수량과 별도 HTTP 상세 조회 결과.
     var resetCredits: CodexResetCreditsResponse?
+    var resetCreditMetadata: CodexResetCreditMetadata? = nil
 
     enum CodingKeys: String, CodingKey {
         case accountID = "account_id"
@@ -413,8 +414,10 @@ nonisolated struct CodexResetCreditsResponse: Codable, Sendable, Equatable {
     let credits: [CodexResetCredit]
     /// API가 내려주는 사용 가능 개수 (없으면 credits에서 계산)
     let availableCountField: Int?
+    var accountID: String? = nil
 
     enum CodingKeys: String, CodingKey {
+        case accountID = "account_id"
         case credits
         case availableCountField = "available_count"
     }
@@ -427,6 +430,7 @@ nonisolated struct CodexResetCreditsResponse: Codable, Sendable, Equatable {
     nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         availableCountField = (try? container.decodeIfPresent(Int.self, forKey: .availableCountField)) ?? nil
+        accountID = try container.decodeIfPresent(String.self, forKey: .accountID)
 
         // credits: 항목 단위 lossy 디코딩 — 항목 하나가 깨져도 전체를 버리지 않는다.
         var collected: [CodexResetCredit] = []
@@ -463,6 +467,16 @@ nonisolated struct CodexResetCreditsResponse: Codable, Sendable, Equatable {
         availableCountField ?? availableCredits(at: date).count
     }
 
+    nonisolated var hasCompleteExpirationDetails: Bool {
+        let available = availableCredits()
+        return available.count >= availableCount() && available.allSatisfy { $0.expiresDate != nil || $0.doesNotExpire }
+    }
+
+    /// Missing or capped IDs must not prevent a later refresh from obtaining them.
+    nonisolated var hasCompleteDetails: Bool {
+        hasCompleteExpirationDetails && Set(availableCredits().compactMap(\.id)).count >= availableCount()
+    }
+
     /// 가장 먼저 만료되는 사용 가능 크레딧
     nonisolated func nextExpiringAvailable(at date: Date = Date()) -> CodexResetCredit? {
         availableCredits(at: date).first { $0.expiresDate != nil }
@@ -481,6 +495,7 @@ nonisolated struct CodexResetCredit: Codable, Sendable, Equatable {
     let status: String
     let grantedAtISO: String?
     let expiresAtISO: String?
+    let doesNotExpire: Bool
     let title: String?
     let detail: String?
 
@@ -500,6 +515,7 @@ nonisolated struct CodexResetCredit: Codable, Sendable, Equatable {
         status: String,
         grantedAtISO: String? = nil,
         expiresAtISO: String? = nil,
+        doesNotExpire: Bool = false,
         title: String? = nil,
         detail: String? = nil)
     {
@@ -508,6 +524,7 @@ nonisolated struct CodexResetCredit: Codable, Sendable, Equatable {
         self.status = status
         self.grantedAtISO = grantedAtISO
         self.expiresAtISO = expiresAtISO
+        self.doesNotExpire = doesNotExpire
         self.title = title
         self.detail = detail
     }
@@ -526,6 +543,7 @@ nonisolated struct CodexResetCredit: Codable, Sendable, Equatable {
         status = (try? container.decode(String.self, forKey: .status)) ?? "unknown"
         grantedAtISO = Self.flexibleTimestampISO(container: container, key: .grantedAt)
         expiresAtISO = Self.flexibleTimestampISO(container: container, key: .expiresAt)
+        doesNotExpire = container.contains(.expiresAt) && ((try? container.decodeNil(forKey: .expiresAt)) == true)
         title = (try? container.decodeIfPresent(String.self, forKey: .title)) ?? nil
         detail = (try? container.decodeIfPresent(String.self, forKey: .detail)) ?? nil
     }
@@ -536,7 +554,11 @@ nonisolated struct CodexResetCredit: Codable, Sendable, Equatable {
         try container.encodeIfPresent(resetType, forKey: .resetType)
         try container.encode(status, forKey: .status)
         try container.encodeIfPresent(grantedAtISO, forKey: .grantedAt)
-        try container.encodeIfPresent(expiresAtISO, forKey: .expiresAt)
+        if doesNotExpire {
+            try container.encodeNil(forKey: .expiresAt)
+        } else {
+            try container.encodeIfPresent(expiresAtISO, forKey: .expiresAt)
+        }
         try container.encodeIfPresent(title, forKey: .title)
         try container.encodeIfPresent(detail, forKey: .detail)
     }

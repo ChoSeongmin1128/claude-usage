@@ -399,6 +399,7 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
     let iconMetric: IconMetric
     let colorMode: MenuBarColorMode
     let design: MenuBarDesign
+    let quotaSelection: MenuBarQuotaSelection?
 
     init(
         kind: AppProviderKind,
@@ -411,7 +412,8 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
         circularDisplayMode: CircularDisplayMode,
         iconMetric: IconMetric,
         colorMode: MenuBarColorMode = .always, design: MenuBarDesign = .modern,
-        basisOverride: UsageValueBasis? = nil
+        basisOverride: UsageValueBasis? = nil,
+        quotaSelection: MenuBarQuotaSelection? = nil
     ) {
         self.kind = kind
         self.showIcon = showIcon
@@ -425,6 +427,7 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
         self.colorMode = colorMode
         self.design = design
         self.basisOverride = basisOverride
+        self.quotaSelection = quotaSelection
     }
 }
 
@@ -463,6 +466,7 @@ enum ProviderMenuBarDisplayPreset: String, CaseIterable, Identifiable, Sendable,
     }
 
     static func resolved(for config: ProviderMenuBarDisplayConfig) -> Self {
+        guard config.quotaSelection == nil else { return .custom }
         if config.showIcon,
            config.style == .none,
            config.percentageDisplay == .fiveHour,

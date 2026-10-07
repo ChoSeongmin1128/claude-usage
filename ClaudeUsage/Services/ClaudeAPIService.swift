@@ -1155,7 +1155,12 @@ actor ClaudeAPIService {
             }
 
             do {
-                overage = try await fetchOverageSpendLimitWithSessionKey(sessionKey, organizationID: organization.id)
+                let result = try await ClaudeSupplementalRefreshResult.refresh(
+                    embeddedUsage: usage?.extraUsage, source: .webSession
+                ) {
+                    try await self.fetchOverageSpendLimitWithSessionKey(sessionKey, organizationID: organization.id)
+                }
+                if case .success(let value, _) = result { overage = value }
             } catch {
                 Logger.debug("Organization 추가 사용량 미리보기 실패(\(organization.id)): \(error.localizedDescription)")
             }

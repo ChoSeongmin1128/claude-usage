@@ -132,6 +132,8 @@ nonisolated struct AntigravityDisplaySettings: Codable, Equatable, Sendable {
         /// 대표 한도 외에 메뉴바 텍스트에 함께 표시할 한도입니다.
         /// Optional로 두어 기존 v2 JSON에 키가 없어도 그대로 decode합니다.
         var additionalLaneIDs: [AntigravityQuotaLaneID]? = nil
+        var percentageLaneIDs: [AntigravityQuotaLaneID]? = nil
+        var resetLaneIDs: [AntigravityQuotaLaneID]? = nil
         var showsSelectedLanePercentage: Bool
         var showsSelectedLaneResetTime: Bool
         var timeFormat: TimeFormat
@@ -187,6 +189,9 @@ nonisolated struct AntigravityDisplaySettings: Codable, Equatable, Sendable {
             && menuBar.effectiveAdditionalLaneIDs.allSatisfy(
                 \.hasStableDisplayIdentifierShape
             )
+            && [menuBar.percentageLaneIDs, menuBar.resetLaneIDs].compactMap { $0 }.allSatisfy { ids in
+                ids.count == Set(ids).count && ids.allSatisfy(\.hasStableDisplayIdentifierShape)
+            }
     }
 
     static let builtInLaneIDs: [AntigravityQuotaLaneID] = [

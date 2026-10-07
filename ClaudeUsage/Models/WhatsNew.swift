@@ -35,13 +35,18 @@ nonisolated enum WhatsNewCatalog {
             body: "팝오버를 막 열었거나 Claude Code, Codex를 쓰는 중이거나 한도가 10% 이하로 남으면 2분마다, 오래 쓰지 않으면 최대 30분 간격으로 확인합니다."),
         WhatsNewPage(
             version: "2.8.0", symbol: "arrow.counterclockwise.circle", title: "메뉴바에 초기화권 표시",
-            body: "받은 한도 초기화권 개수를 수치 옆에 ↺1처럼 보여줍니다. 새로 받으면 파란색, 48시간 안에 만료되면 빨간색입니다.",
+            body:
+                "초기화권 개수를 수치 옆에 ↺1처럼 표시합니다. 처음 조회한 개수를 기준으로 이후 추가된 초기화권은 파란색입니다. 초기화권 행을 보고 닫으면 신규 표시가 꺼집니다. 만료 시각을 아는 초기화권이 48시간 이내에 만료되면 빨간색이 우선합니다.",
             action: .toggleResetCreditsInMenuBar, actionTitle: "메뉴바에 표시"),
         WhatsNewPage(
             version: "2.8.0", symbol: "person.2", title: "여러 계정",
             body:
                 "서비스별로 여러 계정의 사용량을 함께 볼 수 있습니다. Chrome 말고 Brave, Edge, Safari, Claude 앱의 로그인도 가져오고, 다른 폴더에 로그인해 둔 Claude Code나 Codex를 기본 로그인으로 바꿀 수 있습니다.",
             action: .openSettings(.claude), actionTitle: "계정 설정 열기"),
+        WhatsNewPage(
+            version: "2.8.2", symbol: "chart.bar", title: "메뉴바에 표시할 모델 선택",
+            body: "Fable과 Codex 모델별 한도를 메뉴바에 표시할 수 있습니다. 한도 표에서 숫자와 초기화 시간을 고르고, 게이지에는 같은 목록의 한도를 지정합니다.",
+            action: .openSettings(.claude), actionTitle: "Claude 설정 열기"),
     ]
 
     static func notesText(_ note: UpdateNotesQueue.Note) -> (version: String, title: String, text: String) {

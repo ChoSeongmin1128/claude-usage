@@ -87,18 +87,7 @@ extension SettingsView {
                     set: { settings.setProviderShowIcon($0, for: provider) })
             )
             .toggleStyle(.checkbox)
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: AppDesign.Space.section) {
-                    menuBarGaugeControls(for: provider, config: displayConfig).fixedSize(
-                        horizontal: true, vertical: false)
-                    menuBarTextControls(for: provider).fixedSize(
-                        horizontal: true, vertical: false)
-                }
-                VStack(alignment: .leading, spacing: AppDesign.Space.content) {
-                    menuBarGaugeControls(for: provider, config: displayConfig)
-                    menuBarTextControls(for: provider)
-                }
-            }
+            menuBarGaugeControls(for: provider, config: displayConfig)
         }
         .controlSize(.small)
     }
@@ -117,19 +106,27 @@ extension SettingsView {
                     ForEach(MenuBarStyle.allCases, id: \.rawValue) { Text($0.displayName).tag($0) }
                 }.labelsHidden()
             }
-            if config.style == .batteryBar || config.style == .circular {
-                GridRow {
-                    Text("표시할 한도")
-                    Picker(
-                        "게이지에 표시할 한도",
-                        selection: Binding(
+            if config.style != .none {
+                if providerUsageLimits(provider).isEmpty && config.quotaSelection == nil {
+                    GridRow {
+                        Text("게이지 한도")
+                        Picker(
+                            "게이지 한도",
+                            selection: Binding(
                             get: { settings.menuBarDisplayConfig(for: provider)?.iconMetric ?? .fiveHour },
-                            set: { settings.setProviderIconMetric($0, for: provider) })
-                    ) {
-                        ForEach(IconMetric.allCases, id: \.self) {
-                            Text(iconMetricDisplayName($0)).tag($0)
-                        }
-                    }.labelsHidden()
+                                set: { settings.setProviderIconMetric($0, for: provider) })
+                        ) {
+                            Text("5시간").tag(IconMetric.fiveHour)
+                            Text("주간").tag(IconMetric.weekly)
+                        }.labelsHidden()
+                    }
+                } else {
+                    gaugeQuotaRow(provider, index: 0, title: "첫 번째 게이지")
+                    if config.style == .dualBattery || config.style == .sideBySideBattery
+                        || config.style == .concentricRings
+                    {
+                        gaugeQuotaRow(provider, index: 1, title: "두 번째 게이지")
+                    }
                 }
             }
             if config.style == .batteryBar || config.style == .sideBySideBattery {
@@ -143,25 +140,6 @@ extension SettingsView {
                     )
                     .toggleStyle(.checkbox)
                 }
-            }
-        }
-        .font(AppDesign.Typography.subheadline)
-    }
-
-    private func menuBarTextControls(for provider: AppProviderKind) -> some View {
-        Grid(alignment: .leading, horizontalSpacing: AppDesign.Space.row, verticalSpacing: AppDesign.Space.row) {
-            GridRow {
-                Text("한도 초기화 시간")
-                Picker(
-                    "한도 초기화 시간",
-                    selection: Binding(
-                        get: { settings.menuBarDisplayConfig(for: provider)?.resetTimeDisplay ?? .none },
-                        set: { settings.setProviderResetTimeDisplay($0, for: provider) })
-                ) {
-                    ForEach(ResetTimeDisplay.allCases, id: \.self) {
-                        Text(resetTimeDisplayName($0)).tag($0)
-                    }
-                }.labelsHidden()
             }
         }
         .font(AppDesign.Typography.subheadline)
@@ -185,28 +163,6 @@ extension SettingsView {
                 secondaryColor: .secondaryLabelColor, icon: icon, appearance: appearance)
         }
         return MenuBarSettingsPreview(snapshot: snapshot)
-    }
-
-    private func resetTimeDisplayName(_ mode: ResetTimeDisplay) -> String {
-        switch mode {
-        case .none:
-            return "없음"
-        case .fiveHour:
-            return "5시간"
-        case .weekly:
-            return "주간"
-        case .dual:
-            return "둘 다"
-        }
-    }
-
-    private func iconMetricDisplayName(_ metric: IconMetric) -> String {
-        switch metric {
-        case .fiveHour:
-            return "5시간"
-        case .weekly:
-            return "주간"
-        }
     }
 
     @ViewBuilder
@@ -256,15 +212,6 @@ extension SettingsView {
                             .toggleStyle(.checkbox)
                         }
                     }
-                    GridRow {
-                        Text("텍스트")
-                        ViewThatFits(in: .horizontal) {
-                            HStack(spacing: AppDesign.Space.row) { antigravityTextToggles(display) }
-                            VStack(alignment: .leading, spacing: AppDesign.Space.row) {
-                                antigravityTextToggles(display)
-                            }
-                        }.toggleStyle(.checkbox)
-                    }
                 }
             } else {
                 Text("불러오는 중").foregroundStyle(.secondary)
@@ -272,12 +219,6 @@ extension SettingsView {
         }
         .font(AppDesign.Typography.subheadline)
         .controlSize(.small)
-    }
-
-    @ViewBuilder
-    private func antigravityTextToggles(_ display: AntigravityDisplaySettings) -> some View {
-        Toggle("게이지 옆 숫자", isOn: antigravityMenuBarBinding(display, keyPath: \.showsSelectedLanePercentage))
-        Toggle("한도 초기화 시간", isOn: antigravityMenuBarBinding(display, keyPath: \.showsSelectedLaneResetTime))
     }
 
     var antigravityObservedLanes:
@@ -289,7 +230,7 @@ extension SettingsView {
         else {
             return []
         }
-        return presentation.groups
+        return presentation.allGroups
             .flatMap(\.lanes)
     }
 

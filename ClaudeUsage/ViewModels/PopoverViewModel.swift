@@ -80,6 +80,10 @@ final class PopoverViewModel: ObservableObject {
     private let updateRuntimeState: UpdateRuntimeState
     private var cancellables = Set<AnyCancellable>()
 
+    @Published var resetCreditReceipts: [PopoverService: ResetCreditSeenReceipt] = [:]
+    @Published var resetCreditNewness: [PopoverService: Bool] = [:]
+    var onResetCreditVisible: ((ResetCreditSeenReceipt) -> Void)?
+
     var onRefreshService: ((PopoverService) -> Void)?
     var onOpenSettingsDestination: ((SettingsDestination) -> Void)?
     var onServiceSelected: ((PopoverService) -> Void)?

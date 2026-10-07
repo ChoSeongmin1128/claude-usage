@@ -9,12 +9,7 @@ extension SettingsView {
 
             settingsToggleRow("사용량 자동 확인", isOn: $settings.autoRefresh)
 
-            settingsToggleRow(
-                "로그인 시 자동 시작",
-                subtitle: settings.launchAtLoginRequiresApproval
-                    ? "시스템 설정 > 일반 > 로그인 항목에서 허용하세요" : nil,
-                isOn: $settings.launchAtLogin
-            )
+            LaunchAtLoginToggle(settings: settings)
         }
     }
 

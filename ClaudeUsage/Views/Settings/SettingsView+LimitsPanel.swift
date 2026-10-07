@@ -16,7 +16,7 @@ extension SettingsView {
             {
                 GridRow {
                     Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                    ForEach(["메뉴바 숫자", "알림"], id: \.self) { title in
+                    ForEach(["메뉴바 숫자", "초기화 시간", "알림"], id: \.self) { title in
                         Text(title)
                             .font(AppDesign.Typography.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
@@ -50,8 +50,11 @@ extension SettingsView {
                 .help("메뉴바에 초기화권 개수(↺)를 표시할 때")
                 .gridColumnAlignment(.center)
             } else {
-                limitsCell(menuBarBinding(row, provider: provider), help: "메뉴바에 숫자로 표시", row: row.title)
+                limitsCell(quotaNumberBinding(row, provider: provider), help: "메뉴바에 숫자로 표시", row: row.title)
+                    .disabled(quotaCellUnavailable(row, provider: provider, surface: .percentage))
             }
+            limitsCell(menuBarResetBinding(row, provider: provider), help: "메뉴바에 초기화 시간 표시", row: row.title)
+                .disabled(quotaCellUnavailable(row, provider: provider, surface: .reset))
             notificationCell(row, provider: provider)
         }
     }
@@ -106,10 +109,24 @@ extension SettingsView {
         let items =
             service == .codex
             ? CodexItemCatalog().settingsItems(from: storedItems, usage: codexUsage) : storedItems
-        return LimitSettingsTable.rows(
+        var rows = LimitSettingsTable.rows(
             service: service, popoverItems: items,
-            limits: notificationManager.inventories[service] ?? [], displayName: catalog.displayName(for:),
+            limits: providerUsageLimits(provider), displayName: catalog.displayName(for:),
             codexUsage: codexUsage)
+        let existing = Set(rows.compactMap(\.quotaID))
+        for limit in providerUsageLimits(provider) where !existing.contains(limit.id) {
+            rows.append(
+                LimitSettingsRow(
+                    id: limit.id, title: limit.title, quotaID: limit.id,
+                    notificationLimit: limit, takesNotification: true))
+        }
+        if let selection = settings.menuBarDisplayConfig(for: provider)?.quotaSelection {
+            let observed = Set(providerUsageLimits(provider).map(\.id))
+            for id in selection.selectedIDs.sorted() where !observed.contains(id) {
+                rows.append(LimitSettingsRow(id: id, title: "\(selection.titles[id] ?? "한도") (데이터 없음)", quotaID: id))
+            }
+        }
+        return rows
     }
 
     private func isNotificationSelected(_ limit: UsageLimit) -> Bool {
@@ -132,34 +149,5 @@ extension SettingsView {
             })
     }
 
-    private func menuBarBinding(_ row: LimitSettingsRow, provider: AppProviderKind) -> Binding<Bool>? {
-        if let laneID = row.laneID {
-            guard let display = antigravitySettings.state.display else { return nil }
-            let lane = AntigravityQuotaLaneID(rawValue: laneID)
-            return Binding(
-                get: { display.menuBar.effectiveAdditionalLaneIDs.contains(lane) },
-                set: { isOn in
-                    updateAntigravityDisplay {
-                        var ids = $0.menuBar.effectiveAdditionalLaneIDs
-                        ids.removeAll { $0 == lane }
-                        if isOn { ids.append(lane) }
-                        $0.menuBar.additionalLaneIDs = ids
-                    }
-                })
-        }
-        guard let slot = row.menuBarSlot, settings.menuBarDisplayConfig(for: provider) != nil else { return nil }
-        return Binding(
-            get: {
-                let current = settings.menuBarDisplayConfig(for: provider)?.percentageDisplay ?? .none
-                let usage = provider == .codex ? codexLastUsage?() : nil
-                return current.effectiveCodexSelection(usage: usage).contains(slot)
-            },
-            set: { isOn in
-                let current = settings.menuBarDisplayConfig(for: provider)?.percentageDisplay ?? .none
-                let usage = provider == .codex ? codexLastUsage?() : nil
-                let selected = current.effectiveCodexSelection(usage: usage)
-                settings.setProviderPercentageDisplay(selected.setting(slot, to: isOn), for: provider)
-            })
-    }
 
 }

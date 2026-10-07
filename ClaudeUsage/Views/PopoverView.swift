@@ -43,6 +43,13 @@ struct PopoverView: View {
                 popoverContent(layoutSpec: layout.spec, sections: layout.sections)
             }
         }
+        .coordinateSpace(name: ResetCreditVisibility.coordinateSpace)
+        .onPreferenceChange(ResetCreditVisibilityKey.self) { value in
+            let receipts = value.visibleReceipts
+            Task { @MainActor in
+                for receipt in receipts { viewModel.onResetCreditVisible?(receipt) }
+            }
+        }
         .environment(\.popoverAccountActions, viewModel.accountActions)
         .onAppear {
             normalizeSelectedServiceIfNeeded()
@@ -494,6 +501,7 @@ struct PopoverView: View {
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
                 .scrollIndicators(.never)
+                .modifier(ResetCreditViewport(compact: true))
 
             } else {
                 bodyContent(layoutSpec: layoutSpec, sections: sections)
@@ -523,6 +531,7 @@ struct PopoverView: View {
                     + PopoverLayoutMetrics.standardMainSectionBottomSpacing,
                 alignment: .top
             )
+            .modifier(ResetCreditViewport(compact: false))
         } else {
             standardMainSection(layoutSpec: layoutSpec, sections: sections)
                 .frame(maxWidth: .infinity, alignment: .topLeading)

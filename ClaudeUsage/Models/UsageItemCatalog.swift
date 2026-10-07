@@ -17,8 +17,8 @@ struct UsageItemContext {
     let codexError: APIError?
     var claudeOverageUpdatedAt: Date? = nil
     var claudeOverageIsStale = false
-    /// 팝오버를 열기 전에 이미 본 초기화권. 닫을 때 갱신하므로 열려 있는 동안은 신규 표시가 유지된다.
-    var seenResetCreditIDs: [PopoverService: Set<String>] = [:]
+    var resetCreditNewness: [PopoverService: Bool] = [:]
+    var resetCreditReceipts: [PopoverService: ResetCreditSeenReceipt] = [:]
 
     func resetCreditsSection(id: String, service: PopoverService, summary: ResetCreditSummary?)
         -> PopoverDisplaySection?
@@ -28,7 +28,8 @@ struct UsageItemContext {
             id: id, kind: .resetCredits, importance: .primary,
             payload: .resetCredits(
                 PopoverResetCreditsSectionData(
-                    summary: summary, isNew: summary.hasNewItems(seen: seenResetCreditIDs[service] ?? []))))
+                    summary: summary, isNew: resetCreditNewness[service] ?? false, receipt: resetCreditReceipts[service]
+                )))
     }
 }
 

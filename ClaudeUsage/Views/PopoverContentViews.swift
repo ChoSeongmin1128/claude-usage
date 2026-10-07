@@ -133,8 +133,10 @@ struct PopoverDisplaySectionView: View {
         case .resetCredits(let resetCredits):
             if density.isCompact {
                 CompactResetCreditsRow(data: resetCredits)
+                    .modifier(ResetCreditRowVisibility(compact: true, receipt: resetCredits.receipt))
             } else {
                 ResetCreditsView(data: resetCredits)
+                    .modifier(ResetCreditRowVisibility(compact: false, receipt: resetCredits.receipt))
             }
         case .overage(let overage):
             if density.isCompact {
@@ -453,7 +455,7 @@ struct ResetCreditsView: View {
             ResetCreditCountText(summary: summary, expiring: expiring, compact: false, isNew: data.isNew)
         } detail: {
             if summary.availableCount > 0 {
-                Text(summary.expiryText() ?? "만료 미확인")
+                Text(summary.expirationDescription())
                     .font(AppDesign.Typography.caption)
                     .foregroundStyle(expiring ? Color.red : .secondary)
                     .lineLimit(1)
@@ -481,11 +483,12 @@ struct CompactResetCreditsRow: View {
                     .minimumScaleFactor(0.85)
                     .truncationMode(.tail)
                 if summary.availableCount > 0 {
-                    let expiry = summary.expiryText()?.replacingOccurrences(of: " 뒤 만료", with: "") ?? "만료 미확인"
+                    let expiry = summary.expirationDescription().replacingOccurrences(of: " 뒤 만료", with: "")
                     Text("· " + expiry)
                         .font(AppDesign.Typography.metadata)
                         .foregroundStyle(expiring ? Color.red : .secondary)
-                        .fixedSize(horizontal: true, vertical: false)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
             }
         } middle: {
@@ -528,7 +531,7 @@ private enum ResetCreditDisplayDescription {
             parts.append(summary.scopeText)
             if data.isNew { parts.append("신규") }
             if summary.isExpiringSoon() { parts.append("곧 만료") }
-            parts.append(summary.expiryText() ?? "만료 시각 미확인")
+            parts.append(summary.expirationDescription())
             if summary.atLimit { parts.append("쓰면 한도가 다시 채워집니다") }
         }
         return parts.joined(separator: ", ")

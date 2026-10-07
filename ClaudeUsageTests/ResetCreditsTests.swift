@@ -51,7 +51,7 @@ final class ResetCreditsTests: XCTestCase {
                 now: now))
         XCTAssertEqual(usedUp.availableCount, 0)
         XCTAssertTrue(usedUp.atLimit)
-        XCTAssertNil(MenuBarResetCreditBadge.resolve(summary: usedUp, seen: [], mode: .always, now: now))
+        XCTAssertNil(MenuBarResetCreditBadge.resolve(summary: usedUp, isNew: true, mode: .always, now: now))
     }
 
     func testFiveHourOnlyScope() throws {
@@ -67,7 +67,8 @@ final class ResetCreditsTests: XCTestCase {
         usage.resetCredits = CodexResetCreditsResponse(credits: [], availableCountField: 2)
         let summary = try XCTUnwrap(ResetCreditSummary.codex(usage, now: now))
         XCTAssertEqual(summary.availableCount, 2)
-        XCTAssertEqual(summary.items.map(\.id), ["codex-count-2"])
+        XCTAssertTrue(summary.items.isEmpty)
+        XCTAssertEqual(summary.expirationDescription(now: now), "만료 정보 없음")
 
         usage.resetCredits = CodexResetCreditsResponse(credits: [], availableCountField: 0)
         XCTAssertNil(ResetCreditSummary.codex(usage, now: now))
@@ -81,15 +82,17 @@ final class ResetCreditsTests: XCTestCase {
             items: [.init(id: "g", serverTitle: nil, scope: .all, expiresAt: now.addingTimeInterval(3600))],
             availableCount: 1, atLimit: false)
 
-        XCTAssertEqual(MenuBarResetCreditBadge.resolve(summary: summary, seen: [], mode: .always, now: now)?.tone, .new)
         XCTAssertEqual(
-            MenuBarResetCreditBadge.resolve(summary: summary, seen: ["g"], mode: .always, now: now)?.tone, .normal)
-        XCTAssertNil(MenuBarResetCreditBadge.resolve(summary: summary, seen: ["g"], mode: .newOrExpiring, now: now))
+            MenuBarResetCreditBadge.resolve(summary: summary, isNew: true, mode: .always, now: now)?.tone, .new)
         XCTAssertEqual(
-            MenuBarResetCreditBadge.resolve(summary: expiring, seen: [], mode: .newOrExpiring, now: now)?.tone,
+            MenuBarResetCreditBadge.resolve(summary: summary, isNew: false, mode: .always, now: now)?.tone, .normal)
+        XCTAssertNil(MenuBarResetCreditBadge.resolve(summary: summary, isNew: false, mode: .newOrExpiring, now: now))
+        XCTAssertEqual(
+            MenuBarResetCreditBadge.resolve(summary: expiring, isNew: true, mode: .newOrExpiring, now: now)?.tone,
             .expiring)
-        XCTAssertNil(MenuBarResetCreditBadge.resolve(summary: expiring, seen: [], mode: .off, now: now))
-        XCTAssertEqual(MenuBarResetCreditBadge.resolve(summary: summary, seen: [], mode: .always, now: now)?.text, "↺1")
+        XCTAssertNil(MenuBarResetCreditBadge.resolve(summary: expiring, isNew: true, mode: .off, now: now))
+        XCTAssertEqual(
+            MenuBarResetCreditBadge.resolve(summary: summary, isNew: true, mode: .always, now: now)?.text, "↺1")
     }
 
     func testSeenStoreKeepsCurrentIDsPerService() throws {
@@ -99,8 +102,14 @@ final class ResetCreditsTests: XCTestCase {
         let summary = ResetCreditSummary(
             items: [.init(id: "g", serverTitle: nil, scope: .all, expiresAt: nil)], availableCount: 1, atLimit: false)
 
-        ResetCreditSeenStore.markSeen(summary, service: .claude, defaults: defaults)
-        XCTAssertEqual(ResetCreditSeenStore.seen(.claude, defaults: defaults), ["g"])
-        XCTAssertEqual(ResetCreditSeenStore.seen(.codex, defaults: defaults), [])
+        ResetCreditSeenStore.observe(summary: summary, count: 1, accountKey: "claude/a", defaults: defaults)
+        XCTAssertFalse(ResetCreditSeenStore.isNew(accountKey: "claude/a", defaults: defaults))
+        ResetCreditSeenStore.observe(summary: summary, count: 2, accountKey: "claude/a", defaults: defaults)
+        XCTAssertTrue(ResetCreditSeenStore.isNew(accountKey: "claude/a", defaults: defaults))
+        let receipt = try XCTUnwrap(
+            ResetCreditSeenStore.receipt(service: .claude, accountKey: "claude/a", defaults: defaults))
+        ResetCreditSeenStore.markSeen(receipt, defaults: defaults)
+        XCTAssertFalse(ResetCreditSeenStore.isNew(accountKey: "claude/a", defaults: defaults))
+        XCTAssertNil(ResetCreditSeenStore.receipt(service: .codex, accountKey: "codex/a", defaults: defaults))
     }
 }

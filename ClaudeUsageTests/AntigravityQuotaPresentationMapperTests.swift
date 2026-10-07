@@ -912,3 +912,26 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
         )
     }
 }
+
+extension AntigravityQuotaPresentationMapperTests {
+    func testExplicitMenuBarNumbersAndResetAreIndependentOfGaugeAndPopoverHiding() throws {
+        let flash = makeLane(
+            id: "flash.weekly", scope: .unknown(id: "flash", label: "Gemini Flash"), cadence: .weekly, remaining: 0.7)
+        let pro = makeLane(
+            id: "pro.weekly", scope: .unknown(id: "pro", label: "Gemini Pro"), cadence: .weekly, remaining: 0.2,
+            resetAt: now.addingTimeInterval(3600))
+        var settings = AntigravityDisplaySettings.default
+        settings.menuBar.laneSelection = .fixed(flash.id)
+        settings.menuBar.percentageLaneIDs = [flash.id]
+        settings.menuBar.resetLaneIDs = [pro.id]
+        settings.standard.hiddenLaneIDs = [pro.id]
+        let presentation = AntigravityQuotaPresentationMapper.map(
+            snapshot: makeSnapshot(lanes: [flash, pro], fetchedAt: now), settings: settings, now: now, timeZone: utc)
+        XCTAssertEqual(presentation.menuBar.selectedLaneID, flash.id)
+        XCTAssertTrue(presentation.menuBar.regularText?.contains("Gemini Flash") == true)
+        XCTAssertTrue(presentation.menuBar.regularText?.contains("Gemini Pro") == true)
+        XCTAssertFalse(presentation.menuBar.regularText?.contains("80%") == true)
+        let data = try JSONEncoder().encode(settings)
+        XCTAssertEqual(try JSONDecoder().decode(AntigravityDisplaySettings.self, from: data), settings)
+    }
+}

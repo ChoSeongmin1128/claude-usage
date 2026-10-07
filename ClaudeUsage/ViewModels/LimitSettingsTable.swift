@@ -9,6 +9,7 @@ nonisolated struct LimitSettingsRow: Identifiable, Equatable, Sendable {
     let id: String
     let title: String
     var isChild = false
+    var quotaID: String?
     var menuBarSlot: LimitMenuBarSlot?
     var laneID: String?
     var notificationLimit: UsageLimit?
@@ -30,13 +31,14 @@ nonisolated enum LimitSettingsTable {
                 -> LimitSettingsRow
             {
                 LimitSettingsRow(
-                    id: item.id, title: title, menuBarSlot: slot, notificationLimit: limit,
+                    id: item.id, title: title, quotaID: limit?.id, menuBarSlot: slot, notificationLimit: limit,
                     takesNotification: takes)
             }
             func children(_ matches: (UsageLimit) -> Bool) -> [LimitSettingsRow] {
                 limits.filter(matches).map {
                     LimitSettingsRow(
-                        id: "\(item.id)/\($0.id)", title: $0.title, isChild: true, notificationLimit: $0,
+                        id: "\(item.id)/\($0.id)", title: $0.title, isChild: true, quotaID: $0.id,
+                        notificationLimit: $0,
                         takesNotification: true)
                 }
             }

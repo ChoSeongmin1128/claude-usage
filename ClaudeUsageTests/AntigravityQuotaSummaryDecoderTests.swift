@@ -831,3 +831,19 @@ final class AntigravityQuotaSummaryDecoderTests: XCTestCase {
         """
     }
 }
+
+extension AntigravityQuotaSummaryDecoderTests {
+    func testIndividualModelGroupsKeepNamesAndDistinctIDsInsteadOfSharedGeminiAlias() throws {
+        let json =
+            #"{"groups":[{"groupId":"gemini-3-flash","displayName":"Gemini 3 Flash","buckets":[{"bucketId":"weekly","window":"weekly","remainingFraction":0.7}]},{"groupId":"gemini-3-pro","displayName":"Gemini 3 Pro","buckets":[{"bucketId":"weekly","window":"weekly","remainingFraction":0.2}]}]}"#
+        let result = try AntigravityQuotaSummaryDecoder.decode(Data(json.utf8))
+        XCTAssertEqual(Set(result.lanes.map(\.id)).count, 2)
+        XCTAssertFalse(result.lanes.contains { $0.id == .geminiWeekly })
+        XCTAssertEqual(
+            result.lanes.map(\.scope),
+            [
+                .unknown(id: "gemini-3-flash", label: "Gemini 3 Flash"),
+                .unknown(id: "gemini-3-pro", label: "Gemini 3 Pro"),
+            ])
+    }
+}

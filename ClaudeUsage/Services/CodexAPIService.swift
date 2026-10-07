@@ -1,8 +1,9 @@
 import Foundation
 
 nonisolated struct CodexUsageSnapshot: Sendable {
-    let usage: CodexUsageResponse
+    var usage: CodexUsageResponse
     let credential: CodexCredentialSnapshot
+    var revision: Int = 0
 }
 
 nonisolated struct CodexUsageFailure: Error, Sendable, CustomStringConvertible {
@@ -19,39 +20,107 @@ actor CodexAPIService {
         let task: Task<Void, Never>
         var waiters: [UUID: CheckedContinuation<CodexUsageSnapshot, Error>]
     }
-    private var flights: [UUID: Flight] = [:]
+    private enum Channel: Hashable, Sendable { case usage, resetCredits }
+    private struct RequestKey: Hashable, Sendable {
+        let generation: UUID
+        let channel: Channel
+    }
+    private struct ResetCreditCache {
+        let generation: UUID
+        let response: CodexResetCreditsResponse
+        let updatedAt: Date
+        var needsRetry = false
+    }
+    private var flights: [RequestKey: Flight] = [:]
     private var retiring: [UUID: Task<Void, Never>] = [:]
     private var ownerRecovery: (id: UUID, task: Task<Void, Error>)?
-    private var cachedResetCredits: (accountID: String, value: CodexResetCreditsResponse?, lastAttemptAt: Date)?
+    private var cachedResetCredits: ResetCreditCache?
+    private var usageRevision = 0
+    private var lastResetCount: (generation: UUID, count: Int, revision: Int)?
     private static let resetCreditsRefreshInterval: TimeInterval = 300
     private var stopping = false
     private let baseURL: URL
     private let urlSession: URLSession
     private let authManager: CodexAuthManager
     private let owner: any CodexOwnerRefreshing
+    private let now: @Sendable () -> Date
 
     init(
         baseURL: URL = URL(string: "https://chatgpt.com/backend-api")!,
         urlSession: URLSession = .shared,
         authManager: CodexAuthManager,
-        owner: any CodexOwnerRefreshing = CodexOwnerCLI()
+        owner: any CodexOwnerRefreshing = CodexOwnerCLI(),
+        now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.baseURL = baseURL
         self.urlSession = urlSession
         self.authManager = authManager
         self.owner = owner
+        self.now = now
     }
 
     func fetchUsage(
         snapshot: CodexCredentialSnapshot? = nil,
         budget: CodexRequestBudget = CodexRequestBudget()
     ) async throws -> CodexUsageSnapshot {
+        let credential = try await snapshotOrLoad(snapshot)
+        return try await fetch(credential, channel: .usage, budget: budget, base: nil)
+    }
+
+    func fetchResetCreditDetails(
+        for base: CodexUsageSnapshot, force: Bool = false,
+        budget: CodexRequestBudget = CodexRequestBudget(timeout: 10)
+    ) async throws -> CodexUsageSnapshot {
+        try await authManager.validate(base.credential)
+        let started = ContinuousClock.now
+        do {
+            try budget.check()
+            guard !stopping else { throw CancellationError() }
+            var base = base
+            applyLatestCount(to: &base)
+            if base.usage.resetCreditMetadata?.countIsCurrent != false,
+                base.usage.resetCredits?.availableCountField == 0
+            {
+                return base
+            }
+            if !force, base.usage.resetCreditMetadata?.countIsCurrent != false,
+                let cached = usableCache(for: base.usage, credential: base.credential),
+                now().timeIntervalSince(cached.updatedAt) < Self.resetCreditsRefreshInterval,
+                !cached.needsRetry && cached.response.hasCompleteDetails
+            {
+                var result = base
+                result.usage.resetCredits = cached.response
+                result.usage.resetCreditMetadata = .init(status: .cached, updatedAt: cached.updatedAt)
+                return result
+            }
+            let result = try await fetch(base.credential, channel: .resetCredits, budget: budget, base: base)
+            try await authManager.validate(base.credential)
+            try Task.checkCancellation()
+            var merged = base
+            merged.usage.resetCredits = result.usage.resetCredits
+            merged.usage.resetCreditMetadata = result.usage.resetCreditMetadata
+            merged.revision = result.revision
+            applyLatestCount(to: &merged)
+            return merged
+        } catch let error as APIError {
+            return try await resetCreditFailure(for: base, error: error, started: started)
+        }
+    }
+
+    private func snapshotOrLoad(_ snapshot: CodexCredentialSnapshot?) async throws -> CodexCredentialSnapshot {
         guard !stopping else { throw CancellationError() }
-        let credential: CodexCredentialSnapshot
-        if let snapshot { credential = snapshot } else { credential = try await authManager.loadSnapshot() }
+        if let snapshot { return snapshot }
+        return try await authManager.loadSnapshot()
+    }
+
+    private func fetch(
+        _ credential: CodexCredentialSnapshot, channel: Channel, budget: CodexRequestBudget,
+        base: CodexUsageSnapshot?
+    ) async throws -> CodexUsageSnapshot {
         try budget.check()
         try await authManager.validate(credential)
         guard !stopping else { throw CancellationError() }
+        let key = RequestKey(generation: credential.generation, channel: channel)
         let waiterID = UUID()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -59,42 +128,46 @@ actor CodexAPIService {
                     continuation.resume(throwing: CancellationError())
                     return
                 }
-                if var flight = flights[credential.generation] {
+                if var flight = flights[key] {
                     flight.waiters[waiterID] = continuation
-                    flights[credential.generation] = flight
+                    flights[key] = flight
                 } else {
                     let flightID = UUID()
                     let task = Task {
                         let result: Result<CodexUsageSnapshot, Error>
-                        do { result = .success(try await performFetch(credential, budget: budget)) } catch {
-                            result = .failure(error)
-                        }
-                        finish(credential.generation, id: flightID, result: result)
+                        do {
+                            if let base {
+                                result = .success(try await performResetCreditFetch(base, budget: budget))
+                            } else {
+                                result = .success(try await performFetch(credential, budget: budget))
+                            }
+                        } catch { result = .failure(error) }
+                        finish(key, id: flightID, result: result)
                     }
-                    flights[credential.generation] = Flight(id: flightID, task: task, waiters: [waiterID: continuation])
+                    flights[key] = Flight(id: flightID, task: task, waiters: [waiterID: continuation])
                 }
             }
         } onCancel: {
-            Task { await self.cancelWaiter(waiterID, generation: credential.generation) }
+            Task { await self.cancelWaiter(waiterID, key: key) }
         }
     }
 
-    private func finish(_ generation: UUID, id: UUID, result: Result<CodexUsageSnapshot, Error>) {
+    private func finish(_ key: RequestKey, id: UUID, result: Result<CodexUsageSnapshot, Error>) {
         retiring.removeValue(forKey: id)
-        guard flights[generation]?.id == id else { return }
-        guard let flight = flights.removeValue(forKey: generation) else { return }
+        guard flights[key]?.id == id else { return }
+        guard let flight = flights.removeValue(forKey: key) else { return }
         for waiter in flight.waiters.values { waiter.resume(with: result) }
     }
 
-    private func cancelWaiter(_ id: UUID, generation: UUID) {
-        guard var flight = flights[generation], let waiter = flight.waiters.removeValue(forKey: id) else { return }
+    private func cancelWaiter(_ id: UUID, key: RequestKey) {
+        guard var flight = flights[key], let waiter = flight.waiters.removeValue(forKey: id) else { return }
         waiter.resume(throwing: CancellationError())
         if flight.waiters.isEmpty {
-            flights.removeValue(forKey: generation)
+            flights.removeValue(forKey: key)
             retiring[flight.id] = flight.task
             flight.task.cancel()
         } else {
-            flights[generation] = flight
+            flights[key] = flight
         }
     }
 
@@ -130,9 +203,26 @@ actor CodexAPIService {
                     var usage = try await usageRequest(credential, budget: budget)
                     try await authManager.validate(credential)
                     try budget.check()
-                    usage.resetCredits = try await resetCredits(
-                        credential, usageSummary: usage.resetCredits, budget: budget)
-                    return CodexUsageSnapshot(usage: usage, credential: credential)
+                    usageRevision += 1
+                    let countIsCurrent = usage.resetCredits?.availableCountField != nil
+                    if let count = usage.resetCredits?.availableCountField {
+                        lastResetCount = (credential.generation, count, usageRevision)
+                        if cachedResetCredits?.response.availableCountField != count { cachedResetCredits = nil }
+                    } else if let known = lastResetCount, known.generation == credential.generation {
+                        usage.resetCredits = CodexResetCreditsResponse(credits: [], availableCountField: known.count)
+                    }
+                    if let cached = usableCache(for: usage, credential: credential) {
+                        usage.resetCredits = cached.response
+                        let fresh =
+                            now().timeIntervalSince(cached.updatedAt) < Self.resetCreditsRefreshInterval
+                            && !cached.needsRetry && cached.response.hasCompleteDetails
+                        usage.resetCreditMetadata = .init(
+                            status: fresh && countIsCurrent ? .cached : .loading, updatedAt: cached.updatedAt,
+                            countIsCurrent: countIsCurrent)
+                    } else {
+                        usage.resetCreditMetadata = .init(status: .loading, countIsCurrent: countIsCurrent)
+                    }
+                    return CodexUsageSnapshot(usage: usage, credential: credential, revision: usageRevision)
                 } catch APIError.invalidSessionKey {
                     guard !recovered else {
                         throw APIError.codexReauthRequired(reason: "usage_unauthorized_after_recovery")
@@ -228,7 +318,7 @@ actor CodexAPIService {
         _ path: String, credential: CodexCredentialSnapshot, budget: CodexRequestBudget, timeout: TimeInterval
     ) throws -> URLRequest {
         try budget.check()
-        var request = URLRequest(url: baseURL.appendingPathComponent(path))
+        var request = URLRequest(url: baseURL.appendingPathComponent(path), cachePolicy: .reloadIgnoringLocalCacheData)
         request.httpMethod = "GET"
         request.timeoutInterval = min(timeout, budget.remaining)
         request.setValue("Bearer \(credential.token.accessToken)", forHTTPHeaderField: "Authorization")
@@ -248,11 +338,15 @@ actor CodexAPIService {
                 let response: URLResponse
                 do { (data, response) = try await urlSession.data(for: request) } catch {
                     if Task.isCancelled || (error as? URLError)?.code == .cancelled { throw CancellationError() }
+                    if (error as? URLError)?.code == .timedOut {
+                        throw APIError.codexTokenRefreshTemporary(reason: "request_timed_out")
+                    }
                     throw APIError.networkError("codex_connection_failed")
                 }
                 guard let response = response as? HTTPURLResponse else { throw APIError.parseError }
-                if response.statusCode == 401 || response.statusCode == 403 { throw APIError.invalidSessionKey }
-                guard (200...299).contains(response.statusCode) else { throw APIError.serverError(response.statusCode) }
+                guard (200...299).contains(response.statusCode) else {
+                    throw CodexHTTPFailure(status: response.statusCode)
+                }
                 guard data.count <= 2_097_152 else { throw APIError.parseError }
                 return data
             }
@@ -268,8 +362,13 @@ actor CodexAPIService {
     private func usageRequest(_ credential: CodexCredentialSnapshot, budget: CodexRequestBudget) async throws
         -> CodexUsageResponse
     {
-        let bytes = try await data(
-            for: request("wham/usage", credential: credential, budget: budget, timeout: 30), budget: budget)
+        let bytes: Data
+        do {
+            bytes = try await data(
+                for: request("wham/usage", credential: credential, budget: budget, timeout: 30), budget: budget)
+        } catch let failure as CodexHTTPFailure {
+            throw failure.apiError
+        }
         let usage: CodexUsageResponse
         do { usage = try JSONDecoder().decode(CodexUsageResponse.self, from: bytes) } catch {
             throw APIError.parseError
@@ -285,40 +384,93 @@ actor CodexAPIService {
         return usage
     }
 
-    /// Optional enrichment from the CLI that owns the auth file. It runs after the usage
-    /// response is validated, at most every five minutes, and never during an owner refresh.
-    private func resetCredits(
-        _ credential: CodexCredentialSnapshot, usageSummary: CodexResetCreditsResponse?, budget: CodexRequestBudget
-    ) async throws -> CodexResetCreditsResponse? {
-        guard let accountID = credential.token.accountID, !accountID.isEmpty else { return usageSummary }
-        let cached = cachedResetCredits.flatMap { $0.accountID == accountID ? $0 : nil }
-        let previous = cached?.value
-        let fallback: CodexResetCreditsResponse?
-        if let usageSummary, usageSummary.availableCountField != previous?.availableCountField {
-            fallback = usageSummary
-        } else {
-            fallback = previous ?? usageSummary
+    private func usableCache(for usage: CodexUsageResponse, credential: CodexCredentialSnapshot) -> ResetCreditCache? {
+        guard let cached = cachedResetCredits, cached.generation == credential.generation else { return nil }
+        if let count = usage.resetCredits?.availableCountField, count != cached.response.availableCountField {
+            return nil
         }
-        if let cached {
-            cachedResetCredits = (accountID, fallback, cached.lastAttemptAt)
-            if Date().timeIntervalSince(cached.lastAttemptAt) < Self.resetCreditsRefreshInterval {
-                return fallback
-            }
-        }
-        guard ownerRecovery == nil else { return fallback }
+        return cached
+    }
+
+    /// A supplementary response must not replace a count confirmed by a later usage request.
+    private func applyLatestCount(to snapshot: inout CodexUsageSnapshot) {
+        guard let known = lastResetCount, known.generation == snapshot.credential.generation,
+            known.revision > snapshot.revision,
+            known.count != snapshot.usage.resetCredits?.availableCountField
+        else { return }
+        snapshot.usage.resetCredits = CodexResetCreditsResponse(credits: [], availableCountField: known.count)
+        snapshot.usage.resetCreditMetadata = .init(status: .partial)
+        snapshot.revision = known.revision
+    }
+
+    private func performResetCreditFetch(_ base: CodexUsageSnapshot, budget: CodexRequestBudget) async throws
+        -> CodexUsageSnapshot
+    {
+        let started = ContinuousClock.now
+        var result = base
         do {
-            let details = try await owner.readResetCredits(
-                sourceURL: credential.sourceURL, expectedAccountID: accountID, budget: budget)
-            let value = details ?? fallback
-            cachedResetCredits = (accountID, value, Date())
-            return value
-        } catch is CancellationError {
-            throw CancellationError()
+            try await authManager.validate(base.credential)
+            let bytes = try await data(
+                for: request(
+                    "wham/rate-limit-reset-credits", credential: base.credential,
+                    budget: budget, timeout: 10), budget: budget)
+            let response = try JSONDecoder().decode(CodexResetCreditsResponse.self, from: bytes)
+            guard let count = response.availableCountField, count >= 0 else { throw APIError.parseError }
+            if let account = response.accountID, account != base.credential.token.accountID {
+                throw CodexCredentialError.changed
+            }
+            try await authManager.validate(base.credential)
+            try budget.check()
+            let checkedAt = now()
+            if let newer = lastResetCount, newer.generation == base.credential.generation,
+                newer.revision > base.revision, newer.count != count
+            {
+                result.usage.resetCredits = CodexResetCreditsResponse(credits: [], availableCountField: newer.count)
+                result.usage.resetCreditMetadata = .init(status: .partial)
+                result.revision = newer.revision
+                OperationalLog.record(.codexResetCredits(.init(status: .partial)), elapsed: started.duration(to: .now))
+                return result
+            }
+            let previousRevision =
+                lastResetCount?.generation == base.credential.generation ? lastResetCount?.revision ?? 0 : 0
+            let revision = max(base.revision, previousRevision)
+            lastResetCount = (base.credential.generation, count, revision)
+            cachedResetCredits = ResetCreditCache(
+                generation: base.credential.generation, response: response,
+                updatedAt: checkedAt)
+            result.usage.resetCredits = response
+            let metadata = CodexResetCreditMetadata(
+                status: response.hasCompleteDetails ? .fresh : .partial, updatedAt: checkedAt)
+            result.usage.resetCreditMetadata = metadata
+            result.revision = revision
+            OperationalLog.record(.codexResetCredits(metadata), elapsed: started.duration(to: .now))
+            return result
+        } catch is CancellationError { throw CancellationError() } catch CodexCredentialError.changed {
+            OperationalLog.record(.codexResetCreditAccountChanged, elapsed: started.duration(to: .now))
+            throw CodexCredentialError.changed
         } catch {
-            // Neither raw responses nor server error strings are logged. The attempt time is kept so a
-            // failing CLI is not run on every refresh.
-            cachedResetCredits = (accountID, fallback, Date())
-            return fallback
+            return try await resetCreditFailure(for: base, error: error, started: started)
         }
+    }
+
+    private func resetCreditFailure(
+        for base: CodexUsageSnapshot, error: Error, started: ContinuousClock.Instant
+    ) async throws -> CodexUsageSnapshot {
+        var result = base
+        do { try await authManager.validate(base.credential) } catch {
+            OperationalLog.record(.codexResetCreditAccountChanged, elapsed: started.duration(to: .now))
+            throw error
+        }
+        try Task.checkCancellation()
+        let reason = CodexResetCreditFailure.classify(error)
+        let cached = usableCache(for: base.usage, credential: base.credential)
+        if let cached { result.usage.resetCredits = cached.response; cachedResetCredits?.needsRetry = true }
+        let metadata = CodexResetCreditMetadata(
+            status: .failed(reason), updatedAt: cached?.updatedAt,
+            countIsCurrent: base.usage.resetCreditMetadata?.countIsCurrent ?? true)
+        result.usage.resetCreditMetadata = metadata
+        applyLatestCount(to: &result)
+        OperationalLog.record(.codexResetCredits(metadata), elapsed: started.duration(to: .now))
+        return result
     }
 }

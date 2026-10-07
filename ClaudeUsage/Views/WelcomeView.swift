@@ -64,7 +64,7 @@ struct WelcomeView<Display: View>: View {
                         .pickerStyle(.segmented)
                         display
                     }
-                    Toggle("로그인 시 자동 시작", isOn: $settings.launchAtLogin)
+                    LaunchAtLoginToggle(settings: settings)
                     Text("메뉴바 아이콘을 누르면 사용량이 나옵니다.")
                         .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
                 }

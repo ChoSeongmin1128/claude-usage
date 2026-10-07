@@ -4,6 +4,7 @@ extension AppDelegate {
     // MARK: - Popover
 
     func setupPopovers() {
+        popoverViewModel.onResetCreditVisible = { [weak self] receipt in self?.recordVisibleResetCredits(receipt) }
         popoverCoordinator.configure(
             initialService: resolvedPopoverService(),
             onRefreshService: { [weak self] service in
@@ -84,6 +85,13 @@ extension AppDelegate {
     }
 
     func updatePopoverViewModel() {
+        observeResetCredits()
+        for service in [PopoverService.claude, .codex] {
+            let key = resetCreditAccountKey(for: service)
+            popoverViewModel.resetCreditReceipts[service] = ResetCreditSeenStore.receipt(
+                service: service, accountKey: key)
+            popoverViewModel.resetCreditNewness[service] = ResetCreditSeenStore.isNew(accountKey: key)
+        }
         popoverViewModel.update(
             snapshots: runtimeProviderSnapshots(),
             setupPresentation: claudeSetupPresentation
@@ -121,7 +129,6 @@ extension AppDelegate {
     }
 
     func refreshServiceIfNeededOnTabSwitch(_ service: PopoverService) {
-        resetCreditViewedServices.insert(service)
         usageAccountsController.refreshIfNeeded()
         guard let action = RefreshOrchestration.actionForTabSwitch(
                 state: runtimePresentationState(for: service)

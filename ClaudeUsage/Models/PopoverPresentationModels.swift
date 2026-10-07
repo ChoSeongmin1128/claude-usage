@@ -128,6 +128,7 @@ struct PopoverCreditsSectionData {
 struct PopoverResetCreditsSectionData {
     let summary: ResetCreditSummary
     let isNew: Bool
+    var receipt: ResetCreditSeenReceipt? = nil
 }
 
 struct PopoverOverageSectionData {
