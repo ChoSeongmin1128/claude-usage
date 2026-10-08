@@ -4,24 +4,23 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>ClaudeUsage-stg</title>
         <item>
-            <title>Version 2.9.0-stg.1</title>
-            <pubDate>Thu, 08 Oct 2026 16:59:31 +0900</pubDate>
-            <sparkle:version>20643</sparkle:version>
-            <sparkle:shortVersionString>2.9.0-stg.1</sparkle:shortVersionString>
+            <title>Version 2.9.1-stg.1</title>
+            <pubDate>Thu, 08 Oct 2026 23:36:30 +0900</pubDate>
+            <sparkle:version>20644</sparkle:version>
+            <sparkle:shortVersionString>2.9.1-stg.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.9.0-stg.1/ClaudeUsage.dmg" length="6905252" type="application/octet-stream" sparkle:edSignature="ry+xSDK8cL6KQchgeBSFSQvaa5nOuldJXDAehJYhaU7i7qUeV02rFgN1edBF2xa/8oGnlU/EMDZDiMItL9JzAQ=="></enclosure>
-            <description sparkle:format="plain-text"># 2.9.0
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.9.1-stg.1/ClaudeUsage.dmg" length="6937360" type="application/octet-stream" sparkle:edSignature="QVddqFLDw0xYspdogY+xU8X7vlG42FQUC3XFW5I6WNaiHNzTpSrTdLkWCuhXGs55D2ObjrrEXiNiH3ZvKuqpBw=="></enclosure>
+            <description sparkle:format="plain-text"># 2.9.1
 
-- 메뉴바 게이지를 세 개 이상 표시할 수 있습니다. Claude의 Fable, Codex 추가 모델, Antigravity에서 조회된 한도도 고를 수 있습니다.
-- 서비스 설정의 한도 표에서 게이지를 체크하고, 바로 아래 목록에서 순서를 바꿉니다. 숫자와 초기화 시간은 각각 따로 고릅니다.
-- 배터리 또는 원형을 선택할 수 있으며, 세 개 이상은 한도 이름을 붙여 가로로 표시합니다. 많이 선택하면 다른 메뉴바 항목이 가려질 수 있습니다.
-- 기존 한 개/두 개 게이지의 크기, 배치와 선택은 유지합니다. Claude/Codex의 두 개 게이지는 겹쳐 보기와 나란히 보기 중에서 고를 수 있습니다.
-- 선택한 한도가 응답에 빠져도 자리를 유지합니다. 다른 한도나 0%로 대신 표시하지 않습니다.
+- 게이지가 세 개 이상일 때 한도 이름이 자동으로 붙던 동작을 수정했습니다. 이름은 기본으로 숨기며, 서비스 설정에서 "게이지 이름 표시"를 켜면 볼 수 있습니다.
+- 메뉴바에 표시할 한도 선택과 순서 변경을 "메뉴바 표시"에 모았습니다. 한도를 체크하고 옆의 화살표로 순서를 바꿀 수 있습니다.
+- 숫자와 초기화 시간 선택도 같은 영역에 모았습니다. 기존 선택은 유지됩니다.
+- 새 기능 안내에서 해당 메뉴바 설정으로 바로 이동합니다.
 </description>
-            <claudeusage:zipSHA256>5aa47fac621c0d2026d7537f82cf001137aa471e156cc92422af062eb0f1df7f</claudeusage:zipSHA256>
+            <claudeusage:zipSHA256>7be1d9d4640852d8afec0b8bd9b9c61eda5b5fd7e8a37a174abfc5e296bb8c59</claudeusage:zipSHA256>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: uEqM+xpAIMkKR+rO+uawOtTbR7g5R0TZ8ffDZYa6qfJx1KzwVY3nhC1krPfwJDgPVyN9EiLQfyAoVq2R2fSEAA==
-length: 2236
+edSignature: CgwOWEnAIbUWPDlY+JErc7iWs/hg/bFcL1qptg4Z+9axz5OfCfeefcuva4O263f4W8N22B4FYTXu60j75SpCDA==
+length: 1961
 -->
