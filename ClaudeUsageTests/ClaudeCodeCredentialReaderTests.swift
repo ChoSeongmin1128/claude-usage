@@ -1028,6 +1028,106 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
         XCTAssertTrue(interactive.calls.isEmpty)
     }
 
+    func testCurrentNativeKeychainIsCheckedBeforeFresherVaultMirror() async throws {
+        let (reader, vault, keychain) = try nativeOwnerFixture(
+            .payload(
+                Self.credentialJSON(
+                    token: "native-B", expiresAt: #""2080-01-01T00:00:00Z""#)))
+
+        let token = try await reader.readAccessToken()
+
+        XCTAssertEqual(token, "native-B")
+        XCTAssertEqual(keychain.services, ["Claude Code-credentials"])
+        XCTAssertTrue(vault.payload?.contains("native-B") == true)
+    }
+
+    func testInventoryReplacesMirrorWhenCurrentNativeCredentialChanged() async throws {
+        let (reader, vault, _) = try nativeOwnerFixture(
+            .payload(
+                Self.credentialJSON(
+                    token: "native-B", expiresAt: #""2080-01-01T00:00:00Z""#)))
+
+        let result = try await reader.refreshCredentialInventoryWithoutUI()
+
+        XCTAssertEqual(result.accessToken, "native-B")
+        XCTAssertTrue(result.credentialChanged)
+        XCTAssertTrue(vault.payload?.contains("native-B") == true)
+    }
+
+    func testTemporarilyUnreadableNativeKeychainKeepsPermittedMirrorFallback() async throws {
+        let (reader, vault, keychain) = try nativeOwnerFixture(.failed)
+
+        let result = try await reader.refreshCredentialInventoryWithoutUI()
+
+        XCTAssertEqual(result.accessToken, "mirror-A")
+        XCTAssertFalse(result.credentialChanged)
+        XCTAssertEqual(keychain.services.count, 1)
+        XCTAssertEqual(vault.saveCount, 0)
+    }
+
+    func testForceRefreshCanAdoptReplacementNativeTokenWithoutConsumingStaleRefreshToken() async throws {
+        let (reader, vault, _) = try nativeOwnerFixture(
+            .payload(
+                Self.credentialJSON(
+                    token: "native-B", expiresAt: #""2080-01-01T00:00:00Z""#)))
+
+        let result = try await reader.forceRefreshAccessToken()
+
+        XCTAssertEqual(result, "native-B")
+        XCTAssertTrue(vault.payload?.contains("native-B") == true)
+    }
+
+    func testCurrentNativeCredentialWinsEvenWhenOldFileExpiresLater() async throws {
+        let (reader, vault, _) = try nativeOwnerFixture(
+            .payload(
+                Self.credentialJSON(
+                    token: "native-B", expiresAt: #""2080-01-01T00:00:00Z""#)),
+            fileExpiry: #""2099-01-01T00:00:00Z""#)
+        let token = try await reader.readAccessToken()
+        XCTAssertEqual(token, "native-B")
+        XCTAssertTrue(vault.payload?.contains("native-B") == true)
+    }
+
+    func testExpiredNativeCredentialDoesNotReplaceUsableFile() async throws {
+        let (reader, _, _) = try nativeOwnerFixture(
+            .payload(
+                Self.credentialJSON(
+                    token: "expired-native-B", expiresAt: #""2000-01-01T00:00:00Z""#)))
+        let token = try await reader.readAccessToken()
+        XCTAssertEqual(token, "mirror-A")
+    }
+
+    private func nativeOwnerFixture(
+        _ native: ClaudeCodeKeychainCLI.Outcome,
+        fileExpiry: String = #""2050-01-01T00:00:00Z""#
+    ) throws
+        -> (ClaudeCodeCredentialReader, OAuthVaultStub, CLIKeychainStub)
+    {
+        let home = try makeTemporaryHome()
+        let config = home.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: config, withIntermediateDirectories: true)
+        try Self.credentialJSON(token: "file-A", expiresAt: fileExpiry)
+            .write(to: config.appendingPathComponent(".credentials.json"), atomically: true, encoding: .utf8)
+        let payload = try XCTUnwrap(
+            ClaudeOAuthCredentialVaultPayload.encode(
+                credentialPayload: Self.credentialJSON(token: "mirror-A", expiresAt: #""2099-01-01T00:00:00Z""#),
+                ownership: .cliMirror))
+        let vault = OAuthVaultStub(payload: payload)
+        let keychain = CLIKeychainStub([native])
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: home, appCredentialVault: vault,
+            interactiveKeychainPayloadReader: { _, _, _ in
+                XCTFail("background native selection must never prompt")
+                return .cancelled
+            },
+            cliKeychainPayloadReader: { await keychain.read($0) },
+            cliRefresher: { _ in
+                XCTFail("unexpired native or permitted mirror must not refresh")
+                return .unavailable
+            })
+        return (reader, vault, keychain)
+    }
+
     private func makeReader(
         home: URL,
         vault: OAuthVaultStub,

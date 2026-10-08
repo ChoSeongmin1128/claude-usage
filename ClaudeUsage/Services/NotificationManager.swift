@@ -17,6 +17,8 @@ final class NotificationManager: ObservableObject {
 
     func requestPermission() { deliverer.requestPermission() }
 
+    func hasIdentifiedAccount(for provider: PopoverService) -> Bool { owners[provider] != nil }
+
     func deliverAccountNotice(title: String, body: String) { deliverer.deliver(title: title, body: body) }
 
     func updateAccountBoundary(_ provider: PopoverService, accountID: String?) {
@@ -82,11 +84,12 @@ final class NotificationManager: ObservableObject {
         policy: ClaudeNotificationPolicy? = nil, legacySelection: (UsageLimit) -> Bool
     ) {
         updateAccountBoundary(provider, accountID: accountID)
-        guard owners[provider] != nil else { return }
         let limits = limits.filter { $0.provider == provider }
         var selection = settings.notificationTargets
-        selection.observe(limits, provider: provider, legacySelection: legacySelection)
-        if selection != settings.notificationTargets { settings.notificationTargets = selection }
+        if owners[provider] != nil {
+            selection.observe(limits, provider: provider, legacySelection: legacySelection)
+            if selection != settings.notificationTargets { settings.notificationTargets = selection }
+        }
         let currentIDs = Set(limits.map(\.id))
         let selectedIDs = selection.providers[provider.rawValue]?.selectedIDs ?? []
         let absent = (inventories[provider] ?? [])
@@ -94,6 +97,8 @@ final class NotificationManager: ObservableObject {
             .map { $0.unavailable() }
         let inventory = limits + absent
         if inventories[provider] != inventory { inventories[provider] = inventory }
+        // Quota display does not require identity; threshold history and alerts do.
+        guard owners[provider] != nil else { return }
         let retainedIDs = currentIDs.union(selectedIDs)
         trackers = trackers.filter { $0.value.provider != provider || retainedIDs.contains($0.key) }
         let freshPolicy = policy?.isFreshEnoughForNotifications == true ? policy : nil

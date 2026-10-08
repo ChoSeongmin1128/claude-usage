@@ -339,8 +339,7 @@ extension SettingsView {
                 service: service,
                 claudeUsage: provider == .claude ? claudeLastUsage?() : nil,
                 claudeOverage: provider == .claude ? claudeLastOverage?() : nil,
-                claudeAccounts: claudeAccounts,
-                activeClaudeAccountID: activeClaudeAccountID,
+
                 codexUsage: provider == .codex ? codexLastUsage?() : nil,
                 codexError: provider == .codex ? codexLastError?() : nil
             )
@@ -393,8 +392,6 @@ private struct ProviderPopoverDisplaySection: View {
     let service: PopoverService
     let claudeUsage: ClaudeUsageResponse?
     let claudeOverage: OverageSpendLimitResponse?
-    let claudeAccounts: [ClaudeAccount]
-    let activeClaudeAccountID: String?
     let codexUsage: CodexUsageResponse?
     let codexError: APIError?
     @State private var selectedMode: PopoverDisplayEditorMode = .standard
@@ -410,8 +407,7 @@ private struct ProviderPopoverDisplaySection: View {
                 mode: selectedMode,
                 claudeUsage: claudeUsage,
                 claudeOverage: claudeOverage,
-                claudeAccounts: claudeAccounts,
-                activeClaudeAccountID: activeClaudeAccountID,
+
                 codexUsage: codexUsage,
                 codexError: codexError
             )
@@ -445,8 +441,7 @@ private struct ProviderPopoverDisplaySection: View {
             settings: settings,
             claudeUsage: claudeUsage,
             claudeOverage: claudeOverage,
-            claudeAccounts: claudeAccounts,
-            activeClaudeAccountID: activeClaudeAccountID,
+
             codexUsage: codexUsage,
             codexError: codexError
         )
@@ -460,8 +455,6 @@ private struct ProviderPopoverPreviewView: View {
     let mode: PopoverDisplayEditorMode
     let claudeUsage: ClaudeUsageResponse?
     let claudeOverage: OverageSpendLimitResponse?
-    let claudeAccounts: [ClaudeAccount]
-    let activeClaudeAccountID: String?
     let codexUsage: CodexUsageResponse?
     let codexError: APIError?
 
@@ -574,8 +567,7 @@ private struct ProviderPopoverPreviewView: View {
             settings: settings,
             claudeUsage: claudeUsage,
             claudeOverage: claudeOverage,
-            claudeAccounts: claudeAccounts,
-            activeClaudeAccountID: activeClaudeAccountID,
+
             codexUsage: codexUsage,
             codexError: codexError
         )

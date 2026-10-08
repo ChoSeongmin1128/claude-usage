@@ -153,7 +153,10 @@ extension SettingsView {
                 if !selected.isEmpty && !limits.contains(where: { $0.id == selected }) {
                     Text("\(selection.titles[selected] ?? "한도") (데이터 없음)").tag(selected)
                 }
-            }.labelsHidden()
+            }
+            .labelsHidden()
+            .disabled(index > 0 && selection.gaugeIDs.isEmpty)
+            .help(index > 0 && selection.gaugeIDs.isEmpty ? "첫 번째 게이지를 먼저 선택해 주세요." : "게이지에 표시할 한도")
         }
     }
 }

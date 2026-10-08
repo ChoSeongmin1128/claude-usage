@@ -4,6 +4,168 @@ import os
 
 @MainActor
 final class CodexTokenRefreshRecoveryTests: XCTestCase {
+
+    func testDetailIdentityUsesAccountConfirmedByUsageWhenAuthFileOmitsIt() async throws {
+        let (path, manager) = try fixture()
+        try Data(#"{"tokens":{"access_token":"access-a","refresh_token":"refresh-a"}}"#.utf8).write(to: path)
+        let service = service(manager) { request in
+            if request.url?.path.hasSuffix("rate-limit-reset-credits") == true {
+                XCTAssertEqual(request.value(forHTTPHeaderField: "ChatGPT-Account-Id"), "account-a")
+                return httpResponse(
+                    for: request, statusCode: 200,
+                    body:
+                        #"{"account_id":"account-a","available_count":1,"credits":[{"id":"credit-a","status":"available","expires_at":null}]}"#
+                )
+            }
+            return httpResponse(
+                for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: 1, accountID: "account-a"))
+        }
+        let base = try await service.fetchUsage()
+        XCTAssertNil(base.credential.token.accountID)
+        XCTAssertEqual(base.usage.accountID, "account-a")
+        let detailed = try await service.fetchResetCreditDetails(for: base)
+        XCTAssertEqual(detailed.usage.primaryPercentage, 27)
+        XCTAssertEqual(detailed.usage.resetCreditMetadata?.status, .fresh)
+        XCTAssertEqual(detailed.usage.resetCredits?.availableCount(), 1)
+    }
+
+    func testConfirmedWorkspaceScopesDetailHeadersAndCacheWithinOneCredentialGeneration() async throws {
+        let (path, manager) = try fixture()
+        try Data(#"{"tokens":{"access_token":"access-a","refresh_token":"refresh-a"}}"#.utf8).write(to: path)
+        let original = try Data(contentsOf: path)
+        let usageCalls = OSAllocatedUnfairLock(initialState: 0)
+        let recorder = CodexRequestRecorder()
+        let service = service(manager) { request in
+            recorder.record(request)
+            if request.url?.path.hasSuffix("rate-limit-reset-credits") == true {
+                let account = request.value(forHTTPHeaderField: "ChatGPT-Account-Id") ?? "missing"
+                let body = detailJSON(count: 2).replacingOccurrences(of: "credit-", with: account + "-credit-")
+                return httpResponse(for: request, statusCode: 200, body: body)
+            }
+            let index = usageCalls.withLock {
+                $0 += 1; return $0
+            }
+            return httpResponse(
+                for: request, statusCode: 200,
+                body: usageJSON(primary: 27, resetCount: 2, accountID: index == 2 ? "account-b" : "account-a"))
+        }
+        let a = try await service.fetchUsage()
+        let detailsA = try await service.fetchResetCreditDetails(for: a)
+        XCTAssertEqual(detailsA.usage.resetCredits?.credits.first?.id, "account-a-credit-0")
+        let b = try await service.fetchUsage()
+        XCTAssertEqual(a.credential.generation, b.credential.generation)
+        XCTAssertNil(b.credential.token.accountID)
+        XCTAssertEqual(b.usage.resetCredits?.credits, [])
+        let detailsB = try await service.fetchResetCreditDetails(for: b)
+        XCTAssertEqual(detailsB.usage.resetCredits?.credits.first?.id, "account-b-credit-0")
+        let aAgain = try await service.fetchUsage()
+        let cachedA = try await service.fetchResetCreditDetails(for: aAgain)
+        XCTAssertEqual(cachedA.usage.resetCreditMetadata?.status, .cached)
+        XCTAssertEqual(cachedA.usage.resetCredits?.credits.first?.id, "account-a-credit-0")
+        XCTAssertEqual(
+            recorder.count { $0.url.path.hasSuffix("rate-limit-reset-credits") && $0.accountID == "account-a" }, 1)
+        XCTAssertEqual(
+            recorder.count { $0.url.path.hasSuffix("rate-limit-reset-credits") && $0.accountID == "account-b" }, 1)
+        XCTAssertEqual(try Data(contentsOf: path), original)
+    }
+
+    func testLateWorkspaceDetailsDoNotReplaceAnotherWorkspacesCurrentCount() async throws {
+        let (path, manager) = try fixture()
+        try Data(#"{"tokens":{"access_token":"access-a","refresh_token":"refresh-a"}}"#.utf8).write(to: path)
+        let usageCalls = OSAllocatedUnfairLock(initialState: 0)
+        let started = expectation(description: "workspace A details started")
+        let startedB = expectation(description: "workspace B details stay independent")
+        let gate = CodexTestGate()
+        let service = service(manager) { request in
+            if request.url?.path.hasSuffix("rate-limit-reset-credits") == true {
+                let account = request.value(forHTTPHeaderField: "ChatGPT-Account-Id") ?? "missing"
+                if account == "account-a" { started.fulfill(); await gate.wait() }
+                if account == "account-b" { startedB.fulfill() }
+                let body = detailJSON(count: account == "account-b" ? 7 : 2)
+                    .replacingOccurrences(of: "credit-", with: account + "-credit-")
+                return httpResponse(for: request, statusCode: 200, body: body)
+            }
+            let index = usageCalls.withLock {
+                $0 += 1; return $0
+            }
+            return httpResponse(
+                for: request, statusCode: 200,
+                body: usageJSON(
+                    primary: 27, resetCount: index == 1 ? 2 : index == 2 ? 7 : nil,
+                    accountID: index == 1 ? "account-a" : "account-b"))
+        }
+        let a = try await service.fetchUsage()
+        let pendingA = Task { try await service.fetchResetCreditDetails(for: a) }
+        await fulfillment(of: [started], timeout: 2)
+        let b = try await service.fetchUsage()
+        let pendingB = Task { try await service.fetchResetCreditDetails(for: b) }
+        await fulfillment(of: [startedB], timeout: 2)
+        await gate.open()
+        let detailsB = try await pendingB.value
+        XCTAssertEqual(detailsB.usage.resetCredits?.availableCount(), 7)
+        XCTAssertEqual(detailsB.usage.resetCredits?.credits.first?.id, "account-b-credit-0")
+        let detailsA = try await pendingA.value
+        XCTAssertEqual(detailsA.usage.resetCredits?.availableCount(), 2)
+        XCTAssertEqual(detailsA.usage.resetCredits?.credits.first?.id, "account-a-credit-0")
+        let missingCountB = try await service.fetchUsage()
+        XCTAssertEqual(missingCountB.usage.resetCredits?.availableCount(), 7)
+        XCTAssertEqual(missingCountB.usage.resetCredits?.credits.first?.id, "account-b-credit-0")
+        XCTAssertEqual(missingCountB.usage.resetCreditMetadata?.countIsCurrent, false)
+    }
+
+    func testDetailFlightsCoalesceWithinWorkspaceWithoutSharingAnotherWorkspace() async throws {
+        let (path, manager) = try fixture()
+        try Data(#"{"tokens":{"access_token":"access-a","refresh_token":"refresh-a"}}"#.utf8).write(to: path)
+        let usageCalls = OSAllocatedUnfairLock(initialState: 0)
+        let recorder = CodexRequestRecorder()
+        let started = expectation(description: "one detail flight for each workspace")
+        started.expectedFulfillmentCount = 2
+        let gateA = CodexTestGate()
+        let gateB = CodexTestGate()
+        let service = service(manager) { request in
+            recorder.record(request)
+            if request.url?.path.hasSuffix("rate-limit-reset-credits") == true {
+                let account = request.value(forHTTPHeaderField: "ChatGPT-Account-Id") ?? "missing"
+                started.fulfill()
+                if account == "account-a" { await gateA.wait() } else { await gateB.wait() }
+                let body = detailJSON(count: 2).replacingOccurrences(of: "credit-", with: account + "-credit-")
+                return httpResponse(for: request, statusCode: 200, body: body)
+            }
+            let index = usageCalls.withLock {
+                $0 += 1; return $0
+            }
+            return httpResponse(
+                for: request, statusCode: 200,
+                body: usageJSON(primary: 27, resetCount: 2, accountID: index == 1 ? "account-a" : "account-b"))
+        }
+        let a = try await service.fetchUsage()
+        let b = try await service.fetchUsage()
+        let pending = Task {
+            try await withThrowingTaskGroup(of: CodexUsageSnapshot.self) { group in
+                for _ in 0..<4 {
+                    group.addTask { try await service.fetchResetCreditDetails(for: a) }
+                    group.addTask { try await service.fetchResetCreditDetails(for: b) }
+                }
+                var results: [CodexUsageSnapshot] = []
+                for try await result in group { results.append(result) }
+                return results
+            }
+        }
+        await fulfillment(of: [started], timeout: 2)
+        await gateA.open()
+        await gateB.open()
+        let results = try await pending.value
+        XCTAssertEqual(results.count, 8)
+        for result in results {
+            let account = try XCTUnwrap(result.usage.accountID)
+            XCTAssertEqual(result.usage.resetCredits?.credits.first?.id, account + "-credit-0")
+        }
+        XCTAssertEqual(
+            recorder.count { $0.url.path.hasSuffix("rate-limit-reset-credits") && $0.accountID == "account-a" }, 1)
+        XCTAssertEqual(
+            recorder.count { $0.url.path.hasSuffix("rate-limit-reset-credits") && $0.accountID == "account-b" }, 1)
+    }
+
     override func tearDown() {
         CodexURLProtocolStub.handler = nil
         super.tearDown()

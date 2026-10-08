@@ -22,7 +22,7 @@ final class ClaudeCodeUnavailablePresentationTests: XCTestCase {
             account: account, isActive: true, claudeCodeCredentialIssue: .executableNotFound)
         XCTAssertEqual(presentation.statusText, "Claude Code 없음")
         let compact = CompactPopoverHeaderPresentationPolicy.resolve(
-            accountCount: 1, activeAccount: account, isLoading: false, isAuthenticationRequired: true,
+            accountCount: 1, accountLabel: nil, isLoading: false, isAuthenticationRequired: true,
             hasRefreshError: false, claudeCodeCredentialIssue: .executableNotFound)
         XCTAssertEqual(compact?.labels, ["Claude Code 없음"])
     }

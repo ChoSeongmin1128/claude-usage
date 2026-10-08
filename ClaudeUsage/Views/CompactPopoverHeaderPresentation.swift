@@ -46,17 +46,10 @@ enum CompactPopoverHeaderPresentationPolicy {
     /// freshness는 숨기고, 계정 혼동을 막는 실제 식별자와 행동 가능한 상태만
     /// 상단 한 줄에 노출한다.
     static func resolve(
-        accountCount: Int,
-        activeAccount: ClaudeAccount?,
-        isLoading: Bool,
-        isAuthenticationRequired: Bool,
-        hasRefreshError: Bool,
-        claudeCodeCredentialIssue: ClaudeCodeCredentialIssue? = nil
+        accountCount: Int, accountLabel: String?, isLoading: Bool, isAuthenticationRequired: Bool,
+        hasRefreshError: Bool, claudeCodeCredentialIssue: ClaudeCodeCredentialIssue? = nil
     ) -> CompactPopoverHeaderContext? {
-        let accountLabel = accountCount > 1
-            ? actualIdentityLabel(for: activeAccount)
-            : nil
-
+        let accountLabel = accountCount > 1 ? accountLabel : nil
         let status: CompactPopoverHeaderContext.Status?
         if isAuthenticationRequired {
             switch claudeCodeCredentialIssue {
@@ -79,9 +72,4 @@ enum CompactPopoverHeaderPresentationPolicy {
                 ? ClaudeCodeCredentialIssue.executableNotFoundExplanation : nil)
     }
 
-    private static func actualIdentityLabel(for account: ClaudeAccount?) -> String? {
-        guard let account else { return nil }
-        // planLabel("team" 등)은 계정 식별자가 아니므로 compact 헤더에 쓰지 않는다.
-        return account.identity.email ?? account.identity.organizationName
-    }
 }

@@ -21,7 +21,7 @@ final class CommonTimeFormatPropagationTests: XCTestCase {
                     .utf8))
         let context = UsageItemContext(
             density: .compact, settings: settings, claudeUsage: claude, claudeOverage: nil,
-            claudeAccounts: [], activeClaudeAccountID: nil, codexUsage: codex, codexError: nil)
+            codexUsage: codex, codexError: nil)
         for (service, item) in [(PopoverService.claude, "currentSession"), (.codex, "codexPrimary")] {
             let catalog = try XCTUnwrap(UsageItemCatalogRegistry.catalog(for: service))
             let section = try XCTUnwrap(catalog.section(for: item, context: context))

@@ -206,7 +206,7 @@ final class ProviderDisplayArchitectureTests:
                     .contains { $0.id == "codexSpendLimit" })
             let context = UsageItemContext(
                 density: .standard, settings: settings, claudeUsage: nil, claudeOverage: nil,
-                claudeAccounts: [], activeClaudeAccountID: nil,
+
                 codexUsage: conflictingPersonal, codexError: nil)
             XCTAssertNil(catalog.section(for: "codexSpendLimit", context: context))
             let unreadableMonthly = try codexFixture(
@@ -221,7 +221,7 @@ final class ProviderDisplayArchitectureTests:
             XCTAssertTrue(zeroItems.contains { $0.id == "codexResetCredits" })
             let zeroContext = UsageItemContext(
                 density: .standard, settings: settings, claudeUsage: nil, claudeOverage: nil,
-                claudeAccounts: [], activeClaudeAccountID: nil, codexUsage: zeroCredits, codexError: nil)
+                codexUsage: zeroCredits, codexError: nil)
             XCTAssertNil(catalog.section(for: "codexResetCredits", context: zeroContext))
         }
     }

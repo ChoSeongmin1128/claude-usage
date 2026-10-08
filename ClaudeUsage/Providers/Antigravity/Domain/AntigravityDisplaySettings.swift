@@ -203,6 +203,16 @@ nonisolated struct AntigravityDisplaySettings: Codable, Equatable, Sendable {
 }
 
 nonisolated extension AntigravityDisplaySettings.MenuBarPresentationIntent {
+    func textLaneIDs(fallback: [AntigravityQuotaLaneID]) -> [AntigravityQuotaLaneID] {
+        let numbers = percentageLaneIDs ?? (showsSelectedLanePercentage ? fallback : [])
+        let times = resetLaneIDs ?? (showsSelectedLaneResetTime ? fallback : [])
+        var ids = numbers
+        for id in times where !ids.contains(id) { ids.append(id) }
+        return ids
+    }
+
+    static func missingTextTitle(at index: Int) -> String { "선택한 한도 \(index + 1)" }
+
     var effectiveAdditionalLaneIDs: [AntigravityQuotaLaneID] {
         additionalLaneIDs ?? []
     }

@@ -183,6 +183,31 @@ final class AntigravityCLIUsageReportSourceTests: XCTestCase {
         _ = try await source.fetch(request())
     }
 
+    func testCompleteUsageReportRemainsAuthoritativeAfterNonzeroProcessExit() async throws {
+        let report = try fixture("agy-1.2.12-print-usage-weekly-only.json")
+        for exitStatus in [Int32(1), 3, 137] {
+            let runner = ScriptedReportRunner(outcomes: [
+                .success(output("1.2.12")), .success(output(report, exitStatus: exitStatus)),
+            ])
+            let response = try await makeSource(runner: runner).fetch(request())
+            guard case .grouped(let quota) = response.payload else { return XCTFail("Expected validated report") }
+            XCTAssertEqual(quota.lanes.map(\.id), [.geminiWeekly, .thirdPartyWeekly])
+            XCTAssertTrue(quota.decodeIssues.isEmpty)
+        }
+    }
+
+    func testModelTurnFromFailedProcessStillDisablesReports() async throws {
+        let runner = ScriptedReportRunner(outcomes: [
+            .success(output("1.2.12")),
+            .success(output(#"{"status":"SUCCESS","num_turns":1,"response":"answer"}"#, exitStatus: 1)),
+        ])
+        let source = makeSource(runner: runner)
+        await assertFetchError(source, .runtimeUnavailable(.reportDisabled))
+        await assertFetchError(source, .runtimeUnavailable(.reportDisabled))
+        let runs = await runner.requests.count
+        XCTAssertEqual(runs, 2)
+    }
+
     func testUnreadableOutputSeparatesCrashFromFormatChange() async throws {
         let cases: [(AntigravityCLIReportProcessResult, AntigravityUsageSourceError)] = [
             (output("not json", exitStatus: 0), .malformedResponse),

@@ -52,6 +52,7 @@ extension AppDelegate {
     }
 
     private func usageLimits(for service: PopoverService) -> [UsageLimit] {
+        if service == .antigravity { return currentAntigravityRuntimeSnapshot.adaptiveUsageLimits }
         switch runtimeProviderSnapshot(for: service).displayPayload {
         case .claude(let usage): return UsageLimitCatalog.claude(usage)
         case .codex(let usage): return UsageLimitCatalog.codex(usage)
@@ -88,6 +89,20 @@ extension AppDelegate {
             }
             RunLoop.main.add(timer, forMode: .common)
             resetFollowUpTimers[service] = timer
+        }
+    }
+}
+
+
+extension AntigravityRuntimeSnapshot {
+    var adaptiveUsageLimits: [UsageLimit] {
+        switch presentationState {
+        case .ready(let snapshot), .partial(let snapshot, _), .stale(let snapshot, _):
+            return UsageLimitCatalog.antigravity(snapshot)
+        case .refreshing(let previous):
+            return previous.map(UsageLimitCatalog.antigravity) ?? []
+        default:
+            return []
         }
     }
 }

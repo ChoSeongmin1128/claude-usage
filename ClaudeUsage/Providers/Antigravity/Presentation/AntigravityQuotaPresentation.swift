@@ -114,6 +114,7 @@ nonisolated enum AntigravityQuotaGroupPresentationID:
     case gemini
     case thirdPartyModels
     case unknown(upstreamID: String, label: String?)
+    indirect case continuation(scopeID: AntigravityQuotaGroupPresentationID, firstLaneID: AntigravityQuotaLaneID)
 }
 
 nonisolated enum ProviderIdentityRailTone:

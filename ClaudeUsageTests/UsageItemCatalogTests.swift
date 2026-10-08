@@ -335,8 +335,7 @@ private func makeContext(
         settings: AppSettings.shared,
         claudeUsage: claudeUsage,
         claudeOverage: claudeOverage,
-        claudeAccounts: [],
-        activeClaudeAccountID: nil,
+
         codexUsage: codexUsage,
         codexError: codexError
     )

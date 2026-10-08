@@ -103,21 +103,13 @@ extension PopoverViewModel {
             for: service,
             settings: settings
         )
-        let accounts =
-            service == .claude
-            ? (usageHealthSnapshot?.accounts ?? [])
-            : []
-        let activeAccount =
-            state.accountID.flatMap { accountID in
-                accounts.first {
-                    $0.id == accountID
-                }
-            }
+        let accountCount = service == .claude ? (usageHealthSnapshot?.accounts.count ?? 0) : 0
+        let accountLabel = service == .claude ? claudeAccountPresentation?.compactLabel : nil
         var context =
             CompactPopoverHeaderPresentationPolicy
             .resolve(
-                accountCount: accounts.count,
-                activeAccount: activeAccount,
+                accountCount: accountCount,
+                accountLabel: accountLabel,
                 isLoading: state.isLoading,
                 isAuthenticationRequired:
                     state.isAuthRequired,
@@ -212,6 +204,9 @@ extension PopoverViewModel {
                 return .empty
             }
         }
+        if multiAccount[service]?.rows.contains(where: { $0.usage?.lowestRemainingPercent != nil }) == true {
+            return .content
+        }
         if runtimeState.isAuthRequired {
             return .authRequired
         }
@@ -272,18 +267,20 @@ extension PopoverViewModel {
 
     // MARK: - Context 조립
 
+    var claudeAccountPresentation: ClaudeUsageAccountPresentation? {
+        let current = snapshot(for: .claude)
+        let metadata = current?.hasContent == true ? current?.lastSuccessfulMetadata : current?.lastAttemptMetadata
+        return ClaudeUsageAccountPresentation.resolve(
+            metadata: metadata, storedAccounts: usageHealthSnapshot?.accounts ?? [])
+    }
+
     private func makeContext(density: PopoverDensity, settings: AppSettings) -> UsageItemContext {
-        let snapshotAccountID = snapshot(for: .claude)?.lastSuccessfulMetadata?.accountID
-        let presentedAccounts =
-            usageHealthSnapshot?.activeAccountID == snapshotAccountID
-            ? usageHealthSnapshot?.accounts ?? [] : []
         return UsageItemContext(
             density: density,
             settings: settings,
             claudeUsage: claudeUsage,
             claudeOverage: overage,
-            claudeAccounts: presentedAccounts,
-            activeClaudeAccountID: snapshotAccountID,
+
             codexUsage: codexUsage,
             codexError: snapshot(for: .codex)?.error,
             claudeOverageUpdatedAt: snapshot(for: .claude)?.claudeOverageUpdatedAt,

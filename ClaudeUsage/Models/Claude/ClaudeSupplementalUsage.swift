@@ -2,6 +2,7 @@ import Foundation
 
 struct ClaudeSupplementalUsage {
     let accountID: String
+    let ownerKey: String
     let value: OverageSpendLimitResponse
     let fetchedAt: Date
     var lastRefreshFailed = false

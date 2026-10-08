@@ -149,7 +149,6 @@ extension AppDelegate {
     ) -> Task<Void, Never> {
         let accountState = ClaudeAccountStore.shared.state()
         let requestedAccountID = accountState.activeAccountID
-        NotificationManager.shared.updateAccountBoundary(.claude, accountID: requestedAccountID)
         let previousAccountID = withRuntimeState { $0.activeClaudeAccountID }
         let shouldRefreshOAuthCredentialInventory =
             ClaudeCredentialRefreshRequest.shouldRefreshOAuthInventory(
@@ -356,12 +355,14 @@ extension AppDelegate {
             popoverViewModel.nextUsageRetryAt = nil
         }
 
+        usageAccountsController.bindRuntimeAccount(nil, for: service)
         setRuntimeProviderState(RuntimeProviderState(), for: service)
     }
 
     func resetClaudeRuntimeAfterAccountBoundaryChange(refreshHealthSnapshot: Bool = true) {
         withRuntimeState { $0.invalidateClaudeRequestContext() }
         popoverViewModel.nextUsageRetryAt = nil
+        usageAccountsController.bindRuntimeAccount(nil, for: .claude)
         setRuntimeProviderState(RuntimeProviderState(), for: .claude)
         syncRuntimePresentation()
         if refreshHealthSnapshot {
@@ -405,40 +406,67 @@ extension AppDelegate {
     func refreshUsage(
         force: Bool = false,
         syncHealthAfterCompletion: Bool = true,
-        allowWhenDisabled: Bool = false
+        allowWhenDisabled: Bool = false,
+        mayRetryCredentialChange: Bool = true
     ) -> Task<Void, Never>? {
         guard allowWhenDisabled || ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) else {
             return nil
         }
         guard prepareRefresh(for: .claude, force: force) else { return nil }
 
-        let requestRevision = withRuntimeState { $0.claudeRequestRevision }
+        claudeUsageRefreshTask?.cancel()
+        let requestRevision = withRuntimeState { $0.beginClaudeUsageRequest() }
         let task = Task { [weak self] in
             guard let self else { return }
+            defer {
+                let ownsRequest = self.withRuntimeState { $0.finishCancelledClaudeUsageRequest(requestRevision) }
+                if ownsRequest {
+                    self.popoverViewModel.nextUsageRetryAt =
+                        self.runtimeProviderState(for: .claude).nextRefreshAllowedAt
+                    self.syncRuntimePresentation()
+                    if !Task.isCancelled, mayRetryCredentialChange {
+                        self.refreshUsage(
+                            force: true, syncHealthAfterCompletion: syncHealthAfterCompletion,
+                            allowWhenDisabled: allowWhenDisabled, mayRetryCredentialChange: false)
+                    }
+                }
+            }
             let requestAccountID = await apiService.currentActiveAccountID()
             do {
                 Logger.debug("사용량 갱신 시작")
                 let result = try await ClaudeRuntimeRefresher.refresh(
                     apiService: apiService,
-                    lastOverageAttemptAt: self.lastOverageAttemptAt
+                    lastOverageAttemptAt: self.lastOverageAttemptAt,
+                    lastOverageOwnerKey: self.withRuntimeState { $0.overageOwnerKey },
+                    knownIdentities: self.usageAccountsController.preferences.knownIdentities
                 )
                 let cachedProfileMetadata = await self.apiService.fetchCachedProfileMetadata()
                 let responseAccountID = await self.apiService.currentActiveAccountID()
+                let responseContextRevision = await self.apiService.currentSessionContextRevision()
+                let responseCredentialGeneration = await self.apiService.currentClaudeCodeCredentialGeneration()
 
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
                     guard !Task.isCancelled else { return }
                     guard self.withRuntimeState({ $0.claudeRequestRevision }) == requestRevision,
                         requestAccountID == responseAccountID,
-                          requestAccountID == result.provenance.accountID else {
+                        requestAccountID == result.provenance.accountID,
+                        result.sessionContextRevision == responseContextRevision,
+                        result.credentialGeneration.map({ $0 == responseCredentialGeneration }) ?? true
+                    else {
                         Logger.info("Claude 계정 귀속이 다른 조회 결과 무시")
                         return
                     }
-                    self.currentClaudeProfileMetadata = cachedProfileMetadata
-                    self.currentClaudeNotificationPolicy = cachedProfileMetadata.map(ClaudeNotificationPolicy.init(metadata:))
+                    let scopedMetadata = result.metadata.withClaudeProfileMetadata(cachedProfileMetadata)
+                    self.usageAccountsController.bindRuntimeAccount(scopedMetadata.account, for: .claude)
+                    self.currentClaudeProfileMetadata = scopedMetadata.claudeProfileMetadata
+                    self.currentClaudeNotificationPolicy = scopedMetadata.claudeProfileMetadata.map(
+                        ClaudeNotificationPolicy.init(metadata:))
                     if let accountID = result.provenance.accountID {
                         self.withRuntimeState {
-                            $0.applyClaudeSupplementalUsage(result.supplementalUsage, accountID: accountID)
+                            $0.applyClaudeSupplementalUsage(
+                                result.supplementalUsage, accountID: accountID,
+                                ownerKey: scopedMetadata.supplementalAccountKey)
                         }
                     }
 
@@ -446,7 +474,7 @@ extension AppDelegate {
                     RuntimeProviderRefreshCoordinator.applySuccess(
                         state: &state,
                         payload: .claude(result.usage),
-                        metadata: result.metadata
+                        metadata: scopedMetadata
                     )
                     self.setRuntimeProviderState(state, for: .claude)
                     self.popoverViewModel.nextUsageRetryAt = state.nextRefreshAllowedAt
@@ -456,7 +484,7 @@ extension AppDelegate {
                     }
 
                     NotificationManager.shared.checkClaude(
-                        result.usage, accountID: result.provenance.accountID ?? requestAccountID,
+                        result.usage, accountID: scopedMetadata.notificationAccountKey(for: .claude),
                         policy: self.currentClaudeNotificationPolicy)
 
                 }
@@ -549,10 +577,7 @@ extension AppDelegate {
             prepare: { [weak self] force in self?.prepareRefresh(for: .codex, force: force) ?? false },
             clearPresentation: { [weak self] in
                 guard let self else { return }
-                NotificationManager.shared.updateAccountBoundary(
-                    .codex,
-                    accountID:
-                    CodexAuthManager.shared.cachedSnapshot?.token.accountID)
+                self.usageAccountsController.bindRuntimeAccount(nil, for: .codex)
                 self.setRuntimeProviderState(RuntimeProviderState(), for: .codex)
                 self.syncRuntimePresentation()
             },
@@ -565,21 +590,25 @@ extension AppDelegate {
     private func applyCodexUsage(_ result: CodexUsageSnapshot) {
         let usage = result.usage
         let accountID = usage.accountID ?? result.credential.token.accountID
-        NotificationManager.shared.updateAccountBoundary(.codex, accountID: accountID)
+        let account = CodexUsageAccountProvider.runtimeAccount(for: result)
+        usageAccountsController.bindRuntimeAccount(account, for: .codex)
         var state = runtimeProviderState(for: .codex)
         RuntimeProviderRefreshCoordinator.applySuccess(
             state: &state, payload: .codex(usage),
             metadata: RuntimeProviderFetchMetadata(
-                sourceLabel: "Codex 로그인", accountID: accountID)
+                sourceLabel: "Codex 로그인", accountID: accountID, account: account)
         )
         setRuntimeProviderState(state, for: .codex)
         syncRuntimePresentation()
-        NotificationManager.shared.checkCodex(usage, accountID: accountID)
+        NotificationManager.shared.checkCodex(
+            usage, accountID: RuntimeProviderFetchMetadata(account: account).notificationAccountKey(for: .codex))
     }
 
     private func applyCodexResetCreditDetails(_ result: CodexUsageSnapshot) {
         var state = runtimeProviderState(for: .codex)
-        guard case .codex(var usage)? = state.lastSuccessfulPayload else { return }
+        guard case .codex(var usage)? = state.lastSuccessfulPayload,
+            state.lastSuccessfulMetadata?.account == CodexUsageAccountProvider.runtimeAccount(for: result)
+        else { return }
         usage.resetCredits = result.usage.resetCredits
         usage.resetCreditMetadata = result.usage.resetCreditMetadata
         state.lastSuccessfulPayload = .codex(usage)

@@ -278,8 +278,8 @@ nonisolated struct UsageWindow: Codable, Sendable {
         self.resetsAt = resetsAt
     }
 
-    nonisolated static func isoString(fromUnixSeconds seconds: Double) -> String {
-        let date = Date(timeIntervalSince1970: seconds)
+    nonisolated static func isoString(fromUnixSeconds seconds: Double) -> String? {
+        guard let date = TimeFormatter.validatedResetDate(Date(timeIntervalSince1970: seconds)) else { return nil }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.string(from: date)
@@ -289,11 +289,6 @@ nonisolated struct UsageWindow: Codable, Sendable {
 // MARK: - 편의 기능
 
 extension UsageWindow {
-    /// 퍼센트를 정수로 반환 (67.5% → 67)
-    nonisolated var percentageInt: Int {
-        Int(utilization)
-    }
-
     /// 갱신 예상 시간을 Date로 변환
     nonisolated var resetDate: Date? {
         guard let resetsAt = resetsAt else { return nil }
@@ -327,16 +322,6 @@ extension ClaudeUsageResponse {
         let weekly = sevenDay.map { "주간 \(PercentageText.string($0.utilization))" }
         let parts = [session, weekly].compactMap { $0 }
         return parts.isEmpty ? "데이터 없음" : parts.joined(separator: " · ")
-    }
-
-    /// Sonnet 주간 퍼센트 (없으면 nil)
-    nonisolated var sonnetPercentage: Double? {
-        sevenDaySonnet?.utilization
-    }
-
-    /// Opus 주간 퍼센트 (없으면 nil)
-    nonisolated var opusPercentage: Double? {
-        sevenDayOpus?.utilization
     }
 
     /// 표시용 모델별 주간 한도 목록.
@@ -428,58 +413,65 @@ nonisolated struct OverageSpendLimitResponse: Codable, Sendable, Equatable {
         self.decimalPlaces = decimalPlaces
     }
 
+    private enum SpendKeys: String, CodingKey {
+        case isEnabled = "is_enabled"
+        case monthlyCreditLimit = "monthly_credit_limit"
+        case monthlyLimit = "monthly_limit"
+        case usedCredits = "used_credits"
+        case outOfCredits = "out_of_credits"
+        case spendLimitReached = "spend_limit_reached"
+        case currency
+        case decimalPlaces = "decimal_places"
+    }
+
     nonisolated init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(from: decoder, limitKey: .monthlyCreditLimit, depletedKey: .outOfCredits)
+    }
 
-        if let doubleVal = try? container.decode(Double.self, forKey: .monthlyCreditLimitCents) {
-            monthlyCreditLimitCents = doubleVal
-        } else if let intVal = try? container.decode(Int.self, forKey: .monthlyCreditLimitCents) {
-            monthlyCreditLimitCents = Double(intVal)
-        } else {
-            monthlyCreditLimitCents = nil
+    nonisolated static func decodeExtraUsage(from decoder: Decoder) throws -> Self {
+        try Self(from: decoder, limitKey: .monthlyLimit, depletedKey: .spendLimitReached)
+    }
+
+    nonisolated private init(from decoder: Decoder, limitKey: SpendKeys, depletedKey: SpendKeys) throws {
+        let container = try decoder.container(keyedBy: SpendKeys.self)
+        let enabled = try container.decode(Bool.self, forKey: .isEnabled)
+        guard enabled else { self = .notEnabled; return }
+        func number(_ key: SpendKeys) -> Double? {
+            if let value = try? container.decode(Double.self, forKey: key) { return value }
+            return (try? container.decode(String.self, forKey: key)).flatMap(Double.init)
         }
-
-        if let doubleVal = try? container.decode(Double.self, forKey: .usedCreditsCents) {
-            usedCreditsCents = doubleVal
-        } else if let intVal = try? container.decode(Int.self, forKey: .usedCreditsCents) {
-            usedCreditsCents = Double(intVal)
-        } else {
-            usedCreditsCents = 0
+        guard let used = number(.usedCredits), used.isFinite, used >= 0 else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .usedCredits, in: container, debugDescription: "Invalid spend")
         }
-
-        isEnabled = (try? container.decode(Bool.self, forKey: .isEnabled)) ?? false
-        outOfCredits = (try? container.decode(Bool.self, forKey: .outOfCredits)) ?? false
-        currency = (try? container.decode(String.self, forKey: .currency)) ?? "USD"
-        decimalPlaces = (try? container.decode(Int.self, forKey: .decimalPlaces)) ?? nil
+        let limit: Double?
+        if container.contains(limitKey), try container.decodeNil(forKey: limitKey) {
+            limit = nil
+        } else {
+            guard let value = number(limitKey), value.isFinite, value >= 0 else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: limitKey, in: container, debugDescription: "Invalid limit")
+            }
+            limit = value
+        }
+        let places = try container.decodeIfPresent(Int.self, forKey: .decimalPlaces)
+        if let places, places < 0 || !pow(10, Double(places)).isFinite {
+            throw DecodingError.dataCorruptedError(
+                forKey: .decimalPlaces, in: container, debugDescription: "Invalid exponent")
+        }
+        self.init(
+            monthlyCreditLimitCents: limit, usedCreditsCents: used, isEnabled: true,
+            outOfCredits: (try? container.decode(Bool.self, forKey: depletedKey)) ?? false,
+            currency: (try? container.decode(String.self, forKey: .currency)) ?? "USD", decimalPlaces: places)
     }
 }
 
-/// 사용량 응답의 `extra_usage`. 추가 사용량 API와 키 이름이 달라 따로 읽는다.
+/// 사용량 응답과 보조 API는 필드 이름만 다르고 금액의 유효성 규칙은 같다.
 nonisolated struct ClaudeExtraUsage: Decodable, Sendable {
     let overage: OverageSpendLimitResponse
 
-    private enum CodingKeys: String, CodingKey {
-        case isEnabled = "is_enabled"
-        case monthlyLimit = "monthly_limit"
-        case usedCredits = "used_credits"
-        case currency
-        case decimalPlaces = "decimal_places"
-        case spendLimitReached = "spend_limit_reached"
-    }
-
     nonisolated init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        func number(_ key: CodingKeys) -> Double? {
-            (try? container.decode(Double.self, forKey: key))
-                ?? (try? container.decode(String.self, forKey: key)).flatMap(Double.init)
-        }
-        overage = OverageSpendLimitResponse(
-            monthlyCreditLimitCents: number(.monthlyLimit),
-            usedCreditsCents: number(.usedCredits) ?? 0,
-            isEnabled: (try? container.decode(Bool.self, forKey: .isEnabled)) ?? false,
-            outOfCredits: (try? container.decode(Bool.self, forKey: .spendLimitReached)) ?? false,
-            currency: (try? container.decode(String.self, forKey: .currency)) ?? "USD",
-            decimalPlaces: try? container.decode(Int.self, forKey: .decimalPlaces))
+        overage = try OverageSpendLimitResponse.decodeExtraUsage(from: decoder)
     }
 }
 
@@ -503,17 +495,20 @@ extension OverageSpendLimitResponse {
 
     /// 사용률 퍼센트 (0~100). 한도가 없으면 nil
     nonisolated var usagePercentage: Double? {
-        guard let limit = monthlyCreditLimitCents, limit > 0 else { return nil }
-        return (usedCreditsCents / limit) * 100
+        guard let limit = monthlyCreditLimitCents, limit.isFinite, limit > 0,
+            usedCreditsCents.isFinite, usedCreditsCents >= 0
+        else { return nil }
+        let percentage = (usedCreditsCents / limit) * 100
+        return percentage.isFinite ? percentage : nil
     }
 
     nonisolated var formattedUsedCredits: String {
-        MoneyFormatter.string(minorUnits: usedCreditsCents, currency: currency, decimalPlaces: decimalPlaces)
+        MoneyFormatter.string(minorUnits: usedCreditsCents, currency: currency, decimalPlaces: decimalPlaces ?? 2)
     }
 
     nonisolated var formattedCreditLimit: String {
         guard let limit = monthlyCreditLimitCents else { return "한도 없음" }
-        return MoneyFormatter.string(minorUnits: limit, currency: currency, decimalPlaces: decimalPlaces)
+        return MoneyFormatter.string(minorUnits: limit, currency: currency, decimalPlaces: decimalPlaces ?? 2)
     }
 
     /// Claude API가 확정적으로 제공하는 추가 사용량 값만 표시합니다.

@@ -405,32 +405,29 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         _ lanes: [AntigravityQuotaLanePresentation],
         using allGroups: [AntigravityQuotaGroupPresentation]
     ) -> [AntigravityQuotaGroupPresentation] {
-        let templateByLaneID: [
-            AntigravityQuotaLaneID:
-                AntigravityQuotaGroupPresentation
-        ] = {
-            var value: [
-                AntigravityQuotaLaneID:
-                    AntigravityQuotaGroupPresentation
-            ] = [:]
-            for group in allGroups {
-                for lane in group.lanes
-                where value[lane.id] == nil {
-                    value[lane.id] = group
-                }
-            }
-            return value
-        }()
+        let templateByLaneID:
+            [AntigravityQuotaLaneID:
+                AntigravityQuotaGroupPresentation] = {
+                    var value:
+                        [AntigravityQuotaLaneID:
+                            AntigravityQuotaGroupPresentation] = [:]
+                    for group in allGroups {
+                        for lane in group.lanes
+                        where value[lane.id] == nil {
+                            value[lane.id] = group
+                        }
+                    }
+                    return value
+                }()
 
         var result: [AntigravityQuotaGroupPresentation] = []
-        var groupIndex: [
-            AntigravityQuotaGroupPresentationID: Int
-        ] = [:]
+        var seenScopes: Set<AntigravityQuotaGroupPresentationID> = []
+        var lastScope: AntigravityQuotaGroupPresentationID?
         for lane in lanes {
             guard let template = templateByLaneID[lane.id] else {
                 continue
             }
-            if let index = groupIndex[template.id] {
+            if lastScope == template.id, let index = result.indices.last {
                 let current = result[index]
                 result[index] = AntigravityQuotaGroupPresentation(
                     id: current.id,
@@ -439,16 +436,21 @@ nonisolated enum AntigravityQuotaPresentationMapper {
                     lanes: current.lanes + [lane]
                 )
             } else {
-                groupIndex[template.id] = result.count
+                let id =
+                    seenScopes.contains(template.id)
+                    ? AntigravityQuotaGroupPresentationID.continuation(scopeID: template.id, firstLaneID: lane.id)
+                    : template.id
                 result.append(
                     AntigravityQuotaGroupPresentation(
-                        id: template.id,
+                        id: id,
                         title: template.title,
                         isUnknownScope: template.isUnknownScope,
                         lanes: [lane]
                     )
                 )
             }
+            seenScopes.insert(template.id)
+            lastScope = template.id
         }
         return result
     }
@@ -511,9 +513,9 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             groups: groups,
             identityRail: identityRail
         )
-        guard let selectedLane = selectedLanes.first,
-              selectedLane.percentageText != nil
-        else {
+        let selectedLane = selectedLanes.first
+        let legacy = settings.menuBar.percentageLaneIDs == nil && settings.menuBar.resetLaneIDs == nil
+        if legacy && selectedLane?.percentageText == nil {
             return AntigravityMenuBarQuotaPresentation(
                 isVisible: settings.menuBar.isVisible,
                 showsProviderIcon: settings.menuBar.showsProviderIcon,
@@ -540,48 +542,54 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         let times =
             settings.menuBar.resetLaneIDs
             ?? (settings.menuBar.showsSelectedLaneResetTime ? selectedLanes.map(\.id) : [])
-        var textIDs = numbers
-        for id in times where !textIDs.contains(id) { textIDs.append(id) }
-        let legacy = settings.menuBar.percentageLaneIDs == nil && settings.menuBar.resetLaneIDs == nil
+        let textIDs = settings.menuBar.textLaneIDs(fallback: selectedLanes.map(\.id))
         let textLanes = legacy ? selectedLanes : textIDs.compactMap { id in availableLanes.first { $0.id == id } }
-        func components(_ lane: AntigravityQuotaLanePresentation, withLabel: Bool) -> String? {
-            guard let percentage = lane.percentageText else { return nil }
+        let ids = legacy ? textLanes.map(\.id) : textIDs
+        func components(_ id: AntigravityQuotaLaneID, withLabel: Bool) -> String? {
+            guard let lane = availableLanes.first(where: { $0.id == id }), let percentage = lane.percentageText else {
+                let index = textIDs.firstIndex(of: id) ?? 0
+                return AntigravityDisplaySettings.MenuBarPresentationIntent.missingTextTitle(at: index) + " 데이터 없음"
+            }
             var values = withLabel ? [lane.menuLabel] : []
-            if numbers.contains(lane.id) { values.append(percentage) }
-            if times.contains(lane.id), withLabel || !numbers.contains(lane.id) {
+            if numbers.contains(id) { values.append(percentage) }
+            if times.contains(id), withLabel || !numbers.contains(id) {
                 values.append(
                     menuBarResetText(
-                        lane, timeFormat: settings.menuBar.timeFormat,
-                        now: now, locale: locale, timeZone: timeZone))
+                        lane, timeFormat: settings.menuBar.timeFormat, now: now, locale: locale, timeZone: timeZone))
             }
             return values.isEmpty ? nil : values.joined(separator: " ")
         }
-        let regularText = textLanes.compactMap { components($0, withLabel: true) }
-        let condensedText = textLanes.compactMap { components($0, withLabel: false) }
+        let regularText = ids.compactMap { components($0, withLabel: true) }
+        let condensedText = ids.compactMap { components($0, withLabel: false) }
+        var describedIDs = ids
+        if settings.menuBar.style != .none, let id = selectedLane?.id, !describedIDs.contains(id) {
+            describedIDs.append(id)
+        }
+        let descriptions = describedIDs.map { id in
+            guard let lane = availableLanes.first(where: { $0.id == id }) else {
+                return components(id, withLabel: true) ?? "데이터 없음"
+            }
+            return "\(lane.accessibilityLabel), \(lane.accessibilityValue)"
+        }
 
         return AntigravityMenuBarQuotaPresentation(
             isVisible: settings.menuBar.isVisible,
             showsProviderIcon: settings.menuBar.showsProviderIcon,
             style: settings.menuBar.style,
-            selectedLaneID: selectedLane.id,
+            selectedLaneID: selectedLane?.id,
             regularText: regularText.joined(separator: " · "),
             condensedText:
                 condensedText.isEmpty
                     ? nil
                     : condensedText.joined(separator: " · "),
-            gaugePercentage: menuBarGaugePercentage(
-                selectedLane,
-                settings: settings.menuBar
-            ),
+            gaugePercentage: selectedLane.flatMap { menuBarGaugePercentage($0, settings: settings.menuBar) },
             showsGaugePercentage:
                 settings.menuBar.showsGaugePercentage,
             tooltip: tooltip,
-            tone: selectedLane.tone,
+            tone: selectedLane?.tone ?? .neutral,
             accessibilityLabel: "Antigravity 메뉴 막대 사용량",
             accessibilityValue: [
-                selectedLanes.map {
-                    "\($0.accessibilityLabel), \($0.accessibilityValue)"
-                }.joined(separator: "; "),
+                descriptions.joined(separator: "; "),
                 identityRail.accessibilityValue,
             ].joined(separator: ", ")
         )

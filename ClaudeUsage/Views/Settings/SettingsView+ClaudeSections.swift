@@ -556,21 +556,16 @@ extension SettingsView {
             return organization.displayName
         }
 
-        if preview.overageEnabled == true,
-           let used = preview.overageUsed,
-           let limit = preview.overageLimit {
-            return "\(organization.displayName) · 추가 사용량 \(formatCurrency(used)) / \(formatCurrency(limit))"
+        if let overage = preview.overage, overage.isEnabled {
+            return
+                "\(organization.displayName) · 추가 사용량 \(overage.formattedUsedCredits) / \(overage.formattedCreditLimit)"
         }
 
-        if preview.overageEnabled == false {
+        if preview.overage?.isEnabled == false {
             return "\(organization.displayName) · 추가 사용량 꺼짐"
         }
 
         return organization.displayName
-    }
-
-    private func formatCurrency(_ value: Double) -> String {
-        String(format: "$%.2f", value)
     }
 
     @ViewBuilder

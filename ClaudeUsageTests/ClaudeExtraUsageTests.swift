@@ -3,6 +3,40 @@ import XCTest
 
 @MainActor
 final class ClaudeExtraUsageTests: XCTestCase {
+
+    func testIncompleteEnabledExtraUsageFallsBackInsteadOfInventingMoney() async throws {
+        let bodies = [
+            #"{}"#,
+            #"{"is_enabled":true,"monthly_limit":1000}"#,
+            #"{"is_enabled":true,"used_credits":1007}"#,
+            #"{"is_enabled":true,"monthly_limit":"bad","used_credits":1007}"#,
+            #"{"is_enabled":true,"monthly_limit":1000,"used_credits":"NaN"}"#,
+        ]
+        for body in bodies {
+            let usage = try decode("{\"extra_usage\":" + body + "}")
+            XCTAssertNil(usage.extraUsage, body)
+            let fallback = ExtraUsageFallbackStub(.value(separateUsage))
+            let result = try await ClaudeSupplementalRefreshResult.refresh(
+                embeddedUsage: usage.extraUsage, source: .webSession
+            ) { try await fallback.fetch() }
+            XCTAssertEqual(try successValue(result), separateUsage)
+            let calls = await fallback.calls
+            XCTAssertEqual(calls, 1, body)
+        }
+    }
+
+    func testExplicitDisabledExtraUsageRemainsAuthoritativeWithoutMoneyFields() async throws {
+        let usage = try decode(#"{"extra_usage":{"is_enabled":false}}"#)
+        XCTAssertEqual(usage.extraUsage, .notEnabled)
+        let fallback = ExtraUsageFallbackStub(.value(separateUsage))
+        let result = try await ClaudeSupplementalRefreshResult.refresh(
+            embeddedUsage: usage.extraUsage, source: .webSession
+        ) { try await fallback.fetch() }
+        XCTAssertEqual(try successValue(result), .notEnabled)
+        let calls = await fallback.calls
+        XCTAssertEqual(calls, 0)
+    }
+
     func testExtraUsageUsesMinorUnitsAndSpendLimitFlag() throws {
         let usage = try decode(
             """
@@ -48,14 +82,18 @@ final class ClaudeExtraUsageTests: XCTestCase {
         let now = Date()
         let facade = AppRuntimeStateFacade()
         facade.activeClaudeAccountID = "account"
-        facade.applyClaudeSupplementalUsage(.success(separateUsage, fetchedAt: now), accountID: "account")
+        facade[.claude].lastSuccessfulMetadata = fixtureClaudeMetadata(accountID: "account")
+        facade.applyClaudeSupplementalUsage(
+            .success(separateUsage, fetchedAt: now), accountID: "account",
+            ownerKey: fixtureClaudeMetadata(accountID: "account").supplementalAccountKey)
         let fallback = ExtraUsageFallbackStub(.value(separateUsage))
 
         let result = try await ClaudeSupplementalRefreshResult.refresh(
             embeddedUsage: try decode(memberUsageJSON).extraUsage,
             source: .webSession, lastAttemptAt: now, now: now
         ) { try await fallback.fetch() }
-        facade.applyClaudeSupplementalUsage(result, accountID: "account")
+        facade.applyClaudeSupplementalUsage(
+            result, accountID: "account", ownerKey: fixtureClaudeMetadata(accountID: "account").supplementalAccountKey)
 
         XCTAssertEqual(facade.currentOverage?.formattedUsedCredits, "$10.07")
         XCTAssertEqual(facade.currentOverage?.formattedCreditLimit, "$10.00")
@@ -154,13 +192,16 @@ final class ClaudeExtraUsageTests: XCTestCase {
         let previousFetch = Date().addingTimeInterval(-301)
         let facade = AppRuntimeStateFacade()
         facade.activeClaudeAccountID = "account"
+        facade[.claude].lastSuccessfulMetadata = fixtureClaudeMetadata(accountID: "account")
         facade.applyClaudeSupplementalUsage(
-            .success(separateUsage, fetchedAt: previousFetch), accountID: "account")
+            .success(separateUsage, fetchedAt: previousFetch), accountID: "account",
+            ownerKey: fixtureClaudeMetadata(accountID: "account").supplementalAccountKey)
         let fallback = ExtraUsageFallbackStub(.failure)
         let result = try await ClaudeSupplementalRefreshResult.refresh(
             embeddedUsage: nil, source: .webSession, lastAttemptAt: previousFetch
         ) { try await fallback.fetch() }
-        facade.applyClaudeSupplementalUsage(result, accountID: "account")
+        facade.applyClaudeSupplementalUsage(
+            result, accountID: "account", ownerKey: fixtureClaudeMetadata(accountID: "account").supplementalAccountKey)
 
         guard case .failed = result else { return XCTFail("expected failed") }
         XCTAssertEqual(facade.currentOverage, separateUsage)

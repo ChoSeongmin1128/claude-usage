@@ -166,6 +166,25 @@ final class ClaudeChromeSafeStorageKeyProviderTests: XCTestCase {
         }
         XCTAssertEqual(session.sessionKey, "sk-ant-valid-claude-domain-0123456789")
     }
+    func testSignedOutProfileDoesNotImportOtherSessionLikeCookies() throws {
+        let candidate = ClaudeBrowserSessionCandidate(
+            family: .chrome, profileName: "Default", cookiesPath: URL(fileURLWithPath: "/tmp/Default/Cookies"),
+            supportsAutomaticImport: true)
+        let service = ClaudeChromeCookieImportService(
+            candidateProvider: { [candidate] },
+            decryptionKeyProvider: { [] },
+            cookieReader: { _, _, _ in
+                [
+                    ClaudeChromiumCookieRecord(
+                        domain: ".claude.ai", name: "activitySessionId", path: "/",
+                        value: "6f1c2a4e-9b7d-4c1e-8a2f-3d5b7e9c1a0b", expiresAt: nil, isSecure: true)
+                ]
+            })
+
+        guard case .manualSessionKeyRequired = try service.attemptImport() else {
+            return XCTFail("로그인 전 쿠키를 세션 키로 가져오면 안 됩니다.")
+        }
+    }
 }
 
 private final class SafeStorageReaderSpy: @unchecked Sendable {
@@ -282,23 +301,5 @@ private final class ChromeImportPipelineSpy: @unchecked Sendable {
         ]
     }
 
-    func testSignedOutProfileDoesNotImportOtherSessionLikeCookies() throws {
-        let candidate = ClaudeBrowserSessionCandidate(
-            family: .chrome, profileName: "Default", cookiesPath: URL(fileURLWithPath: "/tmp/Default/Cookies"),
-            supportsAutomaticImport: true)
-        let service = ClaudeChromeCookieImportService(
-            candidateProvider: { [candidate] },
-            decryptionKeyProvider: { [] },
-            cookieReader: { _, _, _ in
-                [
-                    ClaudeChromiumCookieRecord(
-                        domain: ".claude.ai", name: "activitySessionId", path: "/",
-                        value: "6f1c2a4e-9b7d-4c1e-8a2f-3d5b7e9c1a0b", expiresAt: nil, isSecure: true)
-                ]
-            })
 
-        guard case .manualSessionKeyRequired = try service.attemptImport() else {
-            return XCTFail("로그인 전 쿠키를 세션 키로 가져오면 안 됩니다.")
-        }
-    }
 }

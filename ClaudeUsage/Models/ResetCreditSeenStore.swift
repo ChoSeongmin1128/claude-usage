@@ -77,6 +77,15 @@ nonisolated enum ResetCreditSeenStore {
         save(state, defaults)
     }
 
+    static func removeWebSession(reference: String, defaults: UserDefaults = .standard) {
+        let prefix = RuntimeProviderFetchMetadata.webSessionOwnerPrefix(reference: reference)
+        var state = load(defaults)
+        let retained = state.records.filter { !$0.key.hasPrefix(prefix) }
+        guard retained.count != state.records.count else { return }
+        state.records = retained
+        save(state, defaults)
+    }
+
     private static func load(_ defaults: UserDefaults) -> State {
         guard let data = defaults.data(forKey: key), let state = try? JSONDecoder().decode(State.self, from: data),
             state.version == 2

@@ -44,6 +44,17 @@ final class CodexUsageAccountProvider: UsageAccountProvider {
 
     func isRuntime(_ account: UsageAccount) -> Bool { account.isDefaultLogin }
 
+    /// 읽고 검증한 credential snapshot을 사용한다. 디스크를 다시 읽으면 다른 로그인일 수 있다.
+    nonisolated static func runtimeAccount(for result: CodexUsageSnapshot) -> UsageAccountCandidate {
+        let email = result.credential.token.idToken.flatMap(JWTClaims.decode)?["email"] as? String
+        let identity = UsageAccountIdentity(
+            accountID: email, organizationID: result.usage.accountID ?? result.credential.token.accountID,
+            email: email)
+        return UsageAccountCandidate(
+            source: .init(role: .defaultLogin, reference: result.credential.sourceURL.deletingLastPathComponent().path),
+            identity: identity)
+    }
+
     func runtimeUsage(from snapshot: RuntimeProviderSnapshot) -> UsageAccountUsage? {
         snapshot.codexUsage.map(UsageAccountUsage.init(codex:))
     }

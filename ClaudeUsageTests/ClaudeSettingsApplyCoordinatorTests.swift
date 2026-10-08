@@ -213,6 +213,9 @@ private actor FakeClaudeSettingsService: ClaudeSettingsApplyingService {
     private var preferredOrganizationID = ""
     private var resolvedOrganization: ClaudeAPIService.OrganizationSummary?
     private var recordedHealthSnapshotCount = 0
+    private var metadataGate: LoginActivationMetadataGate?
+
+    func setMetadataGate(_ gate: LoginActivationMetadataGate) { metadataGate = gate }
 
     init(oauthAvailable: Bool = false, sessionKey: String? = nil) {
         self.oauthAvailable = oauthAvailable
@@ -267,7 +270,8 @@ private actor FakeClaudeSettingsService: ClaudeSettingsApplyingService {
     }
 
     func resolvedSessionOrganizationForLastValidation() async -> ClaudeAPIService.OrganizationSummary? {
-        resolvedOrganization
+        await metadataGate?.wait()
+        return resolvedOrganization
     }
 
     func fetchUsageHealthSnapshot() -> ClaudeAPIService.UsageHealthSnapshot {
@@ -317,4 +321,46 @@ private final class LockedRefreshRequestCounter: @unchecked Sendable {
     func increment() {
         lock.withLock { count += 1 }
     }
+}
+
+
+extension ClaudeSettingsApplyCoordinatorTests {
+    func testCancelledLoginAfterValidationDoesNotPersistOrActivate() async throws {
+        let keychain = FakeClaudeSessionKeyStore()
+        let service = FakeClaudeSettingsService(sessionKey: "previous")
+        let validator = FakeClaudeSettingsService(sessionKey: "new-session")
+        let gate = LoginActivationMetadataGate()
+        await validator.setMetadataGate(gate)
+        let refreshRequests = LockedRefreshRequestCounter()
+        let activation = Task {
+            try await ClaudeSettingsApplyCoordinator.activateSessionKey(
+                "new-session", apiService: service, preferredOrganizationID: "", keychain: keychain,
+                makeValidator: { _ in validator }, refreshRequester: { refreshRequests.increment() })
+        }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while !(await gate.entered) {
+            guard ContinuousClock.now < deadline else { return XCTFail("metadata 조회를 시작하지 못했습니다") }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        activation.cancel()
+        await gate.resume()
+        do {
+            try await activation.value
+            XCTFail("취소한 로그인은 저장하지 않아야 합니다")
+        } catch is CancellationError {}
+        XCTAssertEqual(keychain.savedValues, [])
+        let current = await service.currentSessionKeySnapshot()
+        XCTAssertEqual(current, "previous")
+        XCTAssertEqual(refreshRequests.value, 0)
+    }
+}
+
+private actor LoginActivationMetadataGate {
+    private(set) var entered = false
+    private var continuation: CheckedContinuation<Void, Never>?
+    func wait() async {
+        entered = true
+        await withCheckedContinuation { continuation = $0 }
+    }
+    func resume() { continuation?.resume(); continuation = nil }
 }

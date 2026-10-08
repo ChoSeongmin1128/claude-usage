@@ -870,34 +870,62 @@ enum UpdateEngineFactory {
 actor UpdateService {
     static let shared = UpdateService()
 
+    private struct EngineInitialization {
+        let id: UUID
+        let signature: String
+        let task: Task<any AppUpdateEngine, Never>
+    }
+
     private var engine: (any AppUpdateEngine)?
     private var engineConfigurationSignature: String?
+    private var initialization: EngineInitialization?
+    private let makeEngine: @Sendable () async -> any AppUpdateEngine
+    private let configurationSignature: @Sendable () -> String
 
-    init(engine: (any AppUpdateEngine)? = nil) {
+    init(
+        engine: (any AppUpdateEngine)? = nil,
+        makeEngine: @escaping @Sendable () async -> any AppUpdateEngine = {
+            await UpdateEngineFactory.makeDefaultEngine()
+        },
+        configurationSignature: @escaping @Sendable () -> String = { UpdateService.currentConfigurationSignature() }
+    ) {
         self.engine = engine
+        self.makeEngine = makeEngine
+        self.configurationSignature = configurationSignature
+        self.engineConfigurationSignature = engine.map { _ in configurationSignature() }
+    }
+
+    private nonisolated static func currentConfigurationSignature() -> String {
         #if canImport(Sparkle)
-        self.engineConfigurationSignature = engine.map { _ in UpdateConfigurationInspector.engineConfigurationSignature() }
+        return UpdateConfigurationInspector.engineConfigurationSignature()
+        #else
+        return "github"
         #endif
     }
 
     private func resolvedEngine() async -> any AppUpdateEngine {
-        #if canImport(Sparkle)
-        let currentConfigurationSignature = UpdateConfigurationInspector.engineConfigurationSignature()
-        if let engine, engineConfigurationSignature == currentConfigurationSignature {
-            return engine
-        }
-        #else
-        if let engine {
-            return engine
-        }
-        #endif
+        while true {
+            let signature = configurationSignature()
+            if let engine, engineConfigurationSignature == signature { return engine }
 
-        let resolved = await UpdateEngineFactory.makeDefaultEngine()
-        engine = resolved
-        #if canImport(Sparkle)
-        engineConfigurationSignature = currentConfigurationSignature
-        #endif
-        return resolved
+            let flight: EngineInitialization
+            if let existing = initialization, existing.signature == signature {
+                flight = existing
+            } else {
+                let factory = makeEngine
+                flight = EngineInitialization(id: UUID(), signature: signature, task: Task { await factory() })
+                initialization = flight
+            }
+            let resolved = await flight.task.value
+            // 설정을 바꾸는 동안 끝난 이전 엔진은 새 설정의 엔진을 덮을 수 없다.
+            guard configurationSignature() == signature else { continue }
+            if let engine, engineConfigurationSignature == signature { return engine }
+            guard initialization?.id == flight.id else { continue }
+            engine = resolved
+            engineConfigurationSignature = signature
+            initialization = nil
+            return resolved
+        }
     }
 
     func checkForUpdates() async -> UpdateCheckResult {

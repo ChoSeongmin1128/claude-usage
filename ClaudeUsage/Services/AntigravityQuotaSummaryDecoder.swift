@@ -515,13 +515,15 @@ nonisolated enum AntigravityQuotaSummaryDecoder {
             guard !trimmed.isEmpty else {
                 return ResetResult(date: nil, invalid: false)
             }
-            if let date = iso8601Date(from: trimmed) ?? epochDate(from: trimmed) {
-                return ResetResult(date: date, invalid: false)
+            if let date = iso8601Date(from: trimmed) ?? epochDate(from: trimmed),
+                let validDate = TimeFormatter.validatedResetDate(date)
+            {
+                return ResetResult(date: validDate, invalid: false)
             }
             return ResetResult(date: nil, invalid: true)
         }
-        if let seconds = number(from: raw) {
-            return ResetResult(date: dateFromEpoch(seconds), invalid: false)
+        if let seconds = number(from: raw), let date = dateFromEpoch(seconds) {
+            return ResetResult(date: date, invalid: false)
         }
         return ResetResult(date: nil, invalid: true)
     }
@@ -541,9 +543,10 @@ nonisolated enum AntigravityQuotaSummaryDecoder {
         return dateFromEpoch(number)
     }
 
-    private static func dateFromEpoch(_ value: Double) -> Date {
+    private static func dateFromEpoch(_ value: Double) -> Date? {
+        guard value.isFinite else { return nil }
         let seconds = value > 10_000_000_000 ? value / 1000 : value
-        return Date(timeIntervalSince1970: seconds)
+        return TimeFormatter.validatedResetDate(Date(timeIntervalSince1970: seconds))
     }
 
     private static func number(from value: Any) -> Double? {

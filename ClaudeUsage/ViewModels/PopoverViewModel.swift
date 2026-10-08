@@ -18,6 +18,7 @@ final class PopoverViewModel: ObservableObject {
         let freshness: RuntimeProviderFreshness
         let sourceLabel: String?
         let accountID: String?
+        var accountLabel: String? = nil
 
         var failureHelpText: String? {
             guard case .claudeCodeExecutableNotFound? = error else { return nil }
@@ -307,7 +308,8 @@ final class PopoverViewModel: ObservableObject {
                 shouldShowWarningDot: shouldShowWarningDot(snapshot: snapshot, isAuthRequired: isAuthRequired),
                 freshness: snapshot?.freshness ?? .unavailable,
                 sourceLabel: provenance?.sourceLabel,
-                accountID: provenance?.accountID
+                accountID: provenance?.accountID,
+                accountLabel: claudeAccountPresentation?.label
             )
         case .codex:
             let isEnabled = settings.isProviderEnabled(.codex)
@@ -329,7 +331,8 @@ final class PopoverViewModel: ObservableObject {
                 shouldShowWarningDot: shouldShowWarningDot(snapshot: snapshot, isAuthRequired: isAuthRequired),
                 freshness: snapshot?.freshness ?? .unavailable,
                 sourceLabel: provenance?.sourceLabel,
-                accountID: provenance?.accountID
+                accountID: provenance?.accountID,
+                accountLabel: snapshot?.hasContent == true ? provenance?.account?.identity.email : nil
             )
         case .antigravity:
             return antigravityRuntimeServiceState(settings: settings)

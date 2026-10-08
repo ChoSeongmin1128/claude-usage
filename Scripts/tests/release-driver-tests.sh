@@ -487,6 +487,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 if [[ -n "$install_path" ]]; then
+    if [[ "${RELEASE_DRIVER_TEST_PREVIOUS_VERIFY_FAIL:-0}" == "1" ]]; then exit 1; fi
     mkdir -p "$install_path"
     printf 'fixture app\n' > "$install_path/fixture.txt"
 fi
@@ -532,8 +533,8 @@ run_root="${TMPDIR%/tmp}"
 [[ "$RELEASE_CHANNEL" == "${RELEASE_DRIVER_TEST_ENVIRONMENT:-staging}" ]]
 [[ "$SU_FEED_URL" == "${RELEASE_DRIVER_TEST_EXPECTED_FEED:?}" ]]
 [[ "$SIGNING_REFERENCE_APP" == "${RELEASE_DRIVER_TEST_SANDBOX_ROOT:?}/Applications/ClaudeUsage.app" \
-    || "$SIGNING_REFERENCE_APP" == "${RELEASE_DRIVER_TEST_SANDBOX_ROOT:?}/Downloads/ClaudeUsage-stg.app" \
-    || "$SIGNING_REFERENCE_APP" == "${RELEASE_DRIVER_TEST_SANDBOX_ROOT:?}/Downloads/ClaudeUsage.app" ]]
+    || "$SIGNING_REFERENCE_APP" == "$run_root/upgrade/ClaudeUsage-stg.app" \
+    || "$SIGNING_REFERENCE_APP" == "$run_root/upgrade/ClaudeUsage.app" ]]
 fixture_app_name="ClaudeUsage-stg"
 fixture_bundle_identifier="com.seongmin.ClaudeUsage.staging"
 if [[ "$RELEASE_CHANNEL" == "prod" ]]; then
@@ -989,6 +990,10 @@ run_orchestration_scenario() {
 
     rm -rf "$ORCHESTRATION_TMP" "$ORCHESTRATION_DOWNLOADS"
     mkdir -p "$ORCHESTRATION_TMP" "$ORCHESTRATION_DOWNLOADS"
+    if [[ "${RELEASE_DRIVER_TEST_EXISTING_DOWNLOADS_APP:-0}" == "1" ]]; then
+        mkdir -p "$ORCHESTRATION_DOWNLOADS/$app_name"
+        printf 'user-owned app\n' > "$ORCHESTRATION_DOWNLOADS/$app_name/preserved.txt"
+    fi
     : > "$ORCHESTRATION_TRACE"
     printf 'nathan-glorang\n' > "$ORCHESTRATION_ACCOUNT"
     rm -f "$ORCHESTRATION_FEED_SWITCH" "$ORCHESTRATION_PAGES_STATE"
@@ -998,7 +1003,6 @@ run_orchestration_scenario() {
         env \
             "PATH=$ORCHESTRATION_BIN:/usr/bin:/bin:/usr/sbin:/sbin" \
             "TMPDIR=$ORCHESTRATION_TMP" \
-            "DOWNLOADS_APP_PATH=$ORCHESTRATION_DOWNLOADS/$app_name" \
             "RELEASE_DRIVER_TEST_ENVIRONMENT=$environment" \
             "RELEASE_DRIVER_TEST_PUBLISH_TAG=$publish_tag" \
             "RELEASE_DRIVER_TEST_MODE=1" \
@@ -1017,6 +1021,7 @@ run_orchestration_scenario() {
             "RELEASE_DRIVER_TEST_XCODEBUILD_FAIL=$xcodebuild_fail" \
             "RELEASE_DRIVER_TEST_STATIC_FAIL=${RELEASE_DRIVER_TEST_STATIC_FAIL:-0}" \
             "RELEASE_DRIVER_TEST_CODEX_LIVE_FAIL=${RELEASE_DRIVER_TEST_CODEX_LIVE_FAIL:-0}" \
+            "RELEASE_DRIVER_TEST_PREVIOUS_VERIFY_FAIL=${RELEASE_DRIVER_TEST_PREVIOUS_VERIFY_FAIL:-0}" \
             "RELEASE_DRIVER_TEST_CERT_CHANGED=$cert_changed" \
             "RELEASE_DRIVER_TEST_STALE_TAG_ASSETS=${RELEASE_DRIVER_TEST_STALE_TAG_ASSETS:-0}" \
             "RELEASE_DRIVER_TEST_STAGING_IDENTITY_BOOTSTRAP_VERSION=$bootstrap_version" \
@@ -1163,14 +1168,31 @@ run_orchestration_scenario \
     2.3.0
 assert_equal "0" "$SCENARIO_STATUS" "same-identity upgrade actual path"
 assert_contains "$SCENARIO_TRACE" "verify <--tag> <v2.3.3-staging>" "same-identity previous artifact verification"
-assert_contains "$SCENARIO_TRACE" "<--install-to> <$ORCHESTRATION_DOWNLOADS/ClaudeUsage-stg.app>" "same-identity temporary upgrade app"
-assert_contains "$SCENARIO_TRACE" "<SIGNING_REFERENCE_APP=$ORCHESTRATION_DOWNLOADS/ClaudeUsage-stg.app>" "same-identity signing reference"
+assert_contains "$SCENARIO_TRACE" "<--install-to> <$ORCHESTRATION_TMP/claudeusage-release-driver." "same-identity private upgrade root"
+assert_contains "$SCENARIO_TRACE" "/upgrade/ClaudeUsage-stg.app>" "same-identity private upgrade app"
+assert_contains "$SCENARIO_TRACE" "<SIGNING_REFERENCE_APP=$ORCHESTRATION_TMP/claudeusage-release-driver." "same-identity signing reference"
 [[ ! -e "$ORCHESTRATION_DOWNLOADS/ClaudeUsage-stg.app" ]] \
     || fail "same-identity upgrade 앱이 driver 종료 후 Downloads fixture에 남았습니다."
 pass
-assert_contains "$SCENARIO_OUTPUT" "배포 중 준비한 Downloads 앱은 종료 시 삭제합니다." "same-identity cleanup output"
+assert_contains "$SCENARIO_OUTPUT" "이전 배포 앱은 실행 전용 임시 디렉터리에서만 사용하고 종료 시 정리합니다." "same-identity cleanup output"
 assert_orchestration_cleanup "same-identity upgrade"
 assert_no_destructive_release_commands "$SCENARIO_TRACE" "same-identity upgrade"
+
+RELEASE_DRIVER_TEST_EXISTING_DOWNLOADS_APP=1 run_orchestration_scenario \
+    fresh v2.3.3-staging $'2.3.3\t20330\tv2.3.3-staging' $'2.4.0\t20400\tv2.4.0-stg.1' 0 built 2.3.0
+assert_equal "0" "$SCENARIO_STATUS" "existing Downloads app survives success"
+assert_equal "user-owned app" "$(cat "$ORCHESTRATION_DOWNLOADS/ClaudeUsage-stg.app/preserved.txt")" "successful release preserves user app"
+assert_not_contains "$SCENARIO_TRACE" "$ORCHESTRATION_DOWNLOADS/ClaudeUsage-stg.app" "release never targets Downloads app"
+assert_orchestration_cleanup "existing Downloads success"
+
+RELEASE_DRIVER_TEST_EXISTING_DOWNLOADS_APP=1 RELEASE_DRIVER_TEST_PREVIOUS_VERIFY_FAIL=1 run_orchestration_scenario \
+    fresh v2.3.3-staging $'2.3.3\t20330\tv2.3.3-staging' $'2.4.0\t20400\tv2.4.0-stg.1' 0 built 2.3.0
+[[ "$SCENARIO_STATUS" != "0" ]] || fail "previous artifact verification must fail"
+pass
+assert_equal "user-owned app" "$(cat "$ORCHESTRATION_DOWNLOADS/ClaudeUsage-stg.app/preserved.txt")" "failed verification preserves user app"
+assert_not_contains "$SCENARIO_TRACE" "build <BUILD_DIR=" "previous verification failure blocks archive"
+assert_not_contains "$SCENARIO_TRACE" "publish <v2.4.0-stg.1>" "previous verification failure blocks publish"
+assert_orchestration_cleanup "existing Downloads failed verification"
 
 ROTATION_TEST_PUBLIC_KEY="11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo="
 run_orchestration_scenario fresh v2.3.3-staging \

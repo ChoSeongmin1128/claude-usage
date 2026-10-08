@@ -27,6 +27,7 @@ final class UsageAccountsController: ObservableObject {
 
     private let defaults: UserDefaults
     private let isServiceEnabled: (PopoverService) -> Bool
+    private let notifyAccountChange: @MainActor (String, String) -> Void
     private var refreshTask: Task<Void, Never>?
     /// 조회를 기다리거나 조회 중인 계정. 같은 계정을 겹쳐 조회하지 않는다.
     private var queued: Set<String> = []
@@ -34,6 +35,7 @@ final class UsageAccountsController: ObservableObject {
     private var interactiveOnce: Set<String> = []
     private var discoveryTask: Task<Void, Never>?
     private var needsAnotherDiscovery = false
+    private var runtimeAccounts: [PopoverService: UsageAccountCandidate] = [:]
     private var askingMenuBarChoice: Set<PopoverService> = []
     /// 마지막으로 본 메뉴바 계정과 앱이 바꾼 메뉴바 계정. 다른 경로로 바뀌면 사용자가 고른 것으로 본다.
     private var lastMenuBarTarget: [PopoverService: String] = [:]
@@ -44,11 +46,15 @@ final class UsageAccountsController: ObservableObject {
     init(
         providers: [any UsageAccountProvider], defaults: UserDefaults = .standard,
         adoptsCurrentMenuBarAccount: Bool = false,
+        notifyAccountChange: @escaping @MainActor (String, String) -> Void = { title, body in
+            NotificationManager.shared.deliverAccountNotice(title: title, body: body)
+        },
         isServiceEnabled: @escaping (PopoverService) -> Bool
     ) {
         self.providers = providers
         self.defaults = defaults
         self.isServiceEnabled = isServiceEnabled
+        self.notifyAccountChange = notifyAccountChange
         self.adoptsCurrentMenuBarAccount = adoptsCurrentMenuBarAccount
         preferences = UsageAccountPreferences.load(from: defaults)
     }
@@ -76,7 +82,33 @@ final class UsageAccountsController: ObservableObject {
     }
 
     func isRuntime(_ account: UsageAccount) -> Bool {
-        provider(for: account.service)?.isRuntime(account) ?? false
+        if let candidate = runtimeAccounts[account.service] {
+            return account.matches(candidate)
+        }
+        return provider(for: account.service)?.isRuntime(account) ?? false
+    }
+
+    /// 검증한 payload와 같은 출처의 identity만 쓴다. 호출자가 같은 main actor 실행 안에서
+    /// payload를 공개하므로 여기서 onChange를 먼저 부르지 않는다.
+    func bindRuntimeAccount(_ candidate: UsageAccountCandidate?, for service: PopoverService) {
+        runtimeAccounts[service] = candidate
+        guard let candidate else { return }
+        let candidates = (accounts[service] ?? []).flatMap { account in
+            account.sources.filter { $0 != candidate.source }.map {
+                UsageAccountCandidate(source: $0, identity: account.identity)
+            }
+        }
+        let merged = UsageAccount.merge(candidates + [candidate], service: service)
+        carryOverRenamedAccounts(from: accounts, to: [service: merged])
+        accounts[service] = merged
+        preferences.remember(merged)
+    }
+
+    private func candidatesWithRuntimeAccount(
+        _ candidates: [UsageAccountCandidate], service: PopoverService
+    ) -> [UsageAccountCandidate] {
+        guard let runtime = runtimeAccounts[service] else { return candidates }
+        return candidates.filter { $0.source != runtime.source } + [runtime]
     }
 
     func isMultiAccountEnabled(_ service: PopoverService) -> Bool { preferences[service].isMultiAccountEnabled }
@@ -169,17 +201,20 @@ final class UsageAccountsController: ObservableObject {
 
     private func discover() async {
         var found: [PopoverService: [UsageAccount]] = [:]
+        var discovered: [PopoverService: [UsageAccount]] = [:]
         for provider in activeProviders {
             let service = provider.service
             let input = provider.discoveryInput(
                 directories: preferences[service].directories, knownIdentities: preferences.knownIdentities)
             let candidates = await Task.detached(priority: .utility) { await provider.candidates(input) }.value
-            found[service] = UsageAccount.merge(candidates, service: service)
+            discovered[service] = UsageAccount.merge(candidates, service: service)
+            found[service] = UsageAccount.merge(
+                candidatesWithRuntimeAccount(candidates, service: service), service: service)
         }
         carryOverRenamedAccounts(from: accounts, to: found)
         accounts = found
         preferences.remember(found.values.flatMap { $0 })
-        detectRevertedSwitch()
+        detectRevertedSwitch(in: discovered)
         for provider in activeProviders { applyMenuBarDefault(provider) }
         onChange?()
     }
@@ -329,7 +364,8 @@ final class UsageAccountsController: ObservableObject {
         guard let provider = provider(for: queuedAccount.service), isServiceEnabled(queuedAccount.service),
             preferences[queuedAccount.service].isMultiAccountEnabled,
             let account = accounts[queuedAccount.service]?.first(where: { $0.id == queuedAccount.id }),
-            !preferences.hidden.contains(account.id), !provider.isRuntime(account)
+            !preferences.hidden.contains(account.id), !preferences.archived.contains(account.id),
+            !provider.isRuntime(account)
         else { return }
         let interactive = interactiveOnce.remove(account.id) != nil
         var state = states[account.id] ?? UsageAccountState()
@@ -433,6 +469,16 @@ final class UsageAccountsController: ObservableObject {
         return true
     }
 
+    func removeResetCreditStateForDeletedWebLogin(_ reference: String) {
+        ResetCreditSeenStore.removeWebSession(reference: reference, defaults: defaults)
+        for account in accounts[.claude] ?? []
+        where !account.sources.isEmpty
+            && account.sources.allSatisfy({ $0.role == .web && $0.reference == reference })
+        {
+            ResetCreditSeenStore.remove(accountKey: account.id, defaults: defaults)
+        }
+    }
+
     // MARK: - 기본 로그인 전환
 
     func canSwitch(to account: UsageAccount) -> Bool {
@@ -473,18 +519,18 @@ final class UsageAccountsController: ObservableObject {
     }
 
     /// 앱이 바꾼 기본 로그인이 나중에 다른 계정으로 돌아가 있으면 한 번 알린다.
-    private func detectRevertedSwitch() {
+    private func detectRevertedSwitch(in discovered: [PopoverService: [UsageAccount]]) {
         for provider in activeProviders {
             let service = provider.service
             guard let expected = preferences[service].expectedDefault,
-                let current = accounts[service]?.first(where: \.isDefaultLogin)?.identity,
+                let current = discovered[service]?.first(where: \.isDefaultLogin)?.identity,
                 !expected.isSameAccount(as: current)
             else { continue }
             preferences[service].expectedDefault = nil
             let message =
                 "\(service.displayName) 기본 로그인이 \(expected.email ?? "전환한") 계정에서 \(current.email ?? "다른") 계정으로 바뀌었습니다."
             revertedSwitch[service] = message
-            NotificationManager.shared.deliverAccountNotice(title: "기본 로그인이 바뀌었습니다", body: message)
+            notifyAccountChange("기본 로그인이 바뀌었습니다", message)
         }
     }
 

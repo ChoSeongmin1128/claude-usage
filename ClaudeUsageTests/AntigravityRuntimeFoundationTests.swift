@@ -2,102 +2,6 @@ import XCTest
 @testable import ClaudeUsage
 
 final class AntigravityRuntimeFoundationTests: XCTestCase {
-    func testPortRejectsZeroAndOutOfRangeValues() {
-        XCTAssertNil(AntigravityTCPPort(0))
-        XCTAssertNil(AntigravityTCPPort(-1))
-        XCTAssertNil(AntigravityTCPPort(65_536))
-        XCTAssertNil(AntigravityTCPPort(rawValue: 0))
-        XCTAssertEqual(AntigravityTCPPort(65_535)?.rawValue, 65_535)
-    }
-
-    func testDesktopLanguageServerRequiresAppOwnership() throws {
-        let bundle = AntigravityAppBundleIdentity(
-            canonicalRootURL: URL(fileURLWithPath: "/Applications/Antigravity.app"),
-            bundleIdentifier: AntigravityAppBundleIdentity.requiredBundleIdentifier
-        )
-        let executable = AntigravityCanonicalExecutable(
-            canonicalURL: bundle.canonicalRootURL
-                .appendingPathComponent("Contents/Resources/bin/language_server"),
-            role: .appLanguageServer,
-            appBundle: bundle
-        )
-        let startedAt = try XCTUnwrap(AntigravityProcessStartTime(
-            seconds: 1_700_000_000,
-            microseconds: 123
-        ))
-        let processIdentity = try XCTUnwrap(AntigravityVerifiedProcessIdentity(
-            processID: 10,
-            effectiveUserID: AntigravityUserID(rawValue: 501),
-            realUserID: AntigravityUserID(rawValue: 501),
-            startedAt: startedAt,
-            executable: executable
-        ))
-
-        XCTAssertNotNil(AntigravityRuntimeProcessCandidate(
-            processIdentity: processIdentity,
-            ownership: .external
-        ))
-    }
-
-    func testVerifiedEndpointEnforcesTransportAuthenticationContract() throws {
-        let appBundle = AntigravityAppBundleIdentity(
-            canonicalRootURL: URL(fileURLWithPath: "/Applications/Antigravity.app"),
-            bundleIdentifier: AntigravityAppBundleIdentity.requiredBundleIdentifier
-        )
-        let appExecutable = AntigravityCanonicalExecutable(
-            canonicalURL: appBundle.canonicalRootURL
-                .appendingPathComponent("Contents/Resources/bin/language_server"),
-            role: .appLanguageServer,
-            appBundle: appBundle
-        )
-        let agyExecutable = AntigravityCanonicalExecutable(
-            canonicalURL: URL(fileURLWithPath: "/Users/test/.local/bin/agy"),
-            role: .agyCLI
-        )
-        let appProcess = try makeVerifiedProcess(executable: appExecutable)
-        let agyProcess = try makeVerifiedProcess(executable: agyExecutable)
-        let port = try XCTUnwrap(AntigravityTCPPort(54_321))
-        let token = try XCTUnwrap(AntigravityCSRFToken("token"))
-
-        XCTAssertNotNil(AntigravityVerifiedRuntimeEndpoint(
-            processIdentity: appProcess,
-            host: .ipv4,
-            port: port,
-            transport: .antigravityApp,
-            ownership: .external,
-            authentication: .appCSRF(token)
-        ))
-        XCTAssertNil(AntigravityCSRFToken("  "))
-        XCTAssertEqual(String(describing: token), "<redacted>")
-        XCTAssertFalse(
-            String(describing: AntigravityRuntimeConnectionHints(
-                requestedPort: port,
-                csrfToken: token
-            )).contains(token.value)
-        )
-        XCTAssertNil(AntigravityVerifiedRuntimeEndpoint(
-            processIdentity: appProcess,
-                host: .ipv6,
-            port: port,
-            transport: .antigravityApp,
-            ownership: .external,
-                authentication: .appCSRF(token)
-        ))
-        // The CLI is read through its usage report, never as an RPC endpoint.
-        XCTAssertNil(AntigravityVerifiedRuntimeEndpoint(
-            processIdentity: agyProcess,
-            host: .ipv4,
-            port: port,
-                transport: .antigravityApp,
-                ownership: .external,
-            authentication: .appCSRF(token)
-        ))
-        XCTAssertNil(AntigravityRuntimeProcessCandidate(
-            processIdentity: agyProcess,
-            ownership: .external
-        ))
-    }
-
     func testDeadlineCapsDiscoveryAtTwoSecondsAndPreservesTotalBudget() throws {
         let clock = TestMonotonicClock()
         let deadline = AntigravityRPCDeadline(
@@ -295,22 +199,6 @@ final class AntigravityRuntimeFoundationTests: XCTestCase {
             Set(expected)
         )
     }
-}
-
-private func makeVerifiedProcess(
-    executable: AntigravityCanonicalExecutable
-) throws -> AntigravityVerifiedProcessIdentity {
-    let startedAt = try XCTUnwrap(AntigravityProcessStartTime(
-        seconds: 1_700_000_000,
-        microseconds: 0
-    ))
-    return try XCTUnwrap(AntigravityVerifiedProcessIdentity(
-        processID: 42,
-        effectiveUserID: AntigravityUserID(rawValue: 501),
-        realUserID: AntigravityUserID(rawValue: 501),
-        startedAt: startedAt,
-        executable: executable
-    ))
 }
 
 private final class TestMonotonicClock: @unchecked Sendable {

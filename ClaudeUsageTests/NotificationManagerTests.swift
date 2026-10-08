@@ -633,7 +633,8 @@ final class NotificationManagerTests: XCTestCase {
         let usage = ClaudeUsageResponse(fiveHour: .init(utilization: 96, resetsAt: nil), sevenDay: nil)
         manager.checkClaude(usage, accountID: nil, policy: nil)
         XCTAssertTrue(AppSettings.shared.notificationTargets.providers.isEmpty)
-        XCTAssertTrue(manager.inventories[.claude]?.isEmpty ?? true)
+        XCTAssertEqual(manager.inventories[.claude]?.count, 1)
+        XCTAssertFalse(manager.hasIdentifiedAccount(for: .claude))
         XCTAssertTrue(deliverer.delivered.isEmpty)
     }
 
@@ -678,6 +679,99 @@ final class NotificationManagerTests: XCTestCase {
         let newLimit = try XCTUnwrap(manager.inventories[.antigravity]?.first { $0.title.contains("New model") })
         XCTAssertFalse(AppSettings.shared.notificationTargets.isSelected(newLimit.id, provider: .antigravity))
         XCTAssertTrue(deliverer.delivered.isEmpty)
+    }
+
+    func testUnidentifiedAntigravityUsageStaysSelectableWithoutImportingAlertHistory() throws {
+        let lane = makeAntigravityLane(id: .geminiWeekly, scope: .gemini, cadence: .weekly, usedPercentage: 96)
+        let unknown = ProviderAccountIdentity(stableAccountID: nil, email: nil)
+        manager.checkAntigravityThresholds(
+            snapshot: makeAntigravitySnapshot(accountID: "unused", lanes: [lane], observedIdentity: unknown))
+        let limit = try XCTUnwrap(manager.inventories[.antigravity]?.first)
+        XCTAssertFalse(manager.hasIdentifiedAccount(for: .antigravity))
+        XCTAssertTrue(AppSettings.shared.notificationTargets.providers.isEmpty)
+        AppSettings.shared.notificationTargets.setSelected(true, limit: limit)
+        manager.checkAntigravityThresholds(
+            snapshot: makeAntigravitySnapshot(accountID: "unused", lanes: [lane], observedIdentity: unknown))
+        XCTAssertTrue(AppSettings.shared.notificationTargets.isSelected(limit.id, provider: .antigravity))
+        XCTAssertTrue(deliverer.delivered.isEmpty)
+        manager.checkAntigravityThresholds(snapshot: makeAntigravitySnapshot(accountID: "confirmed", lanes: [lane]))
+        XCTAssertTrue(manager.hasIdentifiedAccount(for: .antigravity))
+        XCTAssertTrue(deliverer.delivered.isEmpty, "Identity confirmation must start fresh crossing history")
+    }
+
+    func testExternalLoginOwnerSeparatesUsersInSameCliSlotAndWorkspace() throws {
+        let source = UsageAccountSource(role: .defaultLogin, reference: "/fixture/default")
+        for service in [PopoverService.claude, .codex] {
+            let isolated = NotificationManager(deliverer: deliverer)
+            func owner(_ user: String?) -> String? {
+                RuntimeProviderFetchMetadata(
+                    account: .init(
+                        source: source, identity: .init(accountID: user, organizationID: "same-workspace"))
+                )
+                .notificationAccountKey(for: service)
+            }
+            func check(_ percentage: Double, user: String?) throws {
+                if service == .claude {
+                    isolated.checkClaude(
+                        .init(fiveHour: .init(utilization: percentage, resetsAt: nil), sevenDay: nil),
+                        accountID: owner(user), policy: nil)
+                } else {
+                    let json =
+                        "{\"rate_limit\":{\"primary_window\":{\"used_percent\":\(percentage),\"limit_window_seconds\":18000}}}"
+                    isolated.checkCodex(
+                        try JSONDecoder().decode(CodexUsageResponse.self, from: Data(json.utf8)),
+                        accountID: owner(user))
+                }
+            }
+            let before = deliverer.delivered.count
+            try check(20, user: "a")
+            try check(96, user: "b")
+            XCTAssertEqual(deliverer.delivered.count, before, "New user starts with a baseline")
+            try check(84, user: "b")
+            try check(96, user: "b")
+            XCTAssertEqual(deliverer.delivered.count, before + 1)
+            try check(20, user: nil)
+            try check(96, user: nil)
+            XCTAssertEqual(deliverer.delivered.count, before + 1)
+        }
+    }
+
+    func testSameVerifiedOwnerKeepsCrossingHistoryAcrossNewCredentialSnapshot() {
+        let source = UsageAccountSource(role: .defaultLogin, reference: "/fixture/default")
+        func metadata() -> RuntimeProviderFetchMetadata {
+            .init(account: .init(source: source, identity: .init(accountID: "a", organizationID: "org")))
+        }
+        manager.checkClaude(
+            .init(fiveHour: .init(utilization: 89, resetsAt: nil), sevenDay: nil),
+            accountID: metadata().notificationAccountKey(for: .claude), policy: nil)
+        manager.checkClaude(
+            .init(fiveHour: .init(utilization: 96, resetsAt: nil), sevenDay: nil),
+            accountID: metadata().notificationAccountKey(for: .claude), policy: nil)
+        XCTAssertEqual(deliverer.delivered.count, 1)
+    }
+
+    func testWebSessionFallbackIsScopedToVerifiedOrganizationWithoutRequiringEmail() {
+        func owner(_ organization: String) -> String? {
+            RuntimeProviderFetchMetadata(
+                account: .init(
+                    source: .init(role: .web, reference: "web-fingerprint"),
+                    identity: .init(organizationID: organization))
+            ).notificationAccountKey(for: .claude)
+        }
+        manager.checkClaude(
+            .init(fiveHour: .init(utilization: 20, resetsAt: nil), sevenDay: nil),
+            accountID: owner("org-a"), policy: nil)
+        manager.checkClaude(
+            .init(fiveHour: .init(utilization: 96, resetsAt: nil), sevenDay: nil),
+            accountID: owner("org-b"), policy: nil)
+        XCTAssertTrue(deliverer.delivered.isEmpty)
+        manager.checkClaude(
+            .init(fiveHour: .init(utilization: 84, resetsAt: nil), sevenDay: nil),
+            accountID: owner("org-b"), policy: nil)
+        manager.checkClaude(
+            .init(fiveHour: .init(utilization: 96, resetsAt: nil), sevenDay: nil),
+            accountID: owner("org-b"), policy: nil)
+        XCTAssertEqual(deliverer.delivered.count, 1)
     }
 
     private var codexAccount: String? = "account-a"

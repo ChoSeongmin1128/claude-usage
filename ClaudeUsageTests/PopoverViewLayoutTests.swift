@@ -14,7 +14,7 @@ final class PopoverViewLayoutTests: XCTestCase {
         XCTAssertNil(
             CompactPopoverHeaderPresentationPolicy.resolve(
                 accountCount: 1,
-                activeAccount: account,
+                accountLabel: account.identity.email ?? account.identity.organizationName,
                 isLoading: false,
                 isAuthenticationRequired: false,
                 hasRefreshError: false
@@ -24,11 +24,11 @@ final class PopoverViewLayoutTests: XCTestCase {
 
     func testCompactHeaderNamesReconnectSeparatelyFromLogin() {
         let reconnect = CompactPopoverHeaderPresentationPolicy.resolve(
-            accountCount: 1, activeAccount: nil, isLoading: false,
+            accountCount: 1, accountLabel: nil, isLoading: false,
             isAuthenticationRequired: true, hasRefreshError: false,
             claudeCodeCredentialIssue: .reconnectRequired)
         let login = CompactPopoverHeaderPresentationPolicy.resolve(
-            accountCount: 1, activeAccount: nil, isLoading: false,
+            accountCount: 1, accountLabel: nil, isLoading: false,
             isAuthenticationRequired: true, hasRefreshError: false)
 
         XCTAssertEqual(reconnect?.labels, ["다시 연결 필요"])
@@ -56,7 +56,7 @@ final class PopoverViewLayoutTests: XCTestCase {
 
         let context = CompactPopoverHeaderPresentationPolicy.resolve(
             accountCount: 2,
-            activeAccount: account,
+            accountLabel: account.identity.email ?? account.identity.organizationName,
             isLoading: false,
             isAuthenticationRequired: false,
             hasRefreshError: false
@@ -75,7 +75,7 @@ final class PopoverViewLayoutTests: XCTestCase {
         XCTAssertNil(
             CompactPopoverHeaderPresentationPolicy.resolve(
                 accountCount: 2,
-                activeAccount: account,
+                accountLabel: account.identity.email ?? account.identity.organizationName,
                 isLoading: false,
                 isAuthenticationRequired: false,
                 hasRefreshError: false
@@ -87,7 +87,7 @@ final class PopoverViewLayoutTests: XCTestCase {
         XCTAssertEqual(
             CompactPopoverHeaderPresentationPolicy.resolve(
                 accountCount: 0,
-                activeAccount: nil,
+                accountLabel: nil,
                 isLoading: true,
                 isAuthenticationRequired: false,
                 hasRefreshError: false
@@ -97,7 +97,7 @@ final class PopoverViewLayoutTests: XCTestCase {
         XCTAssertEqual(
             CompactPopoverHeaderPresentationPolicy.resolve(
                 accountCount: 0,
-                activeAccount: nil,
+                accountLabel: nil,
                 isLoading: false,
                 isAuthenticationRequired: true,
                 hasRefreshError: false
@@ -107,7 +107,7 @@ final class PopoverViewLayoutTests: XCTestCase {
         XCTAssertEqual(
             CompactPopoverHeaderPresentationPolicy.resolve(
                 accountCount: 0,
-                activeAccount: nil,
+                accountLabel: nil,
                 isLoading: false,
                 isAuthenticationRequired: false,
                 hasRefreshError: true

@@ -123,16 +123,66 @@ struct RuntimeProviderFetchMetadata: Sendable, Equatable {
     let sourceLabel: String?
     let accountID: String?
     let attemptedSourceLabels: [String]
+    let account: UsageAccountCandidate?
+    let claudeProfileMetadata: ClaudeProfileMetadata?
 
     nonisolated init(
         sourceLabel: String? = nil,
         accountID: String? = nil,
-        attemptedSourceLabels: [String] = []
+        attemptedSourceLabels: [String] = [],
+        account: UsageAccountCandidate? = nil,
+        claudeProfileMetadata: ClaudeProfileMetadata? = nil
     ) {
         self.sourceLabel = sourceLabel
         self.accountID = accountID
         self.attemptedSourceLabels = attemptedSourceLabels
+        self.account = account
+        self.claudeProfileMetadata = claudeProfileMetadata
     }
+
+    /// 호출자가 credential/context guard를 통과한 같은 success의 profile만 전달한다.
+    nonisolated func withClaudeProfileMetadata(_ profile: ClaudeProfileMetadata?) -> Self {
+        let hasOwner = verifiedOwnerKey(for: .claude) != nil
+        let namespace = account?.identity.organizationID
+        let scopedProfile = hasOwner && namespace != nil && namespace == profile?.organizationUUID ? profile : nil
+        return Self(
+            sourceLabel: sourceLabel, accountID: accountID, attemptedSourceLabels: attemptedSourceLabels,
+            account: account, claudeProfileMetadata: scopedProfile)
+    }
+
+    nonisolated static func webSessionOwnerPrefix(reference: String) -> String {
+        "claude:web:\(reference)|"
+    }
+
+    private nonisolated func canonicalOwnerKey(for service: PopoverService) -> String? {
+        guard let account, account.identity.mergeKey != nil else { return nil }
+        return UsageAccount.id(service: service, identity: account.identity, source: account.source)
+    }
+
+    private nonisolated var webOwnerKey: String? {
+        guard let account, account.source.role == .web, !account.source.reference.isEmpty,
+            let organization = account.identity.organizationID, !organization.isEmpty
+        else { return nil }
+        return Self.webSessionOwnerPrefix(reference: account.source.reference) + organization
+    }
+
+    private nonisolated func verifiedOwnerKey(for service: PopoverService) -> String? {
+        canonicalOwnerKey(for: service) ?? (service == .claude ? webOwnerKey : nil)
+    }
+
+    nonisolated func notificationAccountKey(for service: PopoverService) -> String? {
+        verifiedOwnerKey(for: service)
+    }
+
+    nonisolated func resetCreditAccountKey(for service: PopoverService) -> String? {
+        verifiedOwnerKey(for: service)
+    }
+
+    /// 웹의 UUID가 나중에 확인돼도 같은 세션/조직의 이전값과 조회 주기는 이어간다.
+    nonisolated var supplementalAccountKey: String? {
+        webOwnerKey ?? canonicalOwnerKey(for: .claude)
+    }
+
 }
 
 enum RuntimeRefreshStrategy: Sendable, Equatable {
@@ -396,6 +446,13 @@ struct RuntimeProviderSnapshot {
     var hasCredential: Bool { credentialState.hasAnyCredential }
     var runtimeReachability: Bool { canAttemptRefresh }
     var hasBackoff: Bool { RefreshExecutionPolicy.remainingBackoffSeconds(until: nextRefreshAllowedAt) != nil }
+    /// 계정 줄도 같은 snapshot의 freshness를 따른다. 이전 payload를 지우지는 않는다.
+    func accountRowStatus(hasUsage: Bool) -> UsageAccountState.Status {
+        if hasAuthError { return .loginExpired }
+        guard hasUsage else { return .checking }
+        return freshness == .stale ? .stale : .current
+    }
+
     var isStaleRecoverable: Bool { displayPayload != nil && lastAttemptState == .temporaryFailure }
     var freshness: RuntimeProviderFreshness {
         if isLoading { return .loading }

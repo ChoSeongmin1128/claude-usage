@@ -99,6 +99,7 @@ enum ClaudeSettingsApplyCoordinator {
             )
         }
 
+        try Task.checkCancellation()
         try keychain.save(
             key,
             // 자동으로 선택된 organization은 identity로만 기록한다. 강제

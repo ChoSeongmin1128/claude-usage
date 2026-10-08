@@ -10,8 +10,6 @@ struct UsageItemContext {
 
     let claudeUsage: ClaudeUsageResponse?
     let claudeOverage: OverageSpendLimitResponse?
-    let claudeAccounts: [ClaudeAccount]
-    let activeClaudeAccountID: String?
 
     let codexUsage: CodexUsageResponse?
     let codexError: APIError?

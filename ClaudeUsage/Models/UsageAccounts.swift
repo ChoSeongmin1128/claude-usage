@@ -59,6 +59,12 @@ nonisolated struct UsageAccount: Identifiable, Equatable, Sendable {
     var roles: [UsageAccountSource.Role] { Array(Set(sources.map(\.role))).sorted() }
     var isDefaultLogin: Bool { sources.contains { $0.role == .defaultLogin } }
 
+    /// 표시 이름은 같은 계정의 다른 출처에서 보강할 수 있다. 소유권은 출처와 계정/조직 id로 비교한다.
+    func matches(_ candidate: UsageAccountCandidate) -> Bool {
+        sources.contains(candidate.source)
+            && id == Self.id(service: service, identity: candidate.identity, source: candidate.source)
+    }
+
     func source(_ role: UsageAccountSource.Role) -> UsageAccountSource? {
         sources.first { $0.role == role }
     }

@@ -36,7 +36,7 @@ final class DesignSystemTests: XCTestCase {
             settings.setMenuBarStyle(.batteryBar, for: .claude)
             let context = UsageItemContext(
                 density: .compact, settings: settings, claudeUsage: usage,
-                claudeOverage: nil, claudeAccounts: [], activeClaudeAccountID: nil,
+                claudeOverage: nil,
                 codexUsage: nil, codexError: nil
             )
             let section = try XCTUnwrap(ClaudeItemCatalog().section(for: "currentSession", context: context))

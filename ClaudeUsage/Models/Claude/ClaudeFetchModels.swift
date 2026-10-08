@@ -102,6 +102,8 @@ nonisolated struct ClaudeFetchProvenance: Equatable, Sendable {
 nonisolated struct ClaudeUsageFetchOutcome: Sendable {
     let usage: ClaudeUsageResponse
     let provenance: ClaudeFetchProvenance
+    var identity: UsageAccountIdentity? = nil
+    var credentialGeneration: Int? = nil
 }
 
 nonisolated struct ClaudeSourceCandidate: Equatable, Sendable {

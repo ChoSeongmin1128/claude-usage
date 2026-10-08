@@ -106,12 +106,19 @@ extension AppDelegate {
             let runtimeUsage = provider.runtimeUsage(from: runtime)
             let basis = AppSettings.shared.usageValueBasis(for: service)
             let rows = visible.map { account -> PopoverAccountRowData in
-                let isRuntime = controller.isRuntime(account)
+                let candidate = runtime.lastSuccessfulMetadata?.account
+                let isRuntime =
+                    controller.isRuntime(account)
+                    && candidate.map {
+                        account.matches($0)
+                    } == true
                 let state = controller.states[account.id] ?? UsageAccountState()
                 return PopoverAccountRowData(
                     id: account.id, service: service, name: controller.displayName(for: account),
                     badges: controller.badges(for: account),
-                    status: isRuntime ? .current : state.status(isArchived: controller.isArchived(account)),
+                    status: isRuntime
+                        ? runtime.accountRowStatus(hasUsage: runtimeUsage != nil)
+                        : state.status(isArchived: controller.isArchived(account)),
                     usage: isRuntime ? runtimeUsage : state.usage,
                     fetchedAt: isRuntime ? runtime.lastUpdated : state.fetchedAt, isRuntime: isRuntime, basis: basis)
             }

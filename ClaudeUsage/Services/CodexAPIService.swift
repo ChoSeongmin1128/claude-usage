@@ -21,12 +21,16 @@ actor CodexAPIService {
         var waiters: [UUID: CheckedContinuation<CodexUsageSnapshot, Error>]
     }
     private enum Channel: Hashable, Sendable { case usage, resetCredits }
+    private struct WorkspaceScope: Hashable, Sendable {
+        let generation: UUID
+        let accountID: String
+    }
     private struct RequestKey: Hashable, Sendable {
         let generation: UUID
         let channel: Channel
+        let accountID: String?
     }
     private struct ResetCreditCache {
-        let generation: UUID
         let response: CodexResetCreditsResponse
         let updatedAt: Date
         var needsRetry = false
@@ -34,9 +38,9 @@ actor CodexAPIService {
     private var flights: [RequestKey: Flight] = [:]
     private var retiring: [UUID: Task<Void, Never>] = [:]
     private var ownerRecovery: (id: UUID, task: Task<Void, Error>)?
-    private var cachedResetCredits: ResetCreditCache?
+    private var cachedResetCredits: [WorkspaceScope: ResetCreditCache] = [:]
     private var usageRevision = 0
-    private var lastResetCount: (generation: UUID, count: Int, revision: Int)?
+    private var lastResetCount: [WorkspaceScope: (count: Int, revision: Int)] = [:]
     private static let resetCreditsRefreshInterval: TimeInterval = 300
     private var stopping = false
     private let baseURL: URL
@@ -120,7 +124,9 @@ actor CodexAPIService {
         try budget.check()
         try await authManager.validate(credential)
         guard !stopping else { throw CancellationError() }
-        let key = RequestKey(generation: credential.generation, channel: channel)
+        let key = RequestKey(
+            generation: credential.generation, channel: channel,
+            accountID: base?.usage.accountID ?? credential.token.accountID)
         let waiterID = UUID()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -204,11 +210,18 @@ actor CodexAPIService {
                     try await authManager.validate(credential)
                     try budget.check()
                     usageRevision += 1
+                    guard let scope = workspaceScope(for: usage, credential: credential) else {
+                        throw APIError.codexReauthRequired(reason: "account_identity_unavailable")
+                    }
+                    cachedResetCredits = cachedResetCredits.filter { $0.key.generation == credential.generation }
+                    lastResetCount = lastResetCount.filter { $0.key.generation == credential.generation }
                     let countIsCurrent = usage.resetCredits?.availableCountField != nil
                     if let count = usage.resetCredits?.availableCountField {
-                        lastResetCount = (credential.generation, count, usageRevision)
-                        if cachedResetCredits?.response.availableCountField != count { cachedResetCredits = nil }
-                    } else if let known = lastResetCount, known.generation == credential.generation {
+                        lastResetCount[scope] = (count, usageRevision)
+                        if cachedResetCredits[scope]?.response.availableCountField != count {
+                            cachedResetCredits[scope] = nil
+                        }
+                    } else if let known = lastResetCount[scope] {
                         usage.resetCredits = CodexResetCreditsResponse(credits: [], availableCountField: known.count)
                     }
                     if let cached = usableCache(for: usage, credential: credential) {
@@ -315,7 +328,8 @@ actor CodexAPIService {
     }
 
     private func request(
-        _ path: String, credential: CodexCredentialSnapshot, budget: CodexRequestBudget, timeout: TimeInterval
+        _ path: String, credential: CodexCredentialSnapshot, budget: CodexRequestBudget, timeout: TimeInterval,
+        accountID: String? = nil
     ) throws -> URLRequest {
         try budget.check()
         var request = URLRequest(url: baseURL.appendingPathComponent(path), cachePolicy: .reloadIgnoringLocalCacheData)
@@ -324,7 +338,7 @@ actor CodexAPIService {
         request.setValue("Bearer \(credential.token.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(AppIdentifiers.userAgentProduct, forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let accountID = credential.token.accountID, !accountID.isEmpty {
+        if let accountID = accountID ?? credential.token.accountID, !accountID.isEmpty {
             request.setValue(accountID, forHTTPHeaderField: "ChatGPT-Account-Id")
         }
         return request
@@ -384,8 +398,14 @@ actor CodexAPIService {
         return usage
     }
 
+    private func workspaceScope(for usage: CodexUsageResponse, credential: CodexCredentialSnapshot) -> WorkspaceScope? {
+        guard let accountID = usage.accountID ?? credential.token.accountID, !accountID.isEmpty else { return nil }
+        return WorkspaceScope(generation: credential.generation, accountID: accountID)
+    }
+
     private func usableCache(for usage: CodexUsageResponse, credential: CodexCredentialSnapshot) -> ResetCreditCache? {
-        guard let cached = cachedResetCredits, cached.generation == credential.generation else { return nil }
+        guard let scope = workspaceScope(for: usage, credential: credential), let cached = cachedResetCredits[scope]
+        else { return nil }
         if let count = usage.resetCredits?.availableCountField, count != cached.response.availableCountField {
             return nil
         }
@@ -394,8 +414,8 @@ actor CodexAPIService {
 
     /// A supplementary response must not replace a count confirmed by a later usage request.
     private func applyLatestCount(to snapshot: inout CodexUsageSnapshot) {
-        guard let known = lastResetCount, known.generation == snapshot.credential.generation,
-            known.revision > snapshot.revision,
+        guard let scope = workspaceScope(for: snapshot.usage, credential: snapshot.credential),
+            let known = lastResetCount[scope], known.revision > snapshot.revision,
             known.count != snapshot.usage.resetCredits?.availableCountField
         else { return }
         snapshot.usage.resetCredits = CodexResetCreditsResponse(credits: [], availableCountField: known.count)
@@ -410,20 +430,24 @@ actor CodexAPIService {
         var result = base
         do {
             try await authManager.validate(base.credential)
+            guard let scope = workspaceScope(for: base.usage, credential: base.credential) else {
+                throw APIError.codexReauthRequired(reason: "account_identity_unavailable")
+            }
             let bytes = try await data(
                 for: request(
                     "wham/rate-limit-reset-credits", credential: base.credential,
-                    budget: budget, timeout: 10), budget: budget)
+                    budget: budget, timeout: 10, accountID: scope.accountID), budget: budget)
             let response = try JSONDecoder().decode(CodexResetCreditsResponse.self, from: bytes)
             guard let count = response.availableCountField, count >= 0 else { throw APIError.parseError }
-            if let account = response.accountID, account != base.credential.token.accountID {
+            if let account = response.accountID,
+                account != (base.usage.accountID ?? base.credential.token.accountID)
+            {
                 throw CodexCredentialError.changed
             }
             try await authManager.validate(base.credential)
             try budget.check()
             let checkedAt = now()
-            if let newer = lastResetCount, newer.generation == base.credential.generation,
-                newer.revision > base.revision, newer.count != count
+            if let newer = lastResetCount[scope], newer.revision > base.revision, newer.count != count
             {
                 result.usage.resetCredits = CodexResetCreditsResponse(credits: [], availableCountField: newer.count)
                 result.usage.resetCreditMetadata = .init(status: .partial)
@@ -431,13 +455,9 @@ actor CodexAPIService {
                 OperationalLog.record(.codexResetCredits(.init(status: .partial)), elapsed: started.duration(to: .now))
                 return result
             }
-            let previousRevision =
-                lastResetCount?.generation == base.credential.generation ? lastResetCount?.revision ?? 0 : 0
-            let revision = max(base.revision, previousRevision)
-            lastResetCount = (base.credential.generation, count, revision)
-            cachedResetCredits = ResetCreditCache(
-                generation: base.credential.generation, response: response,
-                updatedAt: checkedAt)
+            let revision = max(base.revision, lastResetCount[scope]?.revision ?? 0)
+            lastResetCount[scope] = (count, revision)
+            cachedResetCredits[scope] = ResetCreditCache(response: response, updatedAt: checkedAt)
             result.usage.resetCredits = response
             let metadata = CodexResetCreditMetadata(
                 status: response.hasCompleteDetails ? .fresh : .partial, updatedAt: checkedAt)
@@ -464,7 +484,10 @@ actor CodexAPIService {
         try Task.checkCancellation()
         let reason = CodexResetCreditFailure.classify(error)
         let cached = usableCache(for: base.usage, credential: base.credential)
-        if let cached { result.usage.resetCredits = cached.response; cachedResetCredits?.needsRetry = true }
+        if let cached, let scope = workspaceScope(for: base.usage, credential: base.credential) {
+            result.usage.resetCredits = cached.response
+            cachedResetCredits[scope]?.needsRetry = true
+        }
         let metadata = CodexResetCreditMetadata(
             status: .failed(reason), updatedAt: cached?.updatedAt,
             countIsCurrent: base.usage.resetCreditMetadata?.countIsCurrent ?? true)

@@ -12,7 +12,9 @@ final class PopoverInteractionTests: XCTestCase {
         let facade = AppRuntimeStateFacade()
         let viewModel = PopoverViewModel()
         facade.activeClaudeAccountID = "A"
-        facade.applyClaudeSupplementalUsage(.success(overage, fetchedAt: Date()), accountID: "A")
+        facade.applyClaudeSupplementalUsage(
+            .success(overage, fetchedAt: Date()), accountID: "A",
+            ownerKey: fixtureClaudeMetadata(accountID: "A").supplementalAccountKey)
         facade[.claude] = quotaState(accountID: "A")
         viewModel.update(snapshots: [facade.snapshot(for: .claude, codexAuthenticated: false)])
         XCTAssertEqual(viewModel.overage, overage)
@@ -34,7 +36,9 @@ final class PopoverInteractionTests: XCTestCase {
     func testSameAccountTemporaryFailureRetainsSupplementalUsage() {
         let facade = AppRuntimeStateFacade()
         facade.activeClaudeAccountID = "A"
-        facade.applyClaudeSupplementalUsage(.success(overage, fetchedAt: Date()), accountID: "A")
+        facade.applyClaudeSupplementalUsage(
+            .success(overage, fetchedAt: Date()), accountID: "A",
+            ownerKey: fixtureClaudeMetadata(accountID: "A").supplementalAccountKey)
         var state = quotaState(accountID: "A")
         _ = RuntimeProviderRefreshCoordinator.applyFailure(
             state: &state, error: .networkError("fixture"), minimumInterval: 30
@@ -48,7 +52,9 @@ final class PopoverInteractionTests: XCTestCase {
     func testSnapshotDoesNotAttachSupplementalUsageToAnotherQuotaAccount() {
         let facade = AppRuntimeStateFacade()
         facade.activeClaudeAccountID = "B"
-        facade.applyClaudeSupplementalUsage(.success(overage, fetchedAt: Date()), accountID: "B")
+        facade.applyClaudeSupplementalUsage(
+            .success(overage, fetchedAt: Date()), accountID: "B",
+            ownerKey: fixtureClaudeMetadata(accountID: "B").supplementalAccountKey)
         facade[.claude] = quotaState(accountID: "A")
         XCTAssertNil(facade.snapshot(for: .claude, codexAuthenticated: false).claudeOverage)
     }
@@ -58,15 +64,20 @@ final class PopoverInteractionTests: XCTestCase {
         let checkedAt = Date(timeIntervalSince1970: 100)
         facade.activeClaudeAccountID = "A"
         facade[.claude] = quotaState(accountID: "A")
-        facade.applyClaudeSupplementalUsage(.success(overage, fetchedAt: checkedAt), accountID: "A")
-        facade.applyClaudeSupplementalUsage(.failed, accountID: "A")
-        facade.applyClaudeSupplementalUsage(.unchanged, accountID: "A")
+        facade.applyClaudeSupplementalUsage(
+            .success(overage, fetchedAt: checkedAt), accountID: "A",
+            ownerKey: fixtureClaudeMetadata(accountID: "A").supplementalAccountKey)
+        facade.applyClaudeSupplementalUsage(
+            .failed, accountID: "A", ownerKey: fixtureClaudeMetadata(accountID: "A").supplementalAccountKey)
+        facade.applyClaudeSupplementalUsage(
+            .unchanged, accountID: "A", ownerKey: fixtureClaudeMetadata(accountID: "A").supplementalAccountKey)
         let snapshot = facade.snapshot(for: .claude, codexAuthenticated: false)
         XCTAssertEqual(snapshot.claudeOverage, overage)
         XCTAssertEqual(snapshot.claudeOverageUpdatedAt, checkedAt)
         XCTAssertTrue(snapshot.claudeOverageIsStale)
         facade.applyClaudeSupplementalUsage(
-            .success(overage, fetchedAt: checkedAt.addingTimeInterval(300)), accountID: "A")
+            .success(overage, fetchedAt: checkedAt.addingTimeInterval(300)), accountID: "A",
+            ownerKey: fixtureClaudeMetadata(accountID: "A").supplementalAccountKey)
         XCTAssertFalse(facade.snapshot(for: .claude, codexAuthenticated: false).claudeOverageIsStale)
     }
 
@@ -214,7 +225,7 @@ final class PopoverInteractionTests: XCTestCase {
                 ClaudeUsageResponse(
                     fiveHour: UsageWindow(utilization: 8, resetsAt: nil), sevenDay: nil
                 )),
-            metadata: RuntimeProviderFetchMetadata(accountID: accountID)
+            metadata: fixtureClaudeMetadata(accountID: accountID)
         )
         return state
     }

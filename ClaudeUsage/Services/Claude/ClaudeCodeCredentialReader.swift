@@ -274,8 +274,15 @@ actor ClaudeCodeCredentialReader {
             return try await finishForcedRefresh(of: vaultCredential)
         }
 
+        let previousAccessToken = cachedResult?.credential?.accessToken ?? vaultCredential?.accessToken
         switch await lookupCredentialFromFiles() {
         case .credential(let fileCredential):
+            if let native = await keychainCredential(fresherThan: fileCredential), !native.credential.isExpired,
+                native.credential.accessToken != previousAccessToken
+            {
+                await adopt(native.credential, payload: native.payload, replacing: vaultCredential)
+                return native.credential.accessToken
+            }
             if let vaultCredential,
                Self.shouldPreferVaultCredential(vaultCredential, over: fileCredential),
                !vaultCredential.isExpired {
@@ -286,12 +293,23 @@ actor ClaudeCodeCredentialReader {
                 throw ClaudeOAuthCredentialReadError.reconnectRequired
             }
             return try await finishForcedRefresh(of: fileCredential)
-        case .missing, .unavailable:
+        case .missing:
+            if let native = await currentCLIKeychainCredential(replacing: vaultCredential),
+                native.accessToken != previousAccessToken
+            {
+                return native.accessToken
+            }
             if vaultCredential != nil {
                 lastReadError = .reconnectRequired
                 throw ClaudeOAuthCredentialReadError.reconnectRequired
             }
             Logger.warning("OAuth 강제 갱신에 사용할 소유 credential을 찾지 못했습니다")
+            return nil
+        case .unavailable:
+            if vaultCredential != nil {
+                lastReadError = .reconnectRequired
+                throw ClaudeOAuthCredentialReadError.reconnectRequired
+            }
             return nil
         }
     }
@@ -466,6 +484,7 @@ actor ClaudeCodeCredentialReader {
         over fileCredential: ClaudeCodeOAuthCredential?
     ) -> Bool {
         guard let fileCredential else { return true }
+        if !keychainCredential.isExpired { return true }
 
         switch (fileCredential.expiresAt, keychainCredential.expiresAt) {
         case let (fileExpiry?, keychainExpiry?):
@@ -580,13 +599,13 @@ actor ClaudeCodeCredentialReader {
         // 비교한다. 이 비교는 외부 Keychain을 다시 읽지 않는다.
         switch fileLookup {
         case .credential(let credential):
+            if let current = await adoptKeychainCredential(fresherThan: credential, replacing: vaultCredential) {
+                return current
+            }
             if let vaultCredential,
                Self.shouldPreferVaultCredential(vaultCredential, over: credential),
                !vaultCredential.isExpired {
                 return vaultCredential
-            }
-            if let current = await adoptKeychainCredential(fresherThan: credential, replacing: vaultCredential) {
-                return current
             }
             return await ensureUsable(credential)
         case .unavailable:
@@ -637,6 +656,13 @@ actor ClaudeCodeCredentialReader {
 
         switch fileLookup {
         case .credential(let credential):
+            if let current = await adoptKeychainCredential(fresherThan: credential, replacing: vaultCredential) {
+                return ClaudeOAuthCredentialInventoryRefresh(
+                    accessToken: current.accessToken,
+                    credentialChanged: previousAccessToken != nil
+                        && previousAccessToken != current.accessToken
+                )
+            }
             if let vaultCredential,
                Self.shouldPreferVaultCredential(vaultCredential, over: credential),
                !vaultCredential.isExpired {
@@ -645,13 +671,6 @@ actor ClaudeCodeCredentialReader {
                     accessToken: vaultCredential.accessToken,
                     credentialChanged: previousAccessToken != nil
                         && previousAccessToken != vaultCredential.accessToken
-                )
-            }
-            if let current = await adoptKeychainCredential(fresherThan: credential, replacing: vaultCredential) {
-                return ClaudeOAuthCredentialInventoryRefresh(
-                    accessToken: current.accessToken,
-                    credentialChanged: previousAccessToken != nil
-                        && previousAccessToken != current.accessToken
                 )
             }
             guard let usable = await ensureUsable(credential) else {

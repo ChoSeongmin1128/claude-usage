@@ -83,12 +83,20 @@ nonisolated enum LimitSettingsTable {
         }
     }
 
-    static func antigravityRows(lanes: [(id: String, title: String)], limits: [UsageLimit]) -> [LimitSettingsRow] {
-        lanes.map { lane in
+    static func antigravityRows(
+        lanes: [(id: String, title: String)], limits: [UsageLimit], selectedIDs: [AntigravityQuotaLaneID] = []
+    ) -> [LimitSettingsRow] {
+        var rows = lanes.map { lane in
             LimitSettingsRow(
                 id: lane.id, title: lane.title, laneID: lane.id,
                 notificationLimit: limits.first { $0.scope == lane.id }, takesNotification: true)
         }
+        let observed = Set(lanes.map(\.id))
+        for (index, id) in selectedIDs.enumerated() where !observed.contains(id.rawValue) {
+            let title = AntigravityDisplaySettings.MenuBarPresentationIntent.missingTextTitle(at: index)
+            rows.append(LimitSettingsRow(id: id.rawValue, title: title + " (데이터 없음)", laneID: id.rawValue))
+        }
+        return rows
     }
 
 }

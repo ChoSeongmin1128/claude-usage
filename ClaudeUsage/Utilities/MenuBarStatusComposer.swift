@@ -70,7 +70,13 @@ struct MenuBarProviderSnapshot {
     let resetText: String?
     let systemStatus: ProviderSystemStatus?
     let accessibilityLabel: String?
-    let accessibilityValue: String?
+    private let baseAccessibilityValue: String?
+    var accessibilityValue: String? {
+        guard let baseAccessibilityValue else { return nil }
+        guard let badge = resetCreditBadge else { return baseAccessibilityValue }
+        let state = badge.tone == .new ? "신규 " : badge.tone == .expiring ? "곧 만료 " : ""
+        return "\(baseAccessibilityValue), \(state)초기화권 \(badge.count)개"
+    }
     let isStale: Bool
     private(set) var renderKey: MenuBarProviderRenderKey
     private(set) var resetCreditBadge: MenuBarResetCreditBadge?
@@ -95,6 +101,8 @@ struct MenuBarProviderSnapshot {
         styleIcon: NSImage?,
         resetText: String?,
         systemStatus: ProviderSystemStatus?,
+        accessibilityLabel: String? = nil,
+        accessibilityValue: String? = nil,
         renderKey: MenuBarProviderRenderKey? = nil
     ) {
         self.init(
@@ -107,8 +115,8 @@ struct MenuBarProviderSnapshot {
             styleIcon: styleIcon,
             resetText: resetText,
             systemStatus: systemStatus,
-            accessibilityLabel: nil,
-            accessibilityValue: nil,
+            accessibilityLabel: accessibilityLabel,
+            accessibilityValue: accessibilityValue,
             isStale: false,
             renderKey: renderKey
         )
@@ -139,7 +147,7 @@ struct MenuBarProviderSnapshot {
         self.resetText = resetText
         self.systemStatus = systemStatus
         self.accessibilityLabel = accessibilityLabel
-        self.accessibilityValue = accessibilityValue
+        self.baseAccessibilityValue = accessibilityValue
         self.isStale = isStale
         self.renderKey = renderKey ?? MenuBarProviderRenderKey(
             kind: kind,
@@ -262,8 +270,8 @@ enum MenuBarStatusComposer {
                 ]
             } ?? []) + (projection?.visualValues ?? []),
             systemStatus: systemStatus,
-            accessibilityLabel: nil,
-            accessibilityValue: nil,
+            accessibilityLabel: "\(config.kind.displayName) 사용량",
+            accessibilityValue: [status.tooltip, reset].compactMap { $0 }.joined(separator: ", "),
             isStale: false
         )
         return MenuBarProviderSnapshot(
@@ -284,6 +292,8 @@ enum MenuBarStatusComposer {
                 : nil,
             resetText: reset,
             systemStatus: systemStatus,
+            accessibilityLabel: renderKey.accessibilityLabel,
+            accessibilityValue: renderKey.accessibilityValue,
             renderKey: renderKey
         )
     }
@@ -334,8 +344,8 @@ enum MenuBarStatusComposer {
                 ]
             } ?? []) + (projection?.visualValues ?? []),
             systemStatus: systemStatus,
-            accessibilityLabel: nil,
-            accessibilityValue: nil,
+            accessibilityLabel: "\(config.kind.displayName) 사용량",
+            accessibilityValue: [status.tooltip, reset].compactMap { $0 }.joined(separator: ", "),
             isStale: false
         )
         return MenuBarProviderSnapshot(
@@ -356,6 +366,8 @@ enum MenuBarStatusComposer {
                 : nil,
             resetText: reset,
             systemStatus: systemStatus,
+            accessibilityLabel: renderKey.accessibilityLabel,
+            accessibilityValue: renderKey.accessibilityValue,
             renderKey: renderKey
         )
     }
@@ -454,92 +466,6 @@ enum MenuBarStatusComposer {
             accessibilityValue: accessibilityValue,
             isStale: isStale,
             renderKey: renderKey
-        )
-    }
-
-    static func combinedContent(
-        claudeConfig: ProviderMenuBarDisplayConfig,
-        claudeUsage: ClaudeUsageResponse?,
-        claudeError: APIError?,
-        hasClaudeAuthError: Bool,
-        hasClaudeCredential: Bool,
-        claudeIcon: NSImage?,
-        codexConfig: ProviderMenuBarDisplayConfig,
-        codexUsage: CodexUsageResponse?,
-        codexError: APIError?,
-        hasCodexAuthError: Bool,
-        isCodexAuthenticated: Bool,
-        codexIcon: NSImage?,
-        secondaryColor: NSColor
-    ) -> MenuBarRenderedContent {
-        let separatorFont = NSFont.systemFont(ofSize: 11, weight: .regular)
-        let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
-        let resetFont = NSFont.systemFont(ofSize: 10, weight: .regular)
-        let claude = claudeStatus(
-            config: claudeConfig,
-            usage: claudeUsage,
-            error: claudeError,
-            hasAuthError: hasClaudeAuthError,
-            hasCredential: hasClaudeCredential,
-            secondaryColor: secondaryColor
-        )
-        let codex = codexStatus(
-            config: codexConfig,
-            usage: codexUsage,
-            error: codexError,
-            hasAuthError: hasCodexAuthError,
-            isAuthenticated: isCodexAuthenticated,
-            secondaryColor: secondaryColor
-        )
-
-        var leftElements: [MenuBarElement] = []
-        var rightElements: [MenuBarElement] = []
-
-        if claudeConfig.showIcon, let claudeIcon {
-            leftElements.append(.image(claudeIcon))
-        }
-        if !claude.text.isEmpty {
-            leftElements.append(.text(claude.text, attributes: [.font: valueFont, .foregroundColor: claude.color]))
-        }
-        if let styleIcon = styleIcon(usage: claudeUsage, config: claudeConfig) {
-            leftElements.append(.image(styleIcon))
-        }
-        if let resetText = resetText(usage: claudeUsage, config: claudeConfig) {
-            leftElements.append(.text(resetText, attributes: [.font: resetFont, .foregroundColor: secondaryColor]))
-        }
-
-        if codexConfig.showIcon, let codexIcon {
-            rightElements.append(.image(codexIcon))
-        }
-        if !codex.text.isEmpty {
-            rightElements.append(.text(codex.text, attributes: [.font: valueFont, .foregroundColor: codex.color]))
-        }
-        if let styleIcon = styleIcon(usage: codexUsage, config: codexConfig) {
-            rightElements.append(.image(styleIcon))
-        }
-        if let resetText = resetText(usage: codexUsage, config: codexConfig) {
-            rightElements.append(.text(resetText, attributes: [.font: resetFont, .foregroundColor: secondaryColor]))
-        }
-
-        if leftElements.isEmpty {
-            leftElements.append(statusDot(color: claude.color))
-        }
-        if rightElements.isEmpty {
-            rightElements.append(statusDot(color: codex.color))
-        }
-
-        var elements = leftElements
-        if !leftElements.isEmpty && !rightElements.isEmpty {
-            elements.append(.text("·", attributes: [.font: separatorFont, .foregroundColor: secondaryColor]))
-        }
-        elements.append(contentsOf: rightElements)
-
-        return MenuBarRenderedContent(
-            image: composeElements(elements),
-            tooltip: [
-                tooltipBlock(name: "Claude", tooltip: claude.tooltip),
-                tooltipBlock(name: "Codex", tooltip: codex.tooltip),
-            ].joined(separator: "\n")
         )
     }
 

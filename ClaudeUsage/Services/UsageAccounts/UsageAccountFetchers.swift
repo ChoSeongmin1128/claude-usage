@@ -120,7 +120,11 @@ nonisolated enum CodexHomeAccount {
             guard let value = limits[key] as? [String: Any], let used = value["usedPercent"] else { return NSNull() }
             var result: [String: Any] = ["used_percent": used]
             if let minutes = (value["windowDurationMins"] as? NSNumber)?.doubleValue {
-                result["limit_window_seconds"] = Int(minutes * 60)
+                guard minutes.isFinite, minutes > 0, let seconds = Int(exactly: minutes * 60) else {
+                    // Reject this malformed window without losing the other valid window or credits.
+                    return ["used_percent": NSNull()]
+                }
+                result["limit_window_seconds"] = seconds
             }
             if let reset = value["resetsAt"] { result["reset_at"] = reset }
             return result

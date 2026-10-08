@@ -461,6 +461,51 @@ final class AntigravityQuotaSummaryDecoderTests: XCTestCase {
         )
     }
 
+    func testUnsafeResetEpochsArePartialWithoutDiscardingQuota() throws {
+        for reset in ["1e30", "-1e30", "\"1e30\"", "\"-1e30\""] {
+            let summary = try decode(
+                """
+                {"groups":[{"groupId":"gemini","buckets":[
+                  {"bucketId":"gemini-weekly","window":"weekly","remaining_fraction":0.5,"reset_time":\(reset)}
+                ]}]}
+                """)
+            XCTAssertEqual(summary.lanes.count, 1)
+            XCTAssertEqual(summary.lanes[0].remainingFraction, 0.5)
+            XCTAssertNil(summary.lanes[0].resetAt)
+            XCTAssertEqual(summary.decodeIssues.map(\.kind), [.invalidResetTime])
+        }
+        for reset in [Double.infinity, -Double.infinity, Double.nan] {
+            let summary = try AntigravityQuotaSummaryDecoder.decode(payload: [
+                "groups": [
+                    [
+                        "groupId": "gemini",
+                        "buckets": [
+                            [
+                                "bucketId": "gemini-weekly", "window": "weekly", "remaining_fraction": 0.5,
+                                "reset_time": reset,
+                            ]
+                        ],
+                    ]
+                ]
+            ])
+            XCTAssertNil(summary.lanes[0].resetAt)
+            XCTAssertEqual(summary.decodeIssues.map(\.kind), [.invalidResetTime])
+        }
+    }
+
+    func testEpochSecondsAndMillisecondsKeepTheSameValidReset() throws {
+        for reset in ["1781523574", "1781523574000", "\"1781523574000\""] {
+            let summary = try decode(
+                """
+                {"groups":[{"groupId":"gemini","buckets":[
+                  {"bucketId":"gemini-weekly","window":"weekly","remaining_fraction":0.5,"reset_time":\(reset)}
+                ]}]}
+                """)
+            XCTAssertEqual(summary.lanes[0].resetAt, Date(timeIntervalSince1970: 1_781_523_574))
+            XCTAssertTrue(summary.decodeIssues.isEmpty)
+        }
+    }
+
     func testMalformedBucketFieldPreservesOtherLanesAndRecordsDecodeIssues() throws {
         let summary = try decode("""
         {

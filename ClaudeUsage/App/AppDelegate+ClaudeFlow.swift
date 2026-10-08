@@ -112,6 +112,7 @@ extension AppDelegate {
             onCodexLogout: { [weak self] in
                 guard let self else { return }
                 CodexAuthManager.shared.clearCache()
+                self.usageAccountsController.bindRuntimeAccount(nil, for: .codex)
                 self.setRuntimeProviderState(RuntimeProviderState(), for: .codex)
                 self.updateMenuBar()
                 self.updatePopoverViewModel()

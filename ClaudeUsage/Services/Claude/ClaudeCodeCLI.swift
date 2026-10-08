@@ -57,10 +57,14 @@ nonisolated enum ClaudeCodeCLI {
         }
         guard status.loggedIn else { return .notLoggedIn }
         let output = await run(
-            selection: selection, arguments: ["-p", "/usage", "--no-session-persistence"],
+            selection: selection, arguments: refreshArguments,
             configDirectory: configDirectory)
         return output?.succeeded == true ? .refreshed : .unavailable
     }
+
+    static let refreshArguments = [
+        "-p", "/usage", "--safe-mode", "--strict-mcp-config", "--no-session-persistence",
+    ]
 
     private static let executableResolver: ClaudeCodeExecutableResolver = {
         let home = FileManager.default.realHomeDirectory

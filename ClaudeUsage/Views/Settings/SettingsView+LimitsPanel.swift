@@ -7,7 +7,13 @@ extension SettingsView {
             settingsToggleRow("\(provider.displayName) 알림 받기", isOn: serviceAlertBinding(provider))
                 .disabled(
                     !settings.notificationsEnabled
-                        || (provider == .antigravity && antigravitySettings.state.display == nil))
+                        || (provider == .antigravity && !notificationManager.hasIdentifiedAccount(for: .antigravity)))
+            if provider == .antigravity, !notificationManager.hasIdentifiedAccount(for: .antigravity),
+                !(notificationManager.inventories[.antigravity] ?? []).isEmpty
+            {
+                Text("계정을 확인할 수 없어 알림을 보낼 수 없습니다.")
+                    .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+            }
             if !settings.notificationsEnabled {
                 Button("알림 설정 열기") { navigate(to: SettingsDestination(panel: .common)) }
                     .buttonStyle(.link).controlSize(.small)
@@ -65,12 +71,15 @@ extension SettingsView {
             let selected = isNotificationSelected(limit)
             limitsCell(
                 Binding(get: { selected }, set: { settings.notificationTargets.setSelected($0, limit: limit) }),
-                help: !limit.isIdentifiable
+                help: provider == .antigravity && !notificationManager.hasIdentifiedAccount(for: .antigravity)
+                    ? "계정을 확인할 수 없어 알림을 보낼 수 없습니다"
+                    : !limit.isIdentifiable
                     ? "구분할 수 없는 한도라 고를 수 없습니다" : limit.usedPercentage == nil ? "데이터 없음" : "알림 받기",
                 row: row.title
             )
             .disabled(
                 !settings.notificationsEnabled || !serviceAlertBinding(provider).wrappedValue || !limit.isIdentifiable
+                    || (provider == .antigravity && !notificationManager.hasIdentifiedAccount(for: .antigravity))
                     || (!limit.canNotify && !selected))
         } else if row.takesNotification {
             Text("—").foregroundStyle(.tertiary).gridColumnAlignment(.center)
@@ -99,7 +108,9 @@ extension SettingsView {
         if provider == .antigravity {
             return LimitSettingsTable.antigravityRows(
                 lanes: antigravityObservedLanes.map { ($0.id.rawValue, "\($0.scopeTitle) · \($0.cadenceTitle)") },
-                limits: notificationManager.inventories[.antigravity] ?? [])
+                limits: notificationManager.inventories[.antigravity] ?? [],
+                selectedIDs: antigravitySettings.state.display?.menuBar.textLaneIDs(
+                    fallback: antigravityObservedLanes.map(\.id)) ?? [])
         }
         guard let service = provider.runtimeService,
             let catalog = UsageItemCatalogRegistry.catalog(for: service)

@@ -97,11 +97,7 @@ if [[ -z "$DMGBUILD_BIN" ]]; then
     exit 1
 fi
 
-# 잔존 마운트 정리 (이전 실패 흔적이 남아있으면)
-if [[ -d "/Volumes/$VOLUME_NAME" ]]; then
-    hdiutil detach "/Volumes/$VOLUME_NAME" -force >/dev/null 2>&1 || true
-fi
-
+# dmgbuild가 attach 결과로 받은 자기 장치만 정리한다. 같은 이름의 사용자 볼륨은 건드리지 않는다.
 rm -f "$DMG_PATH"
 
 echo "1. dmgbuild 로 DMG 생성"

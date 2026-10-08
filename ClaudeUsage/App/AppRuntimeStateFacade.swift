@@ -6,20 +6,47 @@ final class AppRuntimeStateFacade {
 
     private(set) var claudeRequestRevision = UUID()
     private var supplementalUsage: ClaudeSupplementalUsage?
-    private var overageFailure: (accountID: String, at: Date)?
+    private var overageFailure: (accountID: String, ownerKey: String, at: Date)?
 
-    var currentOverage: OverageSpendLimitResponse? {
-        supplementalUsage?.accountID == activeClaudeAccountID ? supplementalUsage?.value : nil
+    var overageOwnerKey: String? { self[.claude].lastSuccessfulMetadata?.supplementalAccountKey }
+
+    private var scopedSupplementalUsage: ClaudeSupplementalUsage? {
+        guard let value = supplementalUsage, let ownerKey = overageOwnerKey,
+            value.accountID == activeClaudeAccountID, value.ownerKey == ownerKey
+        else { return nil }
+        return value
     }
 
-    var lastOverageFetchAt: Date? {
-        supplementalUsage?.accountID == activeClaudeAccountID ? supplementalUsage?.fetchedAt : nil
-    }
+    var currentOverage: OverageSpendLimitResponse? { scopedSupplementalUsage?.value }
+
+    var lastOverageFetchAt: Date? { scopedSupplementalUsage?.fetchedAt }
 
     /// 실패한 조회도 간격 제한에 넣는다. 성공한 시각만 보면 계속 실패하는 계정은 조회할 때마다 다시 요청한다.
     var lastOverageAttemptAt: Date? {
-        let failedAt = overageFailure?.accountID == activeClaudeAccountID ? overageFailure?.at : nil
+        let failedAt =
+            overageFailure?.accountID == activeClaudeAccountID && overageOwnerKey != nil
+                && overageFailure?.ownerKey == overageOwnerKey ? overageFailure?.at : nil
         return [lastOverageFetchAt, failedAt].compactMap { $0 }.max()
+    }
+
+    /// 조회마다 새 소유권을 준다. 같은 계정의 이전 사용량과 추가 사용량은 보존한다.
+    func beginClaudeUsageRequest() -> UUID {
+        claudeRequestRevision = UUID()
+        return claudeRequestRevision
+    }
+
+    @discardableResult
+    func finishCancelledClaudeUsageRequest(_ revision: UUID) -> Bool {
+        guard revision == claudeRequestRevision else { return false }
+        var state = self[.claude]
+        guard state.isLoading else { return false }
+        state.isLoading = false
+        state.loadingStartedAt = nil
+        state.lastAttemptState = .idle
+        state.lastAttemptError = nil
+        state.lastAttemptMetadata = nil
+        self[.claude] = state
+        return true
     }
 
     func invalidateClaudeRequestContext() {
@@ -28,16 +55,20 @@ final class AppRuntimeStateFacade {
         overageFailure = nil
     }
 
-    func applyClaudeSupplementalUsage(_ result: ClaudeSupplementalRefreshResult, accountID: String) {
-        guard accountID == activeClaudeAccountID else { return }
+    func applyClaudeSupplementalUsage(
+        _ result: ClaudeSupplementalRefreshResult, accountID: String, ownerKey: String?
+    ) {
+        guard accountID == activeClaudeAccountID, let ownerKey else { return }
+        if supplementalUsage?.ownerKey != ownerKey { supplementalUsage = nil }
         switch result {
         case .unchanged:
             break
         case .success(let value, let fetchedAt):
-            supplementalUsage = ClaudeSupplementalUsage(accountID: accountID, value: value, fetchedAt: fetchedAt)
+            supplementalUsage = ClaudeSupplementalUsage(
+                accountID: accountID, ownerKey: ownerKey, value: value, fetchedAt: fetchedAt)
         case .failed:
             supplementalUsage?.lastRefreshFailed = true
-            overageFailure = (accountID, Date())
+            overageFailure = (accountID, ownerKey, Date())
         }
     }
 
@@ -86,9 +117,9 @@ final class AppRuntimeStateFacade {
                 lastSuccessfulMetadata: state.lastSuccessfulMetadata,
                 lastAttemptMetadata: state.lastAttemptMetadata,
                 claudeOverage: state.lastSuccessfulMetadata?.accountID == activeClaudeAccountID
-                    ? currentOverage : nil,
+                    ? (currentOverage ?? state.claudeUsage?.extraUsage) : nil,
                 claudeOverageUpdatedAt: lastOverageFetchAt,
-                claudeOverageIsStale: supplementalUsage?.lastRefreshFailed ?? false
+                claudeOverageIsStale: scopedSupplementalUsage?.lastRefreshFailed ?? false
             )
         case .codex:
             return RuntimeProviderSnapshot(

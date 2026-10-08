@@ -12,12 +12,11 @@ set -euo pipefail
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR
 
 SCRIPT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DOWNLOADS_APP_PATH_OVERRIDE="${DOWNLOADS_APP_PATH:-}"
 if [[ "${RELEASE_DRIVER_TEST_MODE:-0}" == "1" ]]; then
     ROOT_DIR="${RELEASE_DRIVER_ROOT_DIR:-$SCRIPT_ROOT}"
 else
-    if [[ -n "${RELEASE_DRIVER_ROOT_DIR:-}" || -n "$DOWNLOADS_APP_PATH_OVERRIDE" ]]; then
-        echo "오류: release source와 Downloads target override는 격리 테스트에서만 허용합니다." >&2
+    if [[ -n "${RELEASE_DRIVER_ROOT_DIR:-}" ]]; then
+        echo "오류: release source override는 격리 테스트에서만 허용합니다." >&2
         exit 1
     fi
     ROOT_DIR="$SCRIPT_ROOT"
@@ -56,7 +55,7 @@ DRY_RUN=0
 CONFIRM_PUBLISH=""
 ORIGINAL_GH_ACCOUNT=""
 RESTORE_GH_ACCOUNT_ON_EXIT=0
-DOWNLOADS_APP_PATH=""
+PREVIOUS_APP_PATH=""
 RUN_ROOT=""
 BUILD_DIR=""
 ARCHIVE_PATH=""
@@ -65,7 +64,6 @@ VERIFIED_CANDIDATE_APPCAST=""
 STAGING_IDENTITY_BOOTSTRAP_VERSION="2.4.4"
 STAGING_IDENTITY_BOOTSTRAP=0
 SIGNING_REFERENCE_APP_PATH=""
-UPGRADE_APP_OWNED=0
 
 PROD_RELEASE_TAG=""
 STAGING_RELEASE_TAG=""
@@ -119,12 +117,6 @@ cleanup_release_driver() {
     local cleanup_failed=0
     local restore_failed=0
 
-    if [[ "$UPGRADE_APP_OWNED" == "1" && -e "$DOWNLOADS_APP_PATH" ]]; then
-        if ! rm -rf "$DOWNLOADS_APP_PATH" || [[ -e "$DOWNLOADS_APP_PATH" ]]; then
-            echo "오류: release upgrade 기준 앱을 정리하지 못했습니다: $DOWNLOADS_APP_PATH" >&2
-            cleanup_failed=1
-        fi
-    fi
     if [[ -n "$RUN_ROOT" && -d "$RUN_ROOT" ]]; then
         if ! rm -rf "$RUN_ROOT" || [[ -e "$RUN_ROOT" ]]; then
             echo "오류: release 임시 디렉터리를 정리하지 못했습니다: $RUN_ROOT" >&2
@@ -238,13 +230,6 @@ case "$RELEASE_ENVIRONMENT" in
         APP_BUNDLE_IDENTIFIER="$APP_PROD_BUNDLE_IDENTIFIER"
         ;;
 esac
-DOWNLOADS_APP_PATH="$(
-    if [[ -n "$DOWNLOADS_APP_PATH_OVERRIDE" ]]; then
-        printf '%s\n' "$DOWNLOADS_APP_PATH_OVERRIDE"
-    else
-        printf '%s/Downloads/%s\n' "$HOME" "$APP_BUNDLE_NAME"
-    fi
-)"
 
 read_channel_feed_state() {
     local channel="$1"
@@ -645,18 +630,16 @@ if [[ "$RELEASE_ENVIRONMENT" == "staging" \
     else
         SIGNING_REFERENCE_APP_PATH="/Applications/ClaudeUsage.app"
     fi
-else
-    SIGNING_REFERENCE_APP_PATH="$DOWNLOADS_APP_PATH"
 fi
 
 echo "  upgrade 기준:     $PREVIOUS_TAG / $PREVIOUS_VERSION ($PREVIOUS_BUILD)"
-echo "  Downloads 기준:   $DOWNLOADS_APP_PATH"
+echo "  이전 앱 경로:    실행 전용 임시 디렉터리"
 if [[ "$STAGING_IDENTITY_BOOTSTRAP" == "1" ]]; then
     echo "  staging 전환:     $STAGING_IDENTITY_BOOTSTRAP_VERSION 식별자 최초 배포"
     echo "                    (구 staging은 번들 ID가 달라 upgrade QA 대상에서 제외)"
     echo "  서명 기준 앱:     $SIGNING_REFERENCE_APP_PATH"
 else
-    echo "                    (새 publish 전에 위 동일 채널 원격 앱으로 교체)"
+    echo "                    (새 publish 전에 동일 채널 원격 앱을 임시 경로에 준비)"
 fi
 
 if [[ "$DRY_RUN" == "1" ]]; then
@@ -668,7 +651,7 @@ DRY-RUN 실행 계획
   3. release driver shell 회귀 테스트 실행
   4. 격리된 임시 DerivedData로 전체 XCTest와 실제 AGY 자동 조회 smoke 실행
   5. 이전 동일 식별자 staging/prod 원격 산출물 검증
-  6. 동일 식별자 이전 앱을 $DOWNLOADS_APP_PATH 에 일시 준비하고 종료 시 삭제
+  6. 동일 식별자 이전 앱을 RUN_ROOT 내부에 준비하고 종료 시 정리
   7. RELEASE_CHANNEL=$RELEASE_ENVIRONMENT 로 build-notarize-release.sh 실행
   8. 게시 직전 exact tag '$TAG' 재확인
   9. publish-release.sh로 immutable tag와 세 Release asset 게시
@@ -698,10 +681,6 @@ if [[ "${RELEASE_DRIVER_TEST_MODE:-0}" == "1" ]]; then
     case "${TMPDIR:-/tmp}" in
         "$TEST_SANDBOX_ROOT"/*) ;;
         *) die "test TMPDIR이 test sandbox 밖에 있습니다: ${TMPDIR:-/tmp}" ;;
-    esac
-    case "$DOWNLOADS_APP_PATH" in
-        "$TEST_SANDBOX_ROOT"/*) ;;
-        *) die "test Downloads 앱 경로가 test sandbox 밖에 있습니다: $DOWNLOADS_APP_PATH" ;;
     esac
     for binary in gh git xcodebuild xcrun codesign; do
         RESOLVED_TEST_BINARY="$(command -v "$binary" 2>/dev/null || true)"
@@ -1094,14 +1073,16 @@ if [[ "$STAGING_IDENTITY_BOOTSTRAP" == "1" ]]; then
     echo "이전 staging 앱 준비 생략: $PREVIOUS_TAG 는 구 bundle identifier를 사용합니다."
 else
     echo
+    PREVIOUS_APP_PATH="$RUN_ROOT/upgrade/$APP_BUNDLE_NAME"
+    SIGNING_REFERENCE_APP_PATH="$PREVIOUS_APP_PATH"
+    mkdir -p "$RUN_ROOT/upgrade"
     echo "이전 동일 채널 앱 준비: $PREVIOUS_TAG"
-    UPGRADE_APP_OWNED=1
     "$VERIFY_SCRIPT" \
         "${PREVIOUS_VERIFY_ARGS[@]}" \
         --channel "$RELEASE_ENVIRONMENT" \
         --expected-version "$PREVIOUS_VERSION" \
         --expected-build "$PREVIOUS_BUILD" \
-        --install-to "$DOWNLOADS_APP_PATH" \
+        --install-to "$PREVIOUS_APP_PATH" \
         --verify-public-feed \
         --repo "$REPOSITORY"
 fi
@@ -1190,7 +1171,7 @@ if [[ "$STAGING_IDENTITY_BOOTSTRAP" == "1" ]]; then
     echo "  previous QA: 생략 (구 staging과 bundle identifier가 다름)"
     echo "  signing ref: $SIGNING_REFERENCE_APP_PATH"
 else
-    echo "  previous QA: $DOWNLOADS_APP_PATH <= $PREVIOUS_TAG"
+    echo "  previous QA: $PREVIOUS_APP_PATH <= $PREVIOUS_TAG"
 fi
 echo "  artifacts:   $BUILD_DIR"
 
@@ -1308,7 +1289,7 @@ else
   local temp:    정리 완료
   upgrade source: $PREVIOUS_TAG 원격 검증 완료
 
-배포 중 준비한 Downloads 앱은 종료 시 삭제합니다.
+이전 배포 앱은 실행 전용 임시 디렉터리에서만 사용하고 종료 시 정리합니다.
 실제 upgrade QA는 /Applications의 설치 앱을 Finder에서 직접 실행해 진행합니다.
 EOF
 fi

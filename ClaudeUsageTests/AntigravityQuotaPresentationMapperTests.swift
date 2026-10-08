@@ -70,7 +70,7 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
         }
     }
 
-    func testStandardGroupsKnownScopesAndCadencesBeforePreservedUnknowns() {
+    func testStandardPreservesDefaultLaneOrderAndAppendsNewLanesAsDistinctGroupRuns() throws {
         let lanes = [
             makeLane(
                 id: "agent.daily",
@@ -110,32 +110,53 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
             ),
         ]
 
-        let presentation = map(lanes)
+        let settings = AntigravityDisplaySettings.default
+        let presentation = map(lanes, settings: settings)
+        let expectedLaneOrder: [AntigravityQuotaLaneID] = [
+            .geminiFiveHour,
+            .geminiWeekly,
+            .thirdPartyFiveHour,
+            .thirdPartyWeekly,
+            .init(rawValue: "gemini.burst"),
+            .init(rawValue: "agent.daily"),
+        ]
 
+        // Later observations append after the stable preferred order. The
+        // displayed rows must follow the same order the editor shows.
+        XCTAssertEqual(presentation.groups.flatMap(\.lanes).map(\.id), expectedLaneOrder)
         XCTAssertEqual(
-            presentation.groups.map(\.title),
-            ["Gemini", "Claude · GPT", "Agent Mode"]
+            AntigravityDisplayAdapter.editorItems(
+                settings: settings, presentation: presentation, surface: .standard
+            ).map(\.id),
+            expectedLaneOrder
         )
-        XCTAssertEqual(
-            presentation.groups[0].lanes.map(\.cadenceTitle),
-            ["5시간", "주간", "burst"]
+        XCTAssertEqual(presentation.groups.map(\.title), ["Gemini", "Claude · GPT", "Gemini", "Agent Mode"])
+        XCTAssertEqual(Set(presentation.groups.map(\.id)).count, presentation.groups.count)
+
+        let firstGeminiGroup = try XCTUnwrap(presentation.groups.first { $0.id == .gemini })
+        XCTAssertEqual(firstGeminiGroup.lanes.map(\.cadenceTitle), ["5시간", "주간"])
+        XCTAssertEqual(firstGeminiGroup.lanes.map(\.standardRowTitle), ["5시간 한도", "주간 한도"])
+        XCTAssertFalse(firstGeminiGroup.isUnknownScope)
+
+        let continuationID = AntigravityQuotaGroupPresentationID.continuation(
+            scopeID: .gemini, firstLaneID: .init(rawValue: "gemini.burst")
         )
-        XCTAssertEqual(
-            presentation.groups[1].lanes.map(\.cadenceTitle),
-            ["5시간", "주간"]
+        let resumedGeminiGroup = try XCTUnwrap(presentation.groups.first { $0.id == continuationID })
+        XCTAssertEqual(resumedGeminiGroup.lanes.map(\.cadenceTitle), ["burst"])
+        XCTAssertFalse(resumedGeminiGroup.isUnknownScope)
+        XCTAssertTrue(try XCTUnwrap(resumedGeminiGroup.lanes.first).isUnknownCadence)
+
+        let agentGroup = try XCTUnwrap(
+            presentation.groups.first { $0.id == .unknown(upstreamID: "agent", label: "Agent Mode") }
         )
-        XCTAssertEqual(
-            presentation.groups[2].lanes.map(\.cadenceTitle),
-            ["daily"]
-        )
-        XCTAssertEqual(
-            presentation.groups[0].lanes
-                .prefix(2)
-                .map(\.standardRowTitle),
-            ["5시간 한도", "주간 한도"]
-        )
-        XCTAssertFalse(presentation.groups[0].isUnknownScope)
-        XCTAssertTrue(presentation.groups[2].isUnknownScope)
+        XCTAssertEqual(agentGroup.lanes.map(\.cadenceTitle), ["daily"])
+        XCTAssertTrue(agentGroup.isUnknownScope)
+
+        // The full inventory still classifies scopes and cadences together;
+        // only the displayed group runs preserve the user's flat ordering.
+        XCTAssertEqual(presentation.allGroups.map(\.title), ["Gemini", "Claude · GPT", "Agent Mode"])
+        XCTAssertEqual(presentation.allGroups[0].lanes.map(\.cadenceTitle), ["5시간", "주간", "burst"])
+        XCTAssertEqual(presentation.allGroups[1].lanes.map(\.cadenceTitle), ["5시간", "주간"])
         XCTAssertEqual(presentation.observedLaneCount, lanes.count)
     }
 
@@ -914,6 +935,36 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
 }
 
 extension AntigravityQuotaPresentationMapperTests {
+
+    func testMissingExplicitMenuBarLaneRemainsVisibleAsUnavailable() {
+        let missing = AntigravityQuotaLaneID(rawValue: "flash.weekly")
+        let pro = makeLane(
+            id: "pro.weekly", scope: .unknown(id: "pro", label: "Gemini Pro"), cadence: .weekly, remaining: 0.2)
+        var settings = AntigravityDisplaySettings.default
+        settings.menuBar.percentageLaneIDs = [missing]
+        settings.menuBar.resetLaneIDs = []
+        let presentation = AntigravityQuotaPresentationMapper.map(
+            snapshot: makeSnapshot(lanes: [pro], fetchedAt: now), settings: settings, now: now)
+        XCTAssertTrue(presentation.menuBar.regularText?.contains("데이터 없음") == true)
+        XCTAssertTrue(presentation.menuBar.accessibilityValue.contains("데이터 없음"))
+    }
+
+    func testMenuBarAccessibilityIncludesDisplayedModelSeparateFromGauge() {
+        let flash = makeLane(
+            id: "flash.weekly", scope: .unknown(id: "flash", label: "Gemini Flash"), cadence: .weekly, remaining: 0.7)
+        let pro = makeLane(
+            id: "pro.weekly", scope: .unknown(id: "pro", label: "Gemini Pro"), cadence: .weekly, remaining: 0.2)
+        var settings = AntigravityDisplaySettings.default
+        settings.menuBar.laneSelection = .fixed(flash.id)
+        settings.menuBar.percentageLaneIDs = [pro.id]
+        settings.menuBar.resetLaneIDs = []
+        let presentation = AntigravityQuotaPresentationMapper.map(
+            snapshot: makeSnapshot(lanes: [flash, pro], fetchedAt: now), settings: settings, now: now)
+        XCTAssertEqual(presentation.menuBar.selectedLaneID, flash.id)
+        XCTAssertTrue(presentation.menuBar.regularText?.contains("Gemini Pro") == true)
+        XCTAssertTrue(presentation.menuBar.accessibilityValue.contains("Gemini Pro"))
+    }
+
     func testExplicitMenuBarNumbersAndResetAreIndependentOfGaugeAndPopoverHiding() throws {
         let flash = makeLane(
             id: "flash.weekly", scope: .unknown(id: "flash", label: "Gemini Flash"), cadence: .weekly, remaining: 0.7)

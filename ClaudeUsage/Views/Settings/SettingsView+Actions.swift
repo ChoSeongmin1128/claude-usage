@@ -161,6 +161,7 @@ extension SettingsView {
         cancelUsageHealthLoad(clearSnapshot: true)
         profileMetadata = nil
         claudeAccountStore.deleteAccount(id: account.id)
+        usageAccounts?.removeResetCreditStateForDeletedWebLogin(account.id)
         syncClaudeAccountsState()
         syncStoredSessionKeyState()
         selectedOrganizationID = appliedPreferredOrganizationID

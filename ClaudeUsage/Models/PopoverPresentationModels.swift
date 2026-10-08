@@ -78,9 +78,19 @@ struct MultiAccountPresentation: Equatable {
         var parts: [String] = []
         if !low.isEmpty { parts.append("남은 한도 \(PercentageText.string(threshold)) 이하 \(low.count)개") }
         if !expired.isEmpty { parts.append("로그인 만료 \(expired.count)개") }
-        return parts.isEmpty
-            ? PopoverAccountSummaryData(text: "모든 계정 여유 있음", isWarning: false)
-            : PopoverAccountSummaryData(text: parts.joined(separator: ", "), isWarning: true)
+        let unconfirmed = rows.filter {
+            $0.usage?.lowestRemainingPercent == nil || $0.status != .current
+        }
+        if !parts.isEmpty {
+            return PopoverAccountSummaryData(text: parts.joined(separator: ", "), isWarning: true)
+        }
+        if unconfirmed.count == rows.count {
+            return PopoverAccountSummaryData(text: "사용량 확인 전", isWarning: false)
+        }
+        if !unconfirmed.isEmpty {
+            return PopoverAccountSummaryData(text: "확인한 계정은 여유 있음, \(unconfirmed.count)개 미확인", isWarning: false)
+        }
+        return PopoverAccountSummaryData(text: "모든 계정 여유 있음", isWarning: false)
     }
 
     func sections(catalog: [PopoverDisplaySection]) -> [PopoverDisplaySection] {

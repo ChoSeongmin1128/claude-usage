@@ -8,8 +8,15 @@
 import Foundation
 
 enum TimeFormatter {
+    /// Keep provider timestamps inside Foundation's supported distant-date bounds.
+    nonisolated static func validatedResetDate(_ date: Date) -> Date? {
+        guard date.timeIntervalSince1970.isFinite, date >= .distantPast, date <= .distantFuture else { return nil }
+        return date
+    }
+
     /// "방금", "3분 전"처럼 지난 시간
     nonisolated static func elapsed(since date: Date, now: Date = Date()) -> String {
+        guard validatedResetDate(date) != nil, validatedResetDate(now) != nil else { return "시간 정보 없음" }
         let elapsed = max(0, now.timeIntervalSince(date))
         if elapsed < 60 { return "방금" }
         if elapsed < 60 * 60 { return "\(Int(elapsed / 60))분 전" }
@@ -24,13 +31,13 @@ enum TimeFormatter {
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let date = iso.date(from: string) {
-            return date
+            return validatedResetDate(date)
         }
 
         // 2차: fractionalSeconds 없이 시도
         iso.formatOptions = [.withInternetDateTime]
         if let date = iso.date(from: string) {
-            return date
+            return validatedResetDate(date)
         }
 
         // 3차: 마이크로초(6자리)를 밀리초(3자리)로 잘라서 시도
@@ -39,7 +46,7 @@ enum TimeFormatter {
         if trimmed != string {
             iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             if let date = iso.date(from: trimmed) {
-                return date
+                return validatedResetDate(date)
             }
         }
 
@@ -48,11 +55,11 @@ enum TimeFormatter {
         df.locale = Locale(identifier: "en_US_POSIX")
         df.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZZZZZ"
         if let date = df.date(from: string) {
-            return date
+            return validatedResetDate(date)
         }
 
         df.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZZZZZ"
-        return df.date(from: string)
+        return df.date(from: string).flatMap(validatedResetDate)
     }
 
     /// 소수점 이하 6자리를 3자리로 축소
@@ -116,6 +123,7 @@ enum TimeFormatter {
         _ date: Date, isWeekly: Bool, style: TimeFormatStyle, includeDateIfNotToday: Bool,
         compact: Bool = false, now: Date = Date(), timeZone: TimeZone = .current
     ) -> String {
+        guard validatedResetDate(date) != nil, validatedResetDate(now) != nil else { return "시간 정보 없음" }
         let interval = date.timeIntervalSince(now)
         let isWeeklyDate = isWeekly && interval > 86400
         if style.isRemaining {
@@ -140,6 +148,7 @@ enum TimeFormatter {
     nonisolated static func formatRemaining(
         until date: Date, now: Date = Date(), isWeekly: Bool
     ) -> String {
+        guard validatedResetDate(date) != nil, validatedResetDate(now) != nil else { return "시간 정보 없음" }
         if isWeekly {
             let totalHours = Int(max(0, date.timeIntervalSince(now)) + 30) / 3600
             let days = totalHours / 24
@@ -153,6 +162,7 @@ enum TimeFormatter {
     nonisolated static func formatRemainingCompact(
         until date: Date, now: Date = Date()
     ) -> String {
+        guard validatedResetDate(date) != nil, validatedResetDate(now) != nil else { return "시간 정보 없음" }
         let interval = max(0, date.timeIntervalSince(now))
         let totalMinutes = Int((interval + 30).rounded(.down)) / 60
         let totalHours = totalMinutes / 60
@@ -222,6 +232,9 @@ enum TimeFormatter {
         timeZone: TimeZone = .current,
         label: String? = "갱신 예상"
     ) -> String {
+        guard validatedResetDate(resetAt) != nil, validatedResetDate(now) != nil else {
+            return labeled("시간 정보 없음", label: label)
+        }
         if style.isRemaining {
             return labeled(
                 formatRemaining(
@@ -282,6 +295,7 @@ enum TimeFormatter {
         until date: Date,
         now: Date = Date()
     ) -> String {
+        guard validatedResetDate(date) != nil, validatedResetDate(now) != nil else { return "시간 정보 없음" }
         let rawInterval = date.timeIntervalSince(now)
 
         if rawInterval <= 0 {

@@ -220,13 +220,16 @@ nonisolated struct CodexUsageWindow: Codable, Sendable {
         }
 
         // resetAt: Int, Double 또는 숫자 문자열. 읽지 못하면 초기화 시각만 비운다.
+        let parsedReset: Double?
         if let number = try? container.decode(Double.self, forKey: .resetAt) {
-            resetAt = number
+            parsedReset = number
         } else if let text = try? container.decode(String.self, forKey: .resetAt), let number = Double(text) {
-            resetAt = number
+            parsedReset = number
         } else {
-            resetAt = nil
+            parsedReset = nil
         }
+        resetAt = parsedReset.flatMap { TimeFormatter.validatedResetDate(Date(timeIntervalSince1970: $0)) }
+            .map(\.timeIntervalSince1970)
 
         limitWindowSeconds = (try? container.decodeIfPresent(Int.self, forKey: .limitWindowSeconds)) ?? nil
     }

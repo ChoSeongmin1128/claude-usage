@@ -228,6 +228,60 @@ final class AntigravityDisplayAdapterTests:
         )
     }
 
+    func testCrossGroupMovePreservesStandardOrderWithDistinctRunIdentities() {
+        let lanes = groupedLanes()
+        let original = AntigravityDisplaySettings.default
+        let before = makePresentation(lanes: lanes, settings: original)
+        let moved = AntigravityDisplayAdapter.moving(
+            .thirdPartyFiveHour, offset: -1, surface: .standard, presentation: before, in: original)
+        let after = makePresentation(lanes: lanes, settings: moved)
+
+        XCTAssertEqual(after.groups.flatMap(\.lanes).map(\.id), moved.standard.orderedLaneIDs)
+        XCTAssertEqual(after.groups.map(\.title), ["Gemini", "Claude · GPT", "Gemini", "Claude · GPT"])
+        XCTAssertEqual(Set(after.groups.map(\.id)).count, after.groups.count)
+        XCTAssertEqual(after.groups[2].id, .continuation(scopeID: .gemini, firstLaneID: .geminiWeekly))
+        XCTAssertEqual(after.allGroups.map(\.id), [.gemini, .thirdPartyModels])
+        XCTAssertEqual(after.compact, before.compact)
+        XCTAssertEqual(
+            AntigravityDisplayAdapter.editorItems(settings: moved, presentation: after, surface: .standard).map(\.id),
+            after.groups.flatMap(\.lanes).map(\.id))
+    }
+
+    func testHiddenCrossGroupLaneRejoinsAdjacentRunsWithoutLosingTheirOrder() {
+        let lanes = groupedLanes()
+        var settings = AntigravityDisplaySettings.default
+        settings.standard.orderedLaneIDs = [.geminiFiveHour, .thirdPartyFiveHour, .geminiWeekly, .thirdPartyWeekly]
+        settings.standard.hiddenLaneIDs = [.geminiWeekly]
+        let presentation = makePresentation(lanes: lanes, settings: settings)
+
+        XCTAssertEqual(presentation.groups.map(\.id), [.gemini, .thirdPartyModels])
+        XCTAssertEqual(
+            presentation.groups.flatMap(\.lanes).map(\.id), [.geminiFiveHour, .thirdPartyFiveHour, .thirdPartyWeekly])
+        XCTAssertEqual(presentation.observedLaneCount, 4)
+    }
+
+    func testWithinGroupMoveRetainsExistingScopeIdentity() {
+        let lanes = groupedLanes()
+        let original = AntigravityDisplaySettings.default
+        let before = makePresentation(lanes: lanes, settings: original)
+        let moved = AntigravityDisplayAdapter.moving(
+            .geminiWeekly, offset: -1, surface: .standard, presentation: before, in: original)
+        let after = makePresentation(lanes: lanes, settings: moved)
+
+        XCTAssertEqual(after.groups.map(\.id), [.gemini, .thirdPartyModels])
+        XCTAssertEqual(after.groups.flatMap(\.lanes).map(\.id), moved.standard.orderedLaneIDs)
+        XCTAssertEqual(after.compact, before.compact)
+    }
+
+    private func groupedLanes() -> [AntigravityQuotaLane] {
+        [
+            makeLane(id: .geminiFiveHour, scope: .gemini, cadence: .fiveHour, remaining: 0.7),
+            makeLane(id: .geminiWeekly, scope: .gemini, cadence: .weekly, remaining: 0.6),
+            makeLane(id: .thirdPartyFiveHour, scope: .thirdPartyModels, cadence: .fiveHour, remaining: 0.5),
+            makeLane(id: .thirdPartyWeekly, scope: .thirdPartyModels, cadence: .weekly, remaining: 0.4),
+        ]
+    }
+
     private func makePresentation(
         lanes: [AntigravityQuotaLane],
         settings: AntigravityDisplaySettings

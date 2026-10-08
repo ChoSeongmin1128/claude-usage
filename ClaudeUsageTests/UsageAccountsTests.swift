@@ -347,6 +347,7 @@ private final class FakeAccountProvider: UsageAccountProvider, UsageAccountMenuB
     var preferredDefault: String?
     var fetches: [String] = []
     var fetchDelay: Duration?
+    var beforeFetch: (@MainActor (String) async -> Void)?
     var failure: Error?
 
     init(service: PopoverService, accounts: [(String, UsageAccountSource.Role)], menuBarTarget: String? = nil) {
@@ -388,6 +389,7 @@ private final class FakeAccountProvider: UsageAccountProvider, UsageAccountMenuB
 
     func fetchUsage(for account: UsageAccount, interactive: Bool) async throws -> UsageAccountFetchResult {
         fetches.append(account.sources[0].reference)
+        await beforeFetch?(account.sources[0].reference)
         if let fetchDelay { try await Task.sleep(for: fetchDelay) }
         if let failure { throw failure }
         return UsageAccountFetchResult(usage: UsageAccountUsage(fiveHour: .init(usedPercent: 10, resetsAt: nil)))
@@ -533,5 +535,144 @@ final class UsageAccountSourceTests: XCTestCase {
         XCTAssertEqual(usage.weeklyWindow?.utilization, 10)
         XCTAssertEqual(usage.planType, "plus")
         XCTAssertEqual(usage.resetCredits?.availableCount(), 1)
+    }
+}
+
+
+extension UsageAccountsControllerTests {
+    func testVerifiedRuntimeIdentityStaysWithItsPayloadAcrossDiscovery() async throws {
+        let provider = FakeAccountProvider(service: .codex, accounts: [("live", .defaultLogin), ("other", .directory)])
+        let original = UsageAccountIdentity(accountID: "a", organizationID: "team", email: "a@example.com")
+        provider.identities["live"] = original
+        let sut = controller([provider])
+        await sut.discoverAndWait()
+        let previous = try XCTUnwrap(sut.accounts[.codex]?.first(where: \.isDefaultLogin))
+        sut.rename(previous, to: "원래 계정")
+        let confirmed = UsageAccountCandidate(
+            source: .init(role: .defaultLogin, reference: "live"),
+            identity: .init(accountID: "b", organizationID: "team", email: "b@example.com"))
+
+        sut.bindRuntimeAccount(confirmed, for: .codex)
+        await sut.discoverAndWait()  // discovery is still reporting A from its earlier credential view
+
+        let runtime = try XCTUnwrap(sut.orderedAccounts(for: .codex).first(where: sut.isRuntime))
+        XCTAssertEqual(runtime.id, "codex:b|team")
+        XCTAssertEqual(runtime.identity.email, "b@example.com")
+        XCTAssertEqual(sut.preferences.aliases[previous.id], "원래 계정")
+        XCTAssertNotEqual(sut.alias(for: runtime), "원래 계정")
+    }
+
+    func testQueuedArchivedAccountIsSkippedUntilUnarchived() async throws {
+        let provider = FakeAccountProvider(
+            service: .codex, accounts: [("live", .defaultLogin), ("first", .directory), ("second", .directory)])
+        let gate = UsageAccountFetchGate()
+        provider.beforeFetch = { reference in if reference == "first" { await gate.wait() } }
+        let sut = controller([provider])
+        await sut.discoverAndWait()
+        let second = try XCTUnwrap(sut.accounts[.codex]?.first { $0.sources.first?.reference == "second" })
+        sut.setMultiAccountEnabled(true, for: .codex)
+        try await waitUntil { provider.fetches == ["first"] }
+        sut.setArchived(true, second)
+        await gate.resume()
+        try await waitUntil { sut.states.values.contains { $0.fetchedAt != nil } }
+        try await Task.sleep(for: .milliseconds(20))
+        XCTAssertEqual(provider.fetches, ["first"])
+        XCTAssertNil(sut.states[second.id])
+        sut.setArchived(false, second)
+        try await waitUntil { provider.fetches.contains("second") }
+        XCTAssertEqual(provider.fetches, ["first", "second"])
+    }
+}
+
+private actor UsageAccountFetchGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var resumed = false
+    func wait() async {
+        guard !resumed else { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+    func resume() {
+        resumed = true
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
+extension MultiAccountPresentationTests {
+    func testSummaryDoesNotCallUnknownOrStaleAccountsHealthy() {
+        let unknown = PopoverAccountRowData(
+            id: "unknown", service: .claude, name: "unknown", badges: [], status: .checking,
+            usage: nil, fetchedAt: nil, isRuntime: false, basis: .used)
+        let pending = MultiAccountPresentation(service: .claude, mode: .summaryRows, rows: [unknown], selectedIDs: [])
+        XCTAssertEqual(pending.summary, .init(text: "사용량 확인 전", isWarning: false))
+        let mixed = MultiAccountPresentation(
+            service: .claude, mode: .summaryRows, rows: [row("ready"), unknown], selectedIDs: [])
+        XCTAssertEqual(mixed.summary, .init(text: "확인한 계정은 여유 있음, 1개 미확인", isWarning: false))
+        let stale = MultiAccountPresentation(
+            service: .claude, mode: .summaryRows, rows: [row("old", status: .stale)], selectedIDs: [])
+        XCTAssertNotEqual(stale.summary.text, "모든 계정 여유 있음")
+    }
+}
+
+extension UsageAccountsControllerTests {
+    func testSwitchDetectionUsesPhysicalLoginWhileDisplayedPayloadStillBelongsToPreviousAccount() async throws {
+        let suite = "UsageAccountsControllerTests.physical.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let provider = FakeAccountProvider(service: .codex, accounts: [("live", .defaultLogin), ("other", .directory)])
+        let previous = UsageAccountIdentity(accountID: "a", organizationID: "team", email: "a@example.com")
+        let next = UsageAccountIdentity(accountID: "b", organizationID: "team", email: "b@example.com")
+        provider.identities["live"] = previous
+        provider.identities["other"] = next
+        var notices: [String] = []
+        let sut = UsageAccountsController(
+            providers: [provider], defaults: defaults, notifyAccountChange: { _, body in notices.append(body) },
+            isServiceEnabled: { _ in true })
+        await sut.discoverAndWait()
+        sut.bindRuntimeAccount(
+            .init(source: .init(role: .defaultLogin, reference: "live"), identity: previous), for: .codex)
+        let destination = try XCTUnwrap(sut.accounts[.codex]?.first { $0.identity == next })
+        provider.identities["live"] = next
+        let switchError = await sut.switchDefault(
+            to: destination, plan: .init(message: "fixture", confirmTitle: "fixture", terminatesRunningApps: false))
+        XCTAssertNil(switchError)
+        XCTAssertEqual(sut.preferences[.codex].expectedDefault, next)
+        XCTAssertNil(sut.revertedSwitch[.codex])
+        XCTAssertEqual(notices, [])
+        XCTAssertEqual(sut.orderedAccounts(for: .codex).first(where: sut.isRuntime)?.identity, previous)
+        // 실제 로그인이 다시 A로 바뀐 뒤에만 되돌림을 알린다.
+        provider.identities["live"] = previous
+        await sut.discoverAndWait()
+        XCTAssertNil(sut.preferences[.codex].expectedDefault)
+        XCTAssertNotNil(sut.revertedSwitch[.codex])
+        XCTAssertEqual(notices.count, 1)
+    }
+}
+
+extension UsageAccountsControllerTests {
+    func testMergedWebAndCLILabelsCannotDetachVerifiedRuntimeQuota() async throws {
+        let provider = FakeAccountProvider(
+            service: .claude, accounts: [("live", .defaultLogin), ("app", .web), ("other", .directory)])
+        let identity = UsageAccountIdentity(accountID: "user", organizationID: "team")
+        provider.identities["live"] = identity
+        provider.identities["app"] = .init(
+            accountID: "user", organizationID: "team", email: "a@example.com", organizationName: "Team")
+        let sut = controller([provider])
+        await sut.discoverAndWait()
+        let candidate = UsageAccountCandidate(source: .init(role: .defaultLogin, reference: "live"), identity: identity)
+        sut.bindRuntimeAccount(candidate, for: .claude)
+        await sut.discoverAndWait()
+        let merged = try XCTUnwrap(sut.accounts[.claude]?.first { $0.id == "claude:user|team" })
+        XCTAssertEqual(merged.identity.email, "a@example.com")
+        XCTAssertEqual(merged.identity.organizationName, "Team")
+        XCTAssertEqual(merged.roles, [.defaultLogin, .web])
+        XCTAssertTrue(sut.isRuntime(merged))
+        XCTAssertTrue(merged.matches(candidate))
+        XCTAssertFalse(merged.matches(.init(source: candidate.source, identity: .init())))
+        XCTAssertFalse(
+            merged.matches(
+                .init(
+                    source: candidate.source,
+                    identity: .init(accountID: "user", organizationID: "other", email: "a@example.com"))))
     }
 }

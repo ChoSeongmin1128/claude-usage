@@ -18,8 +18,9 @@ extension AppDelegate {
     }
 
     func resetCreditAccountKey(for service: PopoverService) -> String? {
-        usageAccountsController.orderedAccounts(for: service)
-            .first { usageAccountsController.isRuntime($0) && $0.identity.mergeKey != nil }?.id
+        let snapshot = runtimeProviderSnapshot(for: service)
+        guard snapshot.displayPayload != nil else { return nil }
+        return snapshot.lastSuccessfulMetadata?.resetCreditAccountKey(for: service)
     }
 
     func observeResetCredits() {

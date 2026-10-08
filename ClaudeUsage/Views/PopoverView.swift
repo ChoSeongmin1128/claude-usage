@@ -345,12 +345,7 @@ struct PopoverView: View {
     private func providerStatusRailParts(
         state: PopoverViewModel.RuntimeServiceState
     ) -> (account: String?, source: String?, status: String) {
-        var accountLabel: String?
-        if let accountID = state.accountID,
-            let account = viewModel.usageHealthSnapshot?.accounts.first(where: { $0.id == accountID })
-        {
-            accountLabel = account.identity.primaryLabel ?? account.displayName
-        }
+        let accountLabel = state.accountLabel
         let status: String
         if let meta = state.meta {
             status = meta

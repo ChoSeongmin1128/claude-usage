@@ -84,6 +84,30 @@ final class ClaudeUsageAccountProvider: UsageAccountProvider, UsageAccountMenuBa
         return targets(of: account).contains(current)
     }
 
+    nonisolated static func runtimeAccount(
+        provenance: ClaudeFetchProvenance, validatedIdentity: UsageAccountIdentity?,
+        resolvedOrganizationID: String?, knownIdentities: [String: UsageAccountIdentity]
+    ) -> UsageAccountCandidate? {
+        switch provenance.source {
+        case .oauth, .messagesHeaderFallback:
+            return UsageAccountCandidate(
+                source: .init(role: .defaultLogin, reference: ClaudeCodeLoginSlot.defaultSlot().configDirectory.path),
+                identity: validatedIdentity ?? UsageAccountIdentity())
+        case .webSession:
+            guard let reference = provenance.accountID else { return nil }
+            let identity: UsageAccountIdentity
+            if let known = knownIdentities[reference], let organization = resolvedOrganizationID,
+                known.organizationID == organization
+            {
+                identity = known
+            } else {
+                identity = UsageAccountIdentity(
+                    organizationID: resolvedOrganizationID, organizationName: validatedIdentity?.organizationName)
+            }
+            return UsageAccountCandidate(source: .init(role: .web, reference: reference), identity: identity)
+        }
+    }
+
     func runtimeUsage(from snapshot: RuntimeProviderSnapshot) -> UsageAccountUsage? {
         snapshot.claudeUsage.map(UsageAccountUsage.init(claude:))
     }
