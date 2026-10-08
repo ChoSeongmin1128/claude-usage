@@ -4,21 +4,28 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>ClaudeUsage-stg</title>
         <item>
-            <title>Version 2.8.1-stg.1</title>
-            <pubDate>Tue, 06 Oct 2026 17:32:28 +0900</pubDate>
-            <sparkle:version>20640</sparkle:version>
-            <sparkle:shortVersionString>2.8.1-stg.1</sparkle:shortVersionString>
+            <title>Version 2.8.2-stg.2</title>
+            <pubDate>Thu, 08 Oct 2026 11:36:46 +0900</pubDate>
+            <sparkle:version>20642</sparkle:version>
+            <sparkle:shortVersionString>2.8.2-stg.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.8.1-stg.1/ClaudeUsage.dmg" length="6470944" type="application/octet-stream" sparkle:edSignature="ycy2mtMXzGNNySBnXmP7UTN2c/F0MqhAMnMT21pOy6YUT1ENfv1was+fzYBFUrQX76oHriamAbJ0NtK9m3q9Cw=="></enclosure>
-            <description sparkle:format="plain-text"># 2.8.1
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.8.2-stg.2/ClaudeUsage.dmg" length="6819807" type="application/octet-stream" sparkle:edSignature="Y3dp2c5UCRSQZEQDTDTDsYZRIw4gZ6f3U2TR6hRYU5BKJcVuU6jIbLw7A6P9YszXlGV8HnJfwdvQeyQLFJoSDw=="></enclosure>
+            <description sparkle:format="plain-text"># 2.8.2
 
-- Codex 초기화권이 있는데도 표시되지 않거나 이전 개수로 보이던 문제를 고쳤습니다.
-- 초기화권 개수가 바뀌면 이전 만료 정보를 표시하지 않습니다.
+- Claude 추가 사용량을 기본 사용량과 함께 갱신합니다. 금액이 빠진 응답을 0원이나 한도 없음으로 표시하지 않고 다시 확인합니다.
+- 팝오버와 조직 미리보기에서 같은 사용액과 한도, 서버가 제공한 통화와 소수 자릿수를 씁니다.
+- Claude Code와 Codex 계정을 바꿨을 때 이전 계정의 이름, 초기화권 확인 이력이나 사용량 알림이 섞이던 경우를 수정했습니다.
+- 초기화권 개수가 줄거나 상세 정보가 늦게 도착해도 신규로 표시하지 않습니다. 계정별로 구분하며 초기화권 행을 보고 닫았을 때 확인 처리합니다.
+- Codex 사용량과 초기화권 개수를 먼저 표시한 뒤 상세 정보를 확인합니다. 상세 조회가 실패해도 개수를 유지하고 다음 조회에서 다시 확인합니다. 이전 정보와 일부 누락, 만료 없음과 정보 없음을 구분합니다.
+- Fable과 Codex 추가 모델 한도를 메뉴바 숫자, 초기화 시간과 게이지로 고를 수 있습니다. Antigravity도 조회된 각 한도의 숫자와 시간을 따로 고릅니다. 선택한 한도가 잠시 사라져도 설정에서 선택을 해제할 수 있습니다.
+- Antigravity에서 사용자가 정한 행 순서를 유지합니다. 계정 정보를 제공하지 않는 조회 방식에서는 사용량을 표시하면서 알림을 보낼 수 없는 이유를 안내합니다.
+- 기본 로그인 조회가 실패해도 다른 계정의 정상 사용량을 볼 수 있습니다. 조회하지 못한 계정을 모두 여유 있다고 안내하거나 이전 값을 최신으로 표시하던 경우를 수정했습니다.
+- 로그인 시 자동 시작을 켜도 등록 요청이 누락되던 경우를 수정했습니다. 정상 등록과 승인 대기, 등록 실패를 구분하고 시스템 설정에서 변경한 상태도 다시 확인합니다.
 </description>
-            <claudeusage:zipSHA256>2b330b029593b4333240a87c3e3965e0525b652c9b22dea58eacdf4380848534</claudeusage:zipSHA256>
+            <claudeusage:zipSHA256>f5096fa34b1175a6089ca0dbb3a03c57738ba6c3ab809b2f3e3b2eaf97f80e44</claudeusage:zipSHA256>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: 7MWFtFz5DNv+5vufQifPdTWdRR7OK8ORITr7qOmDZHf3csyQYsb6x98OOKnFvNPDvQtRKt1/lKBZ3ERm0pE8Ag==
-length: 1579
+edSignature: fyYJ1T1OOpe/boDJ0qIZxyJghumGddwz9lDnQSXRbULky04VRCLeszAjmVUkUXJqu7zSHdoDdzBX24w+J3L/CA==
+length: 3301
 -->
