@@ -100,6 +100,14 @@ enum TimeFormatter {
             date, isWeekly: false, style: style, includeDateIfNotToday: includeDateIfNotToday)
     }
 
+    nonisolated static func formatResetTime(
+        from date: Date, isWeekly: Bool, style: TimeFormatStyle, includeDateIfNotToday: Bool = true
+    ) -> String? {
+        guard validatedResetDate(date) != nil else { return nil }
+        return formatResetDate(
+            date, isWeekly: isWeekly, style: style, includeDateIfNotToday: includeDateIfNotToday)
+    }
+
     nonisolated static func formatResetTimeWeekly(
         from resetAt: String, style: TimeFormatStyle = .h24, includeDateIfNotToday: Bool = true
     ) -> String? {

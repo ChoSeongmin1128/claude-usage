@@ -236,15 +236,13 @@ enum MenuBarStatusComposer {
         renderImages: Bool = true,
         appearance: NSAppearance? = nil
     ) -> MenuBarProviderSnapshot {
+        let resolvedProjection = MenuBarQuotaProjection(
+            config: config, limits: usage.map(UsageLimitCatalog.claude) ?? [])
         let projection: MenuBarQuotaProjection? =
-            config.quotaSelection != nil || config.gaugeSelection != nil
-            ? MenuBarQuotaProjection(
-                selection: config.resolvedQuotaSelection(limits: usage.map(UsageLimitCatalog.claude) ?? []),
-                limits: usage.map(UsageLimitCatalog.claude) ?? [],
-                basis: config.usageValueBasis, timeFormat: config.timeFormat)
-            : nil
+            config.quotaSelection != nil || config.gaugeSelection != nil ? resolvedProjection : nil
         let status = claudeStatus(
             config: config,
+            projection: resolvedProjection,
             usage: usage,
             error: error,
             hasAuthError: hasAuthError,
@@ -253,8 +251,7 @@ enum MenuBarStatusComposer {
         )
         let tooltip = [status.tooltip, usage == nil ? projection?.tooltip : nil]
             .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
-        let reset =
-            config.quotaSelection == nil ? resetText(usage: usage, config: config) : projection?.resetText
+        let reset = usage == nil ? nil : resolvedProjection.resetText
         let renderKey = providerRenderKey(
             kind: .claude,
             regularText: status.text,
@@ -312,16 +309,13 @@ enum MenuBarStatusComposer {
         renderImages: Bool = true,
         appearance: NSAppearance? = nil
     ) -> MenuBarProviderSnapshot {
+        let resolvedProjection = MenuBarQuotaProjection(
+            config: config, limits: usage.map(UsageLimitCatalog.codex) ?? [], codexUsage: usage)
         let projection: MenuBarQuotaProjection? =
-            config.quotaSelection != nil || config.gaugeSelection != nil
-            ? MenuBarQuotaProjection(
-                selection: config.resolvedQuotaSelection(
-                    limits: usage.map(UsageLimitCatalog.codex) ?? [], codexUsage: usage),
-                limits: usage.map(UsageLimitCatalog.codex) ?? [],
-                basis: config.usageValueBasis, timeFormat: config.timeFormat)
-            : nil
+            config.quotaSelection != nil || config.gaugeSelection != nil ? resolvedProjection : nil
         let status = codexStatus(
             config: config,
+            projection: resolvedProjection,
             usage: usage,
             error: error,
             hasAuthError: hasAuthError,
@@ -330,8 +324,7 @@ enum MenuBarStatusComposer {
         )
         let tooltip = [status.tooltip, usage == nil ? projection?.tooltip : nil]
             .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
-        let reset =
-            config.quotaSelection == nil ? resetText(usage: usage, config: config) : projection?.resetText
+        let reset = usage == nil ? nil : resolvedProjection.resetText
         let renderKey = providerRenderKey(
             kind: .codex,
             regularText: status.text,
@@ -791,18 +784,9 @@ enum MenuBarStatusComposer {
         )
     }
 
-    private static func quotaTooltip(
-        limits: [UsageLimit], config: ProviderMenuBarDisplayConfig, codexUsage: CodexUsageResponse? = nil
-    ) -> String? {
-        guard config.gaugeSelection != nil else { return nil }
-        return MenuBarQuotaProjection(
-            selection: config.resolvedQuotaSelection(limits: limits, codexUsage: codexUsage), limits: limits,
-            basis: config.usageValueBasis, timeFormat: config.timeFormat
-        ).tooltip
-    }
-
     private static func claudeStatus(
         config: ProviderMenuBarDisplayConfig,
+        projection: MenuBarQuotaProjection,
         usage: ClaudeUsageResponse?,
         error: APIError?,
         hasAuthError: Bool,
@@ -830,10 +814,6 @@ enum MenuBarStatusComposer {
         }
 
         if config.quotaSelection != nil {
-            let projection = MenuBarQuotaProjection(
-                selection: config.resolvedQuotaSelection(limits: UsageLimitCatalog.claude(usage)),
-                limits: UsageLimitCatalog.claude(usage),
-                basis: config.usageValueBasis, timeFormat: config.timeFormat)
             return MenuBarProviderStatus(
                 text: projection.percentageText,
                 color: gaugeColor(for: projection.primary?.usedPercentage, config: config),
@@ -843,33 +823,24 @@ enum MenuBarStatusComposer {
         let hasPrimary = usage.hasSessionWindow
         let fiveHour = usage.fiveHourPercentage
         let weekly = usage.weeklyPercentage
-        let displayPrimary = config.usageValueBasis.text(fromUsed: hasPrimary ? fiveHour : weekly)
-        let displayWeekly = config.usageValueBasis.text(fromUsed: weekly)
-        let text: String = {
-            switch config.percentageDisplay {
-            case .none:
-                return ""
-            case .fiveHour:
-                return displayPrimary
-            case .weekly:
-                return displayWeekly
-            case .dual:
-                guard hasPrimary, weekly != nil else { return hasPrimary ? displayPrimary : displayWeekly }
-                return "\(displayPrimary)·\(displayWeekly)"
-            }
-        }()
+        let text = MenuBarQuotaProjection.legacyPercentageText(
+            session: fiveHour, weekly: weekly, hasSession: hasPrimary,
+            display: config.percentageDisplay, basis: config.usageValueBasis)
 
         return MenuBarProviderStatus(
             text: text,
             color: gaugeColor(for: usage.gaugePercentage, config: config),
-            tooltip: (quotaTooltip(limits: UsageLimitCatalog.claude(usage), config: config)
-                ?? windowSummaryTooltip(session: fiveHour, weekly: weekly, config: config))
+            tooltip: (config.gaugeSelection != nil
+                ? projection.tooltip
+                : MenuBarQuotaProjection.legacyTooltip(
+                    session: fiveHour, weekly: weekly, basis: config.usageValueBasis))
                 + staleNote(error: error, hasAuthError: hasAuthError)
         )
     }
 
     private static func codexStatus(
         config: ProviderMenuBarDisplayConfig,
+        projection: MenuBarQuotaProjection,
         usage: CodexUsageResponse?,
         error: APIError?,
         hasAuthError: Bool,
@@ -891,10 +862,6 @@ enum MenuBarStatusComposer {
         }
 
         if config.quotaSelection != nil {
-            let projection = MenuBarQuotaProjection(
-                selection: config.resolvedQuotaSelection(limits: UsageLimitCatalog.codex(usage), codexUsage: usage),
-                limits: UsageLimitCatalog.codex(usage),
-                basis: config.usageValueBasis, timeFormat: config.timeFormat)
             return MenuBarProviderStatus(
                 text: projection.percentageText,
                 color: gaugeColor(for: projection.primary?.usedPercentage, config: config),
@@ -905,104 +872,20 @@ enum MenuBarStatusComposer {
         let hasPrimary = usage.hasSessionWindow
         let primary = usage.sessionPercentage
         let weekly = usage.weeklyWindow?.utilization
-        let displayPrimary = config.usageValueBasis.text(fromUsed: hasPrimary ? primary : weekly)
-        let displayWeekly = config.usageValueBasis.text(fromUsed: weekly)
-        let text: String = {
-            switch config.percentageDisplay {
-            case .none:
-                return ""
-            case .fiveHour:
-                return displayPrimary
-            case .weekly:
-                return displayWeekly
-            case .dual:
-                // 응답에 있는 창만 표시한다(주간 전용이면 주간, 세션 전용이면 세션)
-                guard hasPrimary, weekly != nil else { return hasPrimary ? displayPrimary : displayWeekly }
-                return "\(displayPrimary)·\(displayWeekly)"
-            }
-        }()
+        let text = MenuBarQuotaProjection.legacyPercentageText(
+            session: primary, weekly: weekly, hasSession: hasPrimary,
+            display: config.percentageDisplay, basis: config.usageValueBasis)
 
         return MenuBarProviderStatus(
             text: text,
             color: gaugeColor(for: usage.gaugePercentage, config: config),
-            tooltip: (quotaTooltip(limits: UsageLimitCatalog.codex(usage), config: config, codexUsage: usage)
-                ?? windowSummaryTooltip(session: hasPrimary ? primary : nil, weekly: weekly, config: config))
+            tooltip: (config.gaugeSelection != nil
+                ? projection.tooltip
+                : MenuBarQuotaProjection.legacyTooltip(
+                    session: hasPrimary ? primary : nil, weekly: weekly, basis: config.usageValueBasis))
                 + (usage.workspaceLimitNotice.map { " · \($0)" } ?? "")
                 + staleNote(error: error, hasAuthError: hasAuthError)
         )
-    }
-
-    /// 응답에 있는 창만 표시 기준(사용량/남은 양)으로 적는다.
-    private static func windowSummaryTooltip(
-        session: Double?, weekly: Double?, config: ProviderMenuBarDisplayConfig
-    ) -> String {
-        let basis = config.usageValueBasis
-        let parts = [
-            session.map { "5시간 \(basis.text(fromUsed: $0))" },
-            weekly.map { "주간 \(basis.text(fromUsed: $0))" },
-        ].compactMap { $0 }
-        return parts.isEmpty ? "데이터 없음" : parts.joined(separator: " · ") + " \(basis.label)"
-    }
-
-    private static func resetText(usage: ClaudeUsageResponse?, config: ProviderMenuBarDisplayConfig) -> String? {
-        guard let usage else { return nil }
-        switch config.resetTimeDisplay {
-        case .none:
-            return nil
-        case .fiveHour:
-            // 숫자/게이지의 주간 대체와 시간 선택은 별개다. 고른 창의 시각이 없으면 시간을 숨긴다.
-            guard let resetAt = usage.fiveHour?.resetsAt else { return nil }
-            return TimeFormatter.formatResetTime(
-                from: resetAt, style: config.timeFormat, includeDateIfNotToday: false)
-        case .weekly:
-            guard let resetAt = usage.sevenDay?.resetsAt else { return nil }
-            return TimeFormatter.formatResetTimeWeekly(
-                from: resetAt, style: config.timeFormat, includeDateIfNotToday: false)
-        case .dual:
-            let first = usage.fiveHour?.resetsAt.flatMap {
-                TimeFormatter.formatResetTime(
-                    from: $0, style: config.timeFormat, includeDateIfNotToday: false)
-            }
-            let second = usage.sevenDay?.resetsAt.flatMap {
-                TimeFormatter.formatResetTimeWeekly(
-                    from: $0, style: config.timeFormat, includeDateIfNotToday: false)
-            }
-            if let first, let second { return "\(first) · \(second)" }
-            return first ?? second
-        }
-    }
-
-    private static func resetText(usage: CodexUsageResponse?, config: ProviderMenuBarDisplayConfig) -> String? {
-        guard let usage else { return nil }
-        switch config.resetTimeDisplay {
-        case .none:
-            return nil
-        case .fiveHour:
-            // 세션 창이 있으면 세션 포맷, 없으면(주간 전용 개편) 주간 창을 주간 포맷으로 대체.
-            // 포맷은 표시 슬롯이 아니라 실제 창 성격을 따라간다 — 주간 창에 분 단위까지 붙는 것 방지.
-            if let sessionReset = usage.sessionWindow?.resetAtISO {
-                return TimeFormatter.formatResetTime(
-                    from: sessionReset, style: config.timeFormat, includeDateIfNotToday: false)
-            }
-            guard let weeklyReset = usage.weeklyWindow?.resetAtISO else { return nil }
-            return TimeFormatter.formatResetTimeWeekly(
-                from: weeklyReset, style: config.timeFormat, includeDateIfNotToday: false)
-        case .weekly:
-            guard let resetAt = usage.weeklyWindow?.resetAtISO else { return nil }
-            return TimeFormatter.formatResetTimeWeekly(
-                from: resetAt, style: config.timeFormat, includeDateIfNotToday: false)
-        case .dual:
-            let first = usage.sessionWindow?.resetAtISO.flatMap {
-                TimeFormatter.formatResetTime(
-                    from: $0, style: config.timeFormat, includeDateIfNotToday: false)
-            }
-            let second = usage.weeklyWindow?.resetAtISO.flatMap {
-                TimeFormatter.formatResetTimeWeekly(
-                    from: $0, style: config.timeFormat, includeDateIfNotToday: false)
-            }
-            if let first, let second { return "\(first) · \(second)" }
-            return first ?? second
-        }
     }
 
     private static func styleIcon(projection: MenuBarQuotaProjection, config: ProviderMenuBarDisplayConfig) -> NSImage?

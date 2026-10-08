@@ -73,7 +73,9 @@ nonisolated struct MenuBarQuotaSelection: Codable, Equatable, Sendable {
         switch config.resetTimeDisplay {
         case .none: break
         case .fiveHour:
-            result.resetIDs = (config.kind == .codex ? displayPrimary : primary).map { [$0.id] } ?? []
+            var resetPrimary = config.kind == .codex ? displayPrimary : primary
+            if config.kind == .codex, primary?.resetAt == nil, weekly?.resetAt != nil { resetPrimary = weekly }
+            result.resetIDs = resetPrimary.map { [$0.id] } ?? []
         case .weekly: result.resetIDs = weekly.map { [$0.id] } ?? []
         case .dual: result.resetIDs = [primary, weekly].compactMap { $0?.id }
         }
@@ -140,64 +142,4 @@ nonisolated struct MenuBarGaugeValue: Equatable, Sendable {
     let basis: UsageValueBasis
 
     var percentage: Double? { basis.percentage(fromUsed: usedPercentage) }
-}
-
-nonisolated struct MenuBarQuotaProjection {
-    let selection: MenuBarQuotaSelection
-    let limits: [UsageLimit]
-    let basis: UsageValueBasis
-    let timeFormat: TimeFormatStyle
-
-    func limit(_ id: String?) -> UsageLimit? {
-        id.flatMap { id in limits.first { $0.id == id && $0.isIdentifiable } }
-    }
-
-    var primary: UsageLimit? { limit(selection.gaugeIDs.first) }
-    var secondary: UsageLimit? { limit(selection.gaugeIDs.dropFirst().first) }
-
-    var gauges: [MenuBarGaugeValue] {
-        selection.gaugeIDs.map { id in
-            let item = limit(id)
-            return MenuBarGaugeValue(
-                id: id, title: item?.shortTitle ?? selection.titles[id] ?? "한도",
-                usedPercentage: item?.usedPercentage, basis: basis)
-        }
-    }
-
-    var percentageText: String {
-        selection.percentageIDs.map { id in
-            guard let limit = limit(id), let used = limit.usedPercentage else {
-                return "\(selection.titles[id] ?? "한도") 데이터 없음"
-            }
-            return "\(limit.shortTitle) \(basis.text(fromUsed: used))"
-        }.joined(separator: " · ")
-    }
-
-    var resetText: String? {
-        let text = selection.resetIDs.compactMap { id -> String? in
-            guard let limit = limit(id), let date = limit.resetAt else { return nil }
-            let iso = ISO8601DateFormatter().string(from: date)
-            let value =
-                (limit.periodSeconds ?? 0) >= 86_400
-                ? TimeFormatter.formatResetTimeWeekly(from: iso, style: timeFormat, includeDateIfNotToday: false)
-                : TimeFormatter.formatResetTime(from: iso, style: timeFormat, includeDateIfNotToday: false)
-            return value.map { "\(limit.shortTitle) \($0)" }
-        }.joined(separator: " · ")
-        return text.isEmpty ? nil : text
-    }
-
-    var tooltip: String {
-        let observed = Set(limits.map(\.id))
-        let ids = limits.map(\.id) + selection.selectedIDs.subtracting(observed).sorted()
-        return ids.map { id in
-            guard let limit = limit(id), let used = limit.usedPercentage else {
-                return "\(selection.titles[id] ?? "한도"): 데이터 없음"
-            }
-            return "\(limit.title): \(basis.text(fromUsed: used)) \(basis.label)"
-        }.joined(separator: "\n")
-    }
-
-    var visualValues: [Double] {
-        selection.gaugeIDs.map { limit($0)?.usedPercentage ?? -1 }
-    }
 }

@@ -50,7 +50,7 @@ nonisolated enum WhatsNewCatalog {
         WhatsNewPage(
             version: "2.9.0", symbol: "chart.bar", title: "메뉴바 게이지를 여러 개",
             body:
-                "5시간, 주간, Fable 같은 한도를 게이지로 함께 볼 수 있습니다. 서비스 설정의 ‘메뉴바 표시’에서 한도를 체크하고 화살표로 순서를 바꾸세요. 이름은 ‘게이지 이름 표시’를 켜면 나옵니다.",
+                "5시간, 주간, Fable 같은 한도를 게이지로 함께 볼 수 있습니다. 서비스 설정의 ‘메뉴바 표시’에서 한도를 체크하고 화살표로 순서를 바꾸세요. 게이지 이름은 ‘게이지 이름 표시’를 켜면 나옵니다.",
             action: .openSettings(.claude, section: .menuBar), actionTitle: "Claude 메뉴바 설정 열기"),
     ]
 

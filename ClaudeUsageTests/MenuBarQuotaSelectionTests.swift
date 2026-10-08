@@ -37,7 +37,8 @@ final class MenuBarQuotaSelectionTests: XCTestCase {
         XCTAssertEqual(projection.primary?.usedPercentage, 31)
         XCTAssertTrue(projection.percentageText.contains("31%"))
         XCTAssertFalse(projection.percentageText.contains("8%"))
-        XCTAssertTrue(projection.resetText?.hasPrefix(model.shortTitle) == true)
+        XCTAssertFalse(projection.resetText?.contains(model.shortTitle) == true)
+        XCTAssertTrue(projection.tooltip.contains(model.title))
         let actual = MenuBarStatusComposer.claudeSnapshot(
             config: config(selection), usage: usage, error: nil,
             hasAuthError: false, hasCredential: true, secondaryColor: .secondaryLabelColor, icon: nil)
@@ -121,11 +122,12 @@ extension MenuBarQuotaSelectionTests {
         let snapshot = MenuBarStatusComposer.codexSnapshot(
             config: config, usage: usage, error: nil,
             hasAuthError: false, isAuthenticated: true, secondaryColor: .secondaryLabelColor, icon: nil)
-        XCTAssertTrue(snapshot.text.contains("Spark"))
+        XCTAssertFalse(snapshot.text.contains("Spark"))
+        XCTAssertTrue(snapshot.tooltip.contains("Spark"))
         XCTAssertTrue(snapshot.text.contains("41%"))
         XCTAssertTrue(snapshot.text.contains("62%"))
         XCTAssertFalse(snapshot.text.contains("8%"))
-        XCTAssertTrue(snapshot.resetText?.contains("Spark") == true)
+        XCTAssertFalse(snapshot.resetText?.contains("Spark") == true)
         XCTAssertNotNil(snapshot.styleIcon)
         let projection = MenuBarQuotaProjection(selection: selection, limits: limits, basis: .used, timeFormat: .h24)
         XCTAssertEqual(projection.visualValues, [41, 62])
@@ -400,5 +402,175 @@ extension MenuBarQuotaSelectionTests {
         attachment.name = "Codex-three-gauges-default-hidden-names"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+}
+
+
+extension MenuBarQuotaSelectionTests {
+    func testSavingClaudeMenuBarSelectionsDoesNotAddAResetName() throws {
+        let current = try usage()
+        func display(_ selection: MenuBarQuotaSelection?) -> ProviderMenuBarDisplayConfig {
+            ProviderMenuBarDisplayConfig(
+                kind: .claude, showIcon: false, style: .batteryBar, percentageDisplay: .none,
+                showBatteryPercent: true, resetTimeDisplay: .fiveHour, timeFormat: .h24,
+                circularDisplayMode: .remaining, iconMetric: .fiveHour, quotaSelection: selection)
+        }
+        let oldConfig = display(nil)
+        let selected = MenuBarQuotaSelection.legacy(config: oldConfig, limits: UsageLimitCatalog.claude(current))
+        func snapshot(_ config: ProviderMenuBarDisplayConfig) -> MenuBarProviderSnapshot {
+            MenuBarStatusComposer.claudeSnapshot(
+                config: config, usage: current, error: nil, hasAuthError: false, hasCredential: true,
+                secondaryColor: .secondaryLabelColor, icon: nil, renderImages: false)
+        }
+        let old = snapshot(oldConfig)
+        let saved = snapshot(display(selected))
+        XCTAssertEqual(saved.resetText, old.resetText)
+        XCTAssertEqual(saved.text, old.text)
+        XCTAssertFalse(saved.resetText?.contains("5시간") == true)
+    }
+}
+
+extension MenuBarQuotaSelectionTests {
+    func testSavingQuotaIDsPreservesPlainTextAcrossProvidersAndTimeFormats() throws {
+        let claude = try usage()
+        let codex = try JSONDecoder().decode(
+            CodexUsageResponse.self,
+            from: Data(
+                #"{"rate_limit":{"primary_window":{"used_percent":8,"limit_window_seconds":18000,"reset_at":1893459600},"secondary_window":{"used_percent":20,"limit_window_seconds":604800,"reset_at":1893643200}}}"#
+                    .utf8))
+        for provider in [AppProviderKind.claude, .codex] {
+            let limits = provider == .claude ? UsageLimitCatalog.claude(claude) : UsageLimitCatalog.codex(codex)
+            for basis in [UsageValueBasis.used, .remaining] {
+                for percentage in PercentageDisplay.allCases {
+                    for reset in ResetTimeDisplay.allCases {
+                        for time in TimeFormatStyle.allCases {
+                            func display(_ selected: MenuBarQuotaSelection?) -> ProviderMenuBarDisplayConfig {
+                                ProviderMenuBarDisplayConfig(
+                                    kind: provider, showIcon: false, style: .batteryBar,
+                                    percentageDisplay: percentage, showBatteryPercent: true,
+                                    resetTimeDisplay: reset, timeFormat: time, circularDisplayMode: .usage,
+                                    iconMetric: .fiveHour, basisOverride: basis, quotaSelection: selected)
+                            }
+                            func snapshot(_ config: ProviderMenuBarDisplayConfig) -> MenuBarProviderSnapshot {
+                                if provider == .claude {
+                                    return MenuBarStatusComposer.claudeSnapshot(
+                                        config: config, usage: claude, error: nil, hasAuthError: false,
+                                        hasCredential: true, secondaryColor: .secondaryLabelColor, icon: nil,
+                                        renderImages: false)
+                                }
+                                return MenuBarStatusComposer.codexSnapshot(
+                                    config: config, usage: codex, error: nil, hasAuthError: false,
+                                    isAuthenticated: true, secondaryColor: .secondaryLabelColor, icon: nil,
+                                    renderImages: false)
+                            }
+                            let oldConfig = display(nil)
+                            let selected = MenuBarQuotaSelection.legacy(
+                                config: oldConfig, limits: limits, codexUsage: provider == .codex ? codex : nil)
+                            let old = snapshot(oldConfig)
+                            let saved = snapshot(display(selected))
+                            XCTAssertEqual(saved.text, old.text, "\(provider) / \(percentage) / \(reset) / \(time)")
+                            XCTAssertEqual(saved.resetText, old.resetText)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func testUnknownCodexWeeklyPeriodPreservesItsExistingResetFormat() throws {
+        let usage = try JSONDecoder().decode(
+            CodexUsageResponse.self,
+            from: Data(
+                #"{"rate_limit":{"primary_window":{"used_percent":8,"reset_at":1893459600},"secondary_window":{"used_percent":20,"reset_at":1893643200}}}"#
+                    .utf8))
+        let limits = UsageLimitCatalog.codex(usage)
+        let weekly = try XCTUnwrap(usage.weeklyWindow)
+        for format in TimeFormatStyle.allCases {
+            let config = ProviderMenuBarDisplayConfig(
+                kind: .codex, showIcon: false, style: .none, percentageDisplay: .none,
+                showBatteryPercent: false, resetTimeDisplay: .weekly, timeFormat: format,
+                circularDisplayMode: .usage, iconMetric: .fiveHour)
+            let projection = MenuBarQuotaProjection(config: config, limits: limits, codexUsage: usage)
+            XCTAssertEqual(
+                projection.resetText,
+                TimeFormatter.formatResetTimeWeekly(
+                    from: try XCTUnwrap(weekly.resetAtISO), style: format, includeDateIfNotToday: false))
+        }
+    }
+
+    func testMenuBarPreviewShowsGaugeAndTimeWithoutTheQuotaPrefix() throws {
+        let reset = ISO8601DateFormatter().string(from: Date().addingTimeInterval(3900))
+        let usage = ClaudeUsageResponse(fiveHour: .init(utilization: 5, resetsAt: reset), sevenDay: nil)
+        let limits = UsageLimitCatalog.claude(usage)
+        let config = ProviderMenuBarDisplayConfig(
+            kind: .claude, showIcon: false, style: .batteryBar, percentageDisplay: .none,
+            showBatteryPercent: true, resetTimeDisplay: .fiveHour, timeFormat: .remaining,
+            circularDisplayMode: .remaining, iconMetric: .fiveHour,
+            quotaSelection: MenuBarQuotaSelection.legacy(config: self.config(nil), limits: limits))
+        var selection = try XCTUnwrap(config.quotaSelection)
+        selection.percentageIDs = []
+        let selectedConfig = ProviderMenuBarDisplayConfig(
+            kind: .claude, showIcon: false, style: .batteryBar, percentageDisplay: .none,
+            showBatteryPercent: true, resetTimeDisplay: .fiveHour, timeFormat: .remaining,
+            circularDisplayMode: .remaining, iconMetric: .fiveHour, quotaSelection: selection)
+        let snapshot = MenuBarStatusComposer.claudeSnapshot(
+            config: selectedConfig, usage: usage, error: nil, hasAuthError: false, hasCredential: true,
+            secondaryColor: .secondaryLabelColor, icon: nil)
+        XCTAssertTrue(snapshot.text.isEmpty)
+        XCTAssertTrue(try XCTUnwrap(snapshot.resetText).hasPrefix("1h "))
+        XCTAssertFalse(snapshot.resetText?.contains("5시간") == true)
+        XCTAssertTrue(snapshot.tooltip.contains("5시간"))
+        let attachment = XCTAttachment(
+            image: MenuBarStatusComposer.singleProviderContent(
+                snapshot: snapshot, secondaryColor: .secondaryLabelColor,
+                appearance: try XCTUnwrap(NSAppearance(named: .darkAqua))
+            ).image)
+        attachment.name = "Claude-95-gauge-time-without-quota-prefix"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+}
+
+extension MenuBarQuotaSelectionTests {
+    func testCodexLegacyMissingPrimaryResetFallsBackWithoutChangingExplicitQuotaIDs() throws {
+        let usage = try JSONDecoder().decode(
+            CodexUsageResponse.self,
+            from: Data(
+                #"{"rate_limit":{"primary_window":{"used_percent":8,"limit_window_seconds":18000},"secondary_window":{"used_percent":20,"limit_window_seconds":604800,"reset_at":1893643200}}}"#
+                    .utf8))
+        let limits = UsageLimitCatalog.codex(usage)
+        let primary = try XCTUnwrap(limits.first { $0.windowSlot == "primary" })
+        let weekly = try XCTUnwrap(limits.first { $0.windowSlot == "secondary" })
+        func display(_ selection: MenuBarQuotaSelection?) -> ProviderMenuBarDisplayConfig {
+            ProviderMenuBarDisplayConfig(
+                kind: .codex, showIcon: false, style: .none, percentageDisplay: .fiveHour,
+                showBatteryPercent: false, resetTimeDisplay: .fiveHour, timeFormat: .h24,
+                circularDisplayMode: .usage, iconMetric: .fiveHour, quotaSelection: selection)
+        }
+        func snapshot(_ config: ProviderMenuBarDisplayConfig) -> MenuBarProviderSnapshot {
+            MenuBarStatusComposer.codexSnapshot(
+                config: config, usage: usage, error: nil, hasAuthError: false, isAuthenticated: true,
+                secondaryColor: .secondaryLabelColor, icon: nil, renderImages: false)
+        }
+        let legacy = display(nil)
+        let resolved = MenuBarQuotaSelection.legacy(config: legacy, limits: limits, codexUsage: usage)
+        XCTAssertEqual(resolved.percentageIDs, [primary.id])
+        XCTAssertEqual(resolved.resetIDs, [weekly.id])
+        let expected = TimeFormatter.formatResetTimeWeekly(
+            from: try XCTUnwrap(usage.weeklyWindow?.resetAtISO), style: .h24, includeDateIfNotToday: false)
+        XCTAssertEqual(snapshot(legacy).resetText, expected)
+        XCTAssertEqual(snapshot(display(resolved)).resetText, expected)
+        XCTAssertNil(snapshot(display(MenuBarQuotaSelection(resetIDs: [primary.id]))).resetText)
+        let withoutTimes = try JSONDecoder().decode(
+            CodexUsageResponse.self,
+            from: Data(
+                #"{"rate_limit":{"primary_window":{"used_percent":8,"limit_window_seconds":18000},"secondary_window":{"used_percent":20,"limit_window_seconds":604800}}}"#
+                    .utf8))
+        let unavailableLimits = UsageLimitCatalog.codex(withoutTimes)
+        let noTimeSelection = MenuBarQuotaSelection.legacy(
+            config: legacy, limits: unavailableLimits, codexUsage: withoutTimes)
+        XCTAssertEqual(noTimeSelection.resetIDs, [primary.id])
+        XCTAssertNil(
+            MenuBarQuotaProjection(config: legacy, limits: unavailableLimits, codexUsage: withoutTimes).resetText)
     }
 }
