@@ -370,6 +370,8 @@ extension SettingsView {
                 Divider()
                 providerMenuBarDisplaySection(for: provider)
                     .id(SettingsSection.menuBar)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("settings-section-menuBar")
                 Divider()
                 providerLimitsSection(for: provider)
                     .id(SettingsSection.limits)

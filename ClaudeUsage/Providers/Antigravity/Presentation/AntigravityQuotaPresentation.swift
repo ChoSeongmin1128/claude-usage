@@ -204,6 +204,7 @@ nonisolated struct AntigravityMenuBarQuotaPresentation:
     let condensedText: String?
     let gaugePercentage: Double?
     var gauges: [AntigravityMenuBarGaugePresentation]? = nil
+    var showsGaugeLabels = false
     let showsGaugePercentage: Bool
     let tooltip: String
     let tone: AntigravityQuotaRiskTone

@@ -136,6 +136,7 @@ nonisolated struct AntigravityDisplaySettings: Codable, Equatable, Sendable {
         var resetLaneIDs: [AntigravityQuotaLaneID]? = nil
         var gaugeLaneIDs: [AntigravityQuotaLaneID]? = nil
         var gaugeTitles: [String: String]? = nil
+        var showsGaugeLabels: Bool? = nil
         var showsSelectedLanePercentage: Bool
         var showsSelectedLaneResetTime: Bool
         var timeFormat: TimeFormat

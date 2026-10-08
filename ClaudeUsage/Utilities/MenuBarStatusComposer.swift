@@ -436,6 +436,7 @@ enum MenuBarStatusComposer {
                     ? "gauge.percent"
                     : "gauge.no-percent",
                 String(describing: presentation.tone),
+                presentation.showsGaugeLabels ? "gauge.labels" : "gauge.no-labels",
             ]
                 + (presentation.gauges ?? []).map {
                     $0.value.id + ":" + $0.value.title + ":" + String(describing: $0.tone)
@@ -480,7 +481,8 @@ enum MenuBarStatusComposer {
                             shape: presentation.style == .none
                                 ? .none
                                 : presentation.style == .circular ? .circular : .batteryBar,
-                            layout: .horizontal, showPercent: presentation.showsGaugePercentage, design: design)
+                            layout: .horizontal, showPercent: presentation.showsGaugePercentage, design: design,
+                            showLabels: presentation.showsGaugeLabels)
                     }
                     return antigravityStyleIcon(
                         presentation: presentation, color: color, design: design,
@@ -748,6 +750,7 @@ enum MenuBarStatusComposer {
             config.gaugeSelection == nil ? "legacy-gauge" : "selected-gauge",
             config.gaugeSelection?.ids?.joined(separator: ",") ?? "legacy.ids",
             config.gaugeSelection?.layout.rawValue ?? "legacy.layout",
+            config.gaugeSelection?.showsLabels == true ? "gauge.labels" : "gauge.no-labels",
             config.gaugeSelection?.titles.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(
                 separator: ",") ?? "",
         ]
@@ -1015,7 +1018,8 @@ enum MenuBarStatusComposer {
             }
             return MenuBarIconRenderer.gaugeListIcon(
                 gauges, shape: config.style, layout: layout,
-                showPercent: config.showBatteryPercent, design: config.design)
+                showPercent: config.showBatteryPercent, design: config.design,
+                showLabels: config.gaugeSelection?.showsLabels == true)
         }
         if projection.selection.gaugeIDs.count == 1,
             config.style == .dualBattery || config.style == .sideBySideBattery || config.style == .concentricRings

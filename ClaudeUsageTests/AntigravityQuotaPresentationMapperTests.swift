@@ -44,6 +44,38 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
         XCTAssertNil(MenuBarStatusComposer.antigravitySnapshot(presentation: empty.menuBar, icon: nil)?.styleIcon)
     }
 
+    @MainActor
+    func testAntigravityGaugeNamesAreOptInAndPreferenceChangesInvalidateRendering() throws {
+        var settings = AntigravityDisplaySettings.default
+        settings.menuBar.style = .batteryBar
+        settings.menuBar.gaugeLaneIDs = [.geminiFiveHour, .geminiWeekly, .thirdPartyWeekly]
+        let encoded = try JSONEncoder().encode(settings)
+        let oldSettings = try JSONDecoder().decode(AntigravityDisplaySettings.self, from: encoded)
+        XCTAssertNil(oldSettings.menuBar.showsGaugeLabels)
+        let source = makeSnapshot(
+            lanes: [
+                makeLane(
+                    id: AntigravityQuotaLaneID.geminiFiveHour.rawValue, scope: .gemini,
+                    cadence: .fiveHour, remaining: 0.9)
+            ], fetchedAt: now)
+        let hidden = AntigravityQuotaPresentationMapper.map(snapshot: source, settings: oldSettings, now: now)
+        XCTAssertFalse(hidden.menuBar.showsGaugeLabels)
+        settings.menuBar.showsGaugeLabels = true
+        let reloaded = try JSONDecoder().decode(AntigravityDisplaySettings.self, from: JSONEncoder().encode(settings))
+        XCTAssertTrue(reloaded.isCurrentAndValid)
+        XCTAssertEqual(reloaded.menuBar.showsGaugeLabels, true)
+        let shown = AntigravityQuotaPresentationMapper.map(snapshot: source, settings: reloaded, now: now)
+        XCTAssertEqual(shown.menuBar.gauges, hidden.menuBar.gauges)
+        XCTAssertEqual(shown.menuBar.accessibilityValue, hidden.menuBar.accessibilityValue)
+        let snapshots = try [hidden, shown].map {
+            try XCTUnwrap(MenuBarStatusComposer.antigravitySnapshot(presentation: $0.menuBar, icon: nil))
+        }
+        XCTAssertNotEqual(snapshots[0].renderKey, snapshots[1].renderKey)
+        XCTAssertGreaterThan(
+            try XCTUnwrap(snapshots[1].styleIcon).size.width,
+            try XCTUnwrap(snapshots[0].styleIcon).size.width)
+    }
+
     func testExplicitGaugeListKeepsOrderMissingSlotsAndAccountIndependentValues() throws {
         let ids: [AntigravityQuotaLaneID] = [.geminiFiveHour, .thirdPartyWeekly, .geminiWeekly]
         var settings = AntigravityDisplaySettings.default

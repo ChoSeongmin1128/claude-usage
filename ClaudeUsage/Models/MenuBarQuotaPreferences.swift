@@ -112,6 +112,7 @@ nonisolated struct MenuBarGaugeSelection: Codable, Equatable, Sendable {
     var ids: [String]? = nil
     var titles: [String: String] = [:]
     var layout: MenuBarGaugeLayout = .horizontal
+    var showsLabels: Bool? = nil
 
     mutating func move(_ id: String, by offset: Int) {
         guard var ids, let source = ids.firstIndex(of: id), ids.indices.contains(source + offset) else { return }

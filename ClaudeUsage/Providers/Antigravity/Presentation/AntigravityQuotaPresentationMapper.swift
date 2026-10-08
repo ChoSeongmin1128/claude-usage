@@ -598,6 +598,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             gaugePercentage: settings.menuBar.gaugeLaneIDs == nil
                 ? selectedLane.flatMap { menuBarGaugePercentage($0, settings: settings.menuBar) } : nil,
             gauges: gauges,
+            showsGaugeLabels: settings.menuBar.showsGaugeLabels == true,
             showsGaugePercentage:
                 settings.menuBar.showsGaugePercentage,
             tooltip: tooltip,

@@ -3,7 +3,7 @@ import SwiftUI
 extension SettingsView {
     func providerLimitsSection(for provider: AppProviderKind) -> some View {
         VStack(alignment: .leading, spacing: AppDesign.Space.content) {
-            Text("한도와 알림").font(AppDesign.Typography.headline)
+            Text("알림").font(AppDesign.Typography.headline)
             settingsToggleRow("\(provider.displayName) 알림 받기", isOn: serviceAlertBinding(provider))
                 .disabled(
                     !settings.notificationsEnabled
@@ -20,55 +20,93 @@ extension SettingsView {
             }
             Grid(alignment: .leading, horizontalSpacing: AppDesign.Space.content, verticalSpacing: AppDesign.Space.row)
             {
-                GridRow {
-                    Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                    ForEach(["메뉴바 숫자", "초기화 시간", "게이지", "알림"], id: \.self) { title in
-                        Text(title)
-                            .font(AppDesign.Typography.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .gridColumnAlignment(.center)
+                ForEach(providerLimitRows(for: provider).filter { $0.takesNotification || $0.notificationLimit != nil })
+                {
+                    row in
+                    GridRow {
+                        Text(row.title).lineLimit(1)
+                        notificationCell(row, provider: provider)
                     }
                 }
-                ForEach(limitRows(for: provider)) { row in limitsRow(row, provider: provider) }
             }
             .font(AppDesign.Typography.subheadline)
             .controlSize(.small)
-            gaugeOrderControls(provider)
-                .controlSize(.small)
         }
     }
 
-    private func limitsRow(_ row: LimitSettingsRow, provider: AppProviderKind) -> some View {
-        GridRow {
-            Text(row.title)
-                .padding(.leading, row.isChild ? 18 : 0)
-                .foregroundStyle(row.isChild ? .secondary : .primary)
-                .lineLimit(1)
-            if row.controlsResetCreditMenuBar {
-                Picker(
-                    "메뉴바에 초기화권 표시",
-                    selection: Binding(
-                        get: { settings.resetCreditMenuBarMode(for: provider) },
-                        set: { settings.setResetCreditMenuBarMode($0, for: provider) })
-                ) {
-                    ForEach(ResetCreditMenuBarMode.allCases, id: \.self) { Text($0.title).tag($0) }
-                }
-                .labelsHidden()
-                .fixedSize()
-                .help("메뉴바에 초기화권 개수(↺)를 표시할 때")
-                .gridColumnAlignment(.center)
-            } else {
-                limitsCell(quotaNumberBinding(row, provider: provider), help: "메뉴바에 숫자로 표시", row: row.title)
-                    .disabled(quotaCellUnavailable(row, provider: provider, surface: .percentage))
-            }
-            limitsCell(menuBarResetBinding(row, provider: provider), help: "메뉴바에 초기화 시간 표시", row: row.title)
-                .disabled(quotaCellUnavailable(row, provider: provider, surface: .reset))
-            limitsCell(quotaGaugeBinding(row, provider: provider), help: "메뉴바에 게이지로 표시", row: row.title)
-                .disabled(
-                    quotaCellUnavailable(row, provider: provider, surface: .gauge)
-                        || (provider == .antigravity && antigravitySettings.state.activity.isBusy))
-            notificationCell(row, provider: provider)
+    func menuBarTextDisplayControls(for provider: AppProviderKind) -> some View {
+        let rows = providerLimitRows(for: provider)
+        let textRows = rows.filter {
+            !$0.controlsResetCreditMenuBar
+                && (quotaNumberBinding($0, provider: provider) != nil
+                    || menuBarResetBinding($0, provider: provider) != nil)
         }
+        let numbers = textRows.filter { quotaNumberBinding($0, provider: provider)?.wrappedValue == true }.map(\.title)
+        let times = textRows.filter { menuBarResetBinding($0, provider: provider)?.wrappedValue == true }.map(\.title)
+        return VStack(alignment: .leading, spacing: AppDesign.Space.row) {
+            DisclosureGroup(
+                isExpanded: Binding(
+                    get: { expandedMenuBarTextProviders.contains(provider) },
+                    set: { expanded in
+                        if expanded {
+                            expandedMenuBarTextProviders.insert(provider)
+                        } else {
+                            expandedMenuBarTextProviders.remove(provider)
+                        }
+                    })
+            ) {
+                Grid(
+                    alignment: .leading, horizontalSpacing: AppDesign.Space.content,
+                    verticalSpacing: AppDesign.Space.row
+                ) {
+                    GridRow {
+                        Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                        ForEach(["숫자", "초기화 시간"], id: \.self) { title in
+                            Text(title).font(AppDesign.Typography.caption.weight(.semibold))
+                                .foregroundStyle(.secondary).gridColumnAlignment(.center)
+                        }
+                    }
+                    ForEach(textRows) { row in
+                        GridRow {
+                            Text(row.title).lineLimit(1)
+                            limitsCell(quotaNumberBinding(row, provider: provider), help: "메뉴바에 숫자로 표시", row: row.title)
+                                .disabled(quotaCellUnavailable(row, provider: provider, surface: .percentage))
+                            limitsCell(
+                                menuBarResetBinding(row, provider: provider), help: "메뉴바에 초기화 시간 표시", row: row.title
+                            )
+                            .disabled(quotaCellUnavailable(row, provider: provider, surface: .reset))
+                        }
+                    }
+                }
+                .padding(.top, AppDesign.Space.row)
+            } label: {
+                VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
+                    Text("숫자와 초기화 시간")
+                    Text(
+                        "숫자: \(numbers.isEmpty ? "끔" : numbers.joined(separator: ", ")) / 시간: \(times.isEmpty ? "끔" : times.joined(separator: ", "))"
+                    )
+                    .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+                }
+            }
+            if let row = rows.first(where: \.controlsResetCreditMenuBar) {
+                HStack(spacing: AppDesign.Space.content) {
+                    Text(row.title)
+                    Picker(
+                        "메뉴바에 초기화권 표시",
+                        selection: Binding(
+                            get: { settings.resetCreditMenuBarMode(for: provider) },
+                            set: { settings.setResetCreditMenuBarMode($0, for: provider) })
+                    ) {
+                        ForEach(ResetCreditMenuBarMode.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
+                    .labelsHidden().fixedSize()
+                    .help("메뉴바에 초기화권 개수(↺)를 표시할 때")
+                }
+            }
+        }
+        .font(AppDesign.Typography.subheadline)
+        .controlSize(.small)
+        .disabled(provider == .antigravity && antigravitySettings.state.activity.isBusy)
     }
 
     @ViewBuilder
@@ -109,7 +147,7 @@ extension SettingsView {
         }
     }
 
-    private func limitRows(for provider: AppProviderKind) -> [LimitSettingsRow] {
+    func providerLimitRows(for provider: AppProviderKind) -> [LimitSettingsRow] {
         let _ = runtimeEnvironmentRefreshTick
         if provider == .antigravity {
             let selected =

@@ -226,21 +226,80 @@ extension MenuBarQuotaSelectionTests {
         XCTAssertNil(try JSONDecoder().decode(MenuBarQuotaPreferences.self, from: legacyData).gauges)
     }
 
+    func testLegacyGaugeListDefaultsToHiddenNamesAndEnablingNamesUpdatesRenderKey() throws {
+        let oldJSON = Data(
+            #"{"ids":["five_hour","seven_day","model/fable"],"titles":{"model/fable":"Fable"},"layout":"horizontal"}"#
+                .utf8)
+        let old = try JSONDecoder().decode(MenuBarGaugeSelection.self, from: oldJSON)
+        XCTAssertNil(old.showsLabels)
+        XCTAssertEqual(old.ids, ["five_hour", "seven_day", "model/fable"])
+        let currentUsage = try usage()
+        let ids = UsageLimitCatalog.claude(currentUsage).map(\.id)
+        var selection = MenuBarGaugeSelection(ids: ids)
+        let hidden = MenuBarStatusComposer.claudeSnapshot(
+            config: config(nil, gauges: selection), usage: currentUsage, error: nil, hasAuthError: false,
+            hasCredential: true, secondaryColor: .secondaryLabelColor, icon: nil)
+        selection.showsLabels = true
+        let shown = MenuBarStatusComposer.claudeSnapshot(
+            config: config(nil, gauges: selection), usage: currentUsage, error: nil, hasAuthError: false,
+            hasCredential: true, secondaryColor: .secondaryLabelColor, icon: nil)
+        XCTAssertNotEqual(hidden.renderKey, shown.renderKey)
+        XCTAssertGreaterThan(try XCTUnwrap(shown.styleIcon).size.width, try XCTUnwrap(hidden.styleIcon).size.width)
+        XCTAssertEqual(hidden.text, shown.text)
+        XCTAssertEqual(hidden.resetText, shown.resetText)
+        XCTAssertEqual(hidden.tooltip, shown.tooltip)
+    }
+
+    func testThreeGaugesHaveNoVisibleNamesUntilEnabledForBothShapesAndAppearances() throws {
+        let values = ["5시간", "주간", "Fable"].enumerated().map { index, title in
+            MenuBarIconRenderer.Gauge(
+                value: MenuBarGaugeValue(id: title, title: title, usedPercentage: Double(index * 20), basis: .used),
+                color: .systemGreen)
+        }
+        for name in [NSAppearance.Name.aqua, .darkAqua] {
+            let appearance = try XCTUnwrap(NSAppearance(named: name))
+            appearance.performAsCurrentDrawingAppearance {
+                for shape in [MenuBarStyle.batteryBar, .circular] {
+                    let single = MenuBarIconRenderer.gaugeListIcon(
+                        [values[0]], shape: shape, layout: .horizontal, showPercent: true, design: .modern)
+                    let hidden = MenuBarIconRenderer.gaugeListIcon(
+                        values, shape: shape, layout: .horizontal, showPercent: true, design: .modern)
+                    let shown = MenuBarIconRenderer.gaugeListIcon(
+                        values, shape: shape, layout: .horizontal, showPercent: true, design: .modern,
+                        showLabels: true)
+                    XCTAssertEqual(hidden?.size.width, (single?.size.width ?? 0) * 3 + BatteryGeometry.gap * 2)
+                    XCTAssertGreaterThan(shown?.size.width ?? 0, hidden?.size.width ?? 0)
+                    XCTAssertEqual(hidden?.size.height, shown?.size.height)
+                    for (label, image) in [("hidden", hidden), ("shown", shown)] {
+                        if let image {
+                            let attachment = XCTAttachment(image: image)
+                            attachment.name = "three-gauges-\(label)-\(shape)-\(name.rawValue)"
+                            attachment.lifetime = .keepAlways
+                            add(attachment)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     func testGaugeOnlyStorageSurvivesReloadSnapshotAndResetWithoutCreatingTextSelection() throws {
         let suite = "MenuBarQuotaSelectionTests.gauge-only.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let settings = AppSettings(defaults: defaults)
         let ids = UsageLimitCatalog.claude(try usage()).map(\.id)
-        settings.setMenuBarGaugeSelection(MenuBarGaugeSelection(ids: ids), for: .claude)
+        settings.setMenuBarGaugeSelection(MenuBarGaugeSelection(ids: ids, showsLabels: true), for: .claude)
         XCTAssertNil(settings.menuBarDisplayConfig(for: .claude)?.quotaSelection)
         let reloaded = AppSettings(defaults: defaults)
         XCTAssertEqual(reloaded.menuBarDisplayConfig(for: .claude)?.gaugeSelection?.ids, ids)
+        XCTAssertEqual(reloaded.menuBarDisplayConfig(for: .claude)?.gaugeSelection?.showsLabels, true)
         let snapshot = settings.createSnapshot()
         settings.applyMenuBarDisplayPreset(.basic, for: .claude)
         XCTAssertNil(settings.menuBarDisplayConfig(for: .claude)?.gaugeSelection)
         settings.restore(from: snapshot)
         XCTAssertEqual(settings.menuBarDisplayConfig(for: .claude)?.gaugeSelection?.ids, ids)
+        XCTAssertEqual(settings.menuBarDisplayConfig(for: .claude)?.gaugeSelection?.showsLabels, true)
         settings.resetToDefaults()
         XCTAssertNil(AppSettings(defaults: defaults).menuBarDisplayConfig(for: .claude)?.gaugeSelection)
     }
@@ -338,7 +397,7 @@ extension MenuBarQuotaSelectionTests {
                 snapshot: snapshot, secondaryColor: .secondaryLabelColor,
                 appearance: try XCTUnwrap(NSAppearance(named: .aqua))
             ).image)
-        attachment.name = "Codex-three-labeled-gauges"
+        attachment.name = "Codex-three-gauges-default-hidden-names"
         attachment.lifetime = .keepAlways
         add(attachment)
     }

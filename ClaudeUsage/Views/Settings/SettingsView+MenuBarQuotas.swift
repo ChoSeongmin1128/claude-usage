@@ -92,7 +92,8 @@ extension SettingsView {
                     saveGaugeSelection(
                         MenuBarGaugeSelection(
                             ids: selection.gaugeIDs, titles: selection.titles,
-                            layout: gaugeSelection(provider).layout), provider: provider)
+                            layout: gaugeSelection(provider).layout,
+                            showsLabels: gaugeSelection(provider).showsLabels), provider: provider)
                 } else {
                     settings.setMenuBarQuotaSelection(selection, for: provider)
                 }
@@ -136,7 +137,8 @@ extension SettingsView {
             var gauges = MenuBarGaugeSelection(
                 ids: selection.gaugeIDs, titles: selection.titles,
                 layout: settings.menuBarDisplayConfig(for: provider)?.gaugeSelection?.layout
-                    ?? .legacy(settings.menuBarDisplayConfig(for: provider)?.style ?? .none))
+                    ?? .legacy(settings.menuBarDisplayConfig(for: provider)?.style ?? .none),
+                showsLabels: settings.menuBarDisplayConfig(for: provider)?.gaugeSelection?.showsLabels)
             for limit in providerUsageLimits(provider) where selection.gaugeIDs.contains(limit.id) {
                 gauges.titles[limit.id] = limit.shortTitle
             }
@@ -155,11 +157,11 @@ extension SettingsView {
         for lane in antigravityObservedLanes { titles[lane.id.rawValue] = lane.menuLabel }
         return MenuBarGaugeSelection(
             ids: (display.menuBar.style == .none ? [] : display.menuBar.gaugeLaneIDs ?? fallback).map(\.rawValue),
-            titles: titles)
+            titles: titles, showsLabels: display.menuBar.showsGaugeLabels)
     }
 
     func quotaGaugeBinding(_ row: LimitSettingsRow, provider: AppProviderKind) -> Binding<Bool>? {
-        guard let id = row.laneID ?? row.quotaID else { return nil }
+        guard let id = row.gaugeID else { return nil }
         if provider != .antigravity { return quotaBinding(id, provider: provider, surface: .gauge) }
         return Binding(
             get: { gaugeSelection(provider).ids?.contains(id) == true },
@@ -190,6 +192,7 @@ extension SettingsView {
             updateAntigravityDisplay {
                 $0.menuBar.gaugeLaneIDs = ids.map(AntigravityQuotaLaneID.init(rawValue:))
                 $0.menuBar.gaugeTitles = selection.titles.filter { ids.contains($0.key) }
+                $0.menuBar.showsGaugeLabels = selection.showsLabels
                 if !ids.isEmpty && $0.menuBar.style == .none { $0.menuBar.style = .batteryBar }
             }
         } else {
@@ -228,59 +231,105 @@ extension SettingsView {
             })
     }
 
-    func gaugeOrderControls(_ provider: AppProviderKind) -> some View {
+    func orderedMenuBarGaugeRows(for provider: AppProviderKind) -> [LimitSettingsRow] {
+        let rows = providerLimitRows(for: provider).filter { $0.gaugeID != nil }
+        let ids = gaugeSelection(provider).ids ?? []
+        let selected = Set(ids)
+        return ids.compactMap { id in rows.first { $0.gaugeID == id } }
+            + rows.filter { !selected.contains($0.gaugeID ?? "") }
+    }
+
+    func moveMenuBarGauge(_ id: String, by offset: Int, for provider: AppProviderKind) {
+        var next = gaugeSelection(provider)
+        next.move(id, by: offset)
+        saveGaugeSelection(next, provider: provider)
+    }
+
+    func gaugeSelectionControls(_ provider: AppProviderKind) -> some View {
         let selection = gaugeSelection(provider)
         let ids = selection.ids ?? []
+        let rows = orderedMenuBarGaugeRows(for: provider)
         return VStack(alignment: .leading, spacing: AppDesign.Space.row) {
-            if !ids.isEmpty {
-                Text("게이지 순서").font(AppDesign.Typography.caption).foregroundStyle(.secondary)
-                ForEach(Array(ids.enumerated()), id: \.element) { index, id in
-                    HStack {
-                        Text(selection.titles[id] ?? "선택한 한도").lineLimit(1)
-                        Spacer()
-                        Button {
-                            var next = gaugeSelection(provider)
-                            next.move(id, by: -1)
-                            saveGaugeSelection(next, provider: provider)
-                        } label: {
-                            Image(systemName: "chevron.up")
-                        }
-                        .disabled(index == 0)
-                        .accessibilityLabel("\(selection.titles[id] ?? "한도") 앞으로 이동")
-                        Button {
-                            var next = gaugeSelection(provider)
-                            next.move(id, by: 1)
-                            saveGaugeSelection(next, provider: provider)
-                        } label: {
-                            Image(systemName: "chevron.down")
-                        }
-                        .disabled(index == ids.count - 1)
-                        .accessibilityLabel("\(selection.titles[id] ?? "한도") 뒤로 이동")
+            Text("게이지에 표시할 한도").font(AppDesign.Typography.subheadline.weight(.semibold))
+            Text("체크해 추가하고 화살표로 순서를 바꿉니다.")
+                .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+            if rows.isEmpty {
+                Text("사용량이 확인되면 한도를 고를 수 있습니다.")
+                    .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+                Button("계정 확인") {
+                    navigate(to: SettingsDestination(panel: .service(provider), section: .connection))
+                }
+                .buttonStyle(.link)
+            } else {
+                VStack(alignment: .leading, spacing: AppDesign.Space.row) {
+                    ForEach(rows) { row in
+                        gaugeChoiceRow(row, provider: provider, selectedIDs: ids)
                     }
                 }
-                if provider != .antigravity, ids.count == 2 {
-                    Toggle(
-                        "두 게이지 겹쳐 보기",
-                        isOn: Binding(
-                            get: { gaugeSelection(provider).layout != .horizontal },
-                            set: { overlapped in
-                                var next = gaugeSelection(provider)
-                                let shape =
-                                    settings.menuBarDisplayConfig(for: provider)?.style.gaugeShape ?? .batteryBar
-                                next.layout =
-                                    overlapped ? (shape == .circular ? .concentric : .stacked) : .horizontal
-                                saveGaugeSelection(next, provider: provider)
-                            })
-                    )
-                    .toggleStyle(.checkbox)
-                }
-                if ids.count >= 3 {
-                    Text("이름을 붙여 가로로 표시합니다. 많이 선택하면 다른 메뉴바 항목이 가려질 수 있습니다.")
-                        .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
-                }
+                .padding(AppDesign.Space.row)
+                .background(AppDesign.Surface.subtleGroup, in: RoundedRectangle(cornerRadius: AppDesign.Radius.control))
+            }
+            if provider != .antigravity, ids.count == 2 {
+                Toggle(
+                    "두 게이지 겹쳐 보기",
+                    isOn: Binding(
+                        get: { gaugeSelection(provider).layout != .horizontal },
+                        set: { overlapped in
+                            var next = gaugeSelection(provider)
+                            let shape = settings.menuBarDisplayConfig(for: provider)?.style.gaugeShape ?? .batteryBar
+                            next.layout = overlapped ? (shape == .circular ? .concentric : .stacked) : .horizontal
+                            saveGaugeSelection(next, provider: provider)
+                        })
+                )
+                .toggleStyle(.checkbox)
+            }
+            if ids.count >= 3 {
+                Toggle(
+                    "게이지 이름 표시",
+                    isOn: Binding(
+                        get: { gaugeSelection(provider).showsLabels == true },
+                        set: { show in
+                            var next = gaugeSelection(provider)
+                            next.showsLabels = show
+                            saveGaugeSelection(next, provider: provider)
+                        })
+                )
+                .toggleStyle(.checkbox)
             }
         }
         .buttonStyle(.borderless)
+        .font(AppDesign.Typography.subheadline)
+        .controlSize(.small)
         .disabled(provider == .antigravity && antigravitySettings.state.activity.isBusy)
+    }
+
+    @ViewBuilder
+    private func gaugeChoiceRow(_ row: LimitSettingsRow, provider: AppProviderKind, selectedIDs: [String]) -> some View
+    {
+        if let id = row.gaugeID, let binding = quotaGaugeBinding(row, provider: provider) {
+            let index = selectedIDs.firstIndex(of: id)
+            HStack(spacing: AppDesign.Space.row) {
+                Toggle((index.map { "\($0 + 1). " } ?? "") + row.title, isOn: binding)
+                    .toggleStyle(.checkbox)
+                    .disabled(quotaCellUnavailable(row, provider: provider, surface: .gauge))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if let index {
+                    Button {
+                        moveMenuBarGauge(id, by: -1, for: provider)
+                    } label: {
+                        Image(systemName: "chevron.up")
+                    }
+                    .disabled(index == 0)
+                    .accessibilityLabel("\(row.title) 앞으로 이동")
+                    Button {
+                        moveMenuBarGauge(id, by: 1, for: provider)
+                    } label: {
+                        Image(systemName: "chevron.down")
+                    }
+                    .disabled(index == selectedIDs.count - 1)
+                    .accessibilityLabel("\(row.title) 뒤로 이동")
+                }
+            }
+        }
     }
 }

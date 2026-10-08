@@ -4,7 +4,6 @@ nonisolated enum LimitMenuBarSlot: Sendable, Equatable {
     case fiveHour, weekly
 }
 
-/// 한도 표의 한 줄. 같은 한도의 메뉴바 숫자와 알림 설정을 한 줄에 모은다.
 nonisolated struct LimitSettingsRow: Identifiable, Equatable, Sendable {
     let id: String
     let title: String
@@ -16,6 +15,8 @@ nonisolated struct LimitSettingsRow: Identifiable, Equatable, Sendable {
     /// 조회 전이라 아직 알림 대상이 없지만 조회되면 생기는 줄
     var takesNotification = false
     var controlsResetCreditMenuBar = false
+
+    var gaugeID: String? { laneID ?? quotaID }
 }
 
 nonisolated enum LimitSettingsTable {

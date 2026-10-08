@@ -1001,8 +1001,8 @@ final class DesignSystemTests: XCTestCase {
         let storedCompact = settings.compactPopoverItems(for: .codex)
         let dependencies = await makeSettingsGalleryDependencies(defaults: defaults, settings: settings)
         defer { dependencies.antigravity.stopObserving() }
-        for section in [SettingsSection.limits, .popover] {
-            let size = section == .limits ? AppDesign.Window.settingsMinimum : AppDesign.Window.settingsIdeal
+        for section in [SettingsSection.menuBar, .limits, .popover] {
+            let size = section == .popover ? AppDesign.Window.settingsIdeal : AppDesign.Window.settingsMinimum
             let calls = dependencies.codex.calls
             let view = SettingsView(
                 claudeAPIService: dependencies.claude, antigravitySettings: dependencies.antigravity,
@@ -1161,7 +1161,7 @@ final class DesignSystemTests: XCTestCase {
         XCTAssertTrue(after.isCurrentAndValid)
     }
 
-    func testGaugeTableEnablesThirdModelWithoutChangingTextAndRendersMinimumSettingsWidth() async throws {
+    func testMenuBarEditorCombinesThirdModelChoiceOrderAndPreviewAtMinimumWidth() async throws {
         let suite = "DesignSystemTests.multiple-gauges.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -1169,7 +1169,7 @@ final class DesignSystemTests: XCTestCase {
         settings.welcomeState = .completed
         settings.motion.mode = .instant
         settings.setMenuBarStyle(.none, for: .claude)
-        let usage = ClaudeUsageResponse(
+        var usage = ClaudeUsageResponse(
             fiveHour: .init(utilization: 8, resetsAt: nil),
             sevenDay: .init(utilization: 20, resetsAt: nil),
             scopedLimits: [
@@ -1185,7 +1185,7 @@ final class DesignSystemTests: XCTestCase {
             claudeAccountStore: dependencies.accountStore, sessionKeyLoader: { _ in nil },
             codexAuthStatusReader: dependencies.codex.status,
             claudeOAuthMigrationCoordinator: dependencies.migration,
-            claudeLastUsage: { usage }, initialPanel: .claude, initialSection: .limits)
+            claudeLastUsage: { usage }, initialPanel: .claude, initialSection: .menuBar)
         let before = try XCTUnwrap(view.effectiveMenuBarSelection(.claude))
         XCTAssertEqual(settings.menuBarDisplayConfig(for: .claude)?.style, MenuBarStyle.none)
         let limits = UsageLimitCatalog.claude(usage)
@@ -1198,13 +1198,28 @@ final class DesignSystemTests: XCTestCase {
         XCTAssertEqual(selected.percentageIDs, before.percentageIDs)
         XCTAssertEqual(selected.resetIDs, before.resetIDs)
         XCTAssertEqual(settings.menuBarDisplayConfig(for: .claude)?.style, .batteryBar)
+        XCTAssertEqual(view.orderedMenuBarGaugeRows(for: .claude).compactMap(\.gaugeID), selected.gaugeIDs)
+        let model = try XCTUnwrap(limits.first(where: \.isModelScoped))
+        view.moveMenuBarGauge(model.id, by: -1, for: .claude)
+        let ordered = [limits[0].id, model.id, limits[1].id]
+        XCTAssertEqual(view.orderedMenuBarGaugeRows(for: .claude).compactMap(\.gaugeID), ordered)
+        let reordered = try XCTUnwrap(view.effectiveMenuBarSelection(.claude))
+        XCTAssertEqual(reordered.percentageIDs, before.percentageIDs)
+        XCTAssertEqual(reordered.resetIDs, before.resetIDs)
+        let fullUsage = usage
+        usage = ClaudeUsageResponse(fiveHour: fullUsage.fiveHour, sevenDay: fullUsage.sevenDay)
+        let missing = try XCTUnwrap(view.orderedMenuBarGaugeRows(for: .claude).first { $0.gaugeID == model.id })
+        XCTAssertTrue(missing.title.contains("데이터 없음"))
+        XCTAssertFalse(view.quotaCellUnavailable(missing, provider: .claude, surface: .gauge))
+        XCTAssertEqual(view.orderedMenuBarGaugeRows(for: .claude).compactMap(\.gaugeID), ordered)
+        usage = fullUsage
         let size = AppDesign.Window.settingsMinimum
         let image = try await renderSettingsNativeVerified(
             view.frame(width: size.width, height: size.height)
                 .background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(.dark),
             size: size, appearance: .darkAqua,
             ready: { dependencies.updates.engineStatus != nil && dependencies.reader.readCountSync > 0 })
-        attach(image, "Settings-three-gauges-minimum-width")
+        attach(image, "Menu-bar-editor-three-gauges-minimum-width")
         XCTAssertGreaterThan(dependencies.reader.readCountSync, 0)
         XCTAssertEqual(dependencies.updateEngine.checks, 0)
     }
@@ -1359,8 +1374,8 @@ final class DesignSystemTests: XCTestCase {
         for provider in AppProviderKind.allCases { settings.setProviderEnabled(true, for: provider) }
         let dependencies = await makeSettingsGalleryDependencies(defaults: defaults, settings: settings)
         for provider in AppProviderKind.allCases {
-            for section in [SettingsSection.limits, .popover] {
-                let size = section == .limits ? AppDesign.Window.settingsMinimum : AppDesign.Window.settingsIdeal
+            for section in [SettingsSection.menuBar, .limits, .popover] {
+                let size = section == .popover ? AppDesign.Window.settingsIdeal : AppDesign.Window.settingsMinimum
                 for scheme in [ColorScheme.light, .dark] {
                     let view = SettingsView(
                         claudeAPIService: dependencies.claude, antigravitySettings: dependencies.antigravity,

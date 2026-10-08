@@ -176,7 +176,7 @@ struct SettingsView: View {
     @State var codexAuthStatus: CodexAuthStatus = .checking
     @State var codexAuthCheckTask: Task<Void, Never>?
     @State var runtimeEnvironmentRefreshTick: Int = 0
-    @State var expandedCustomMenuBarProviders: Set<AppProviderKind> = []
+    @State var expandedMenuBarTextProviders: Set<AppProviderKind> = []
     @State var pendingDestructiveAction: SettingsDestructiveAction?
     @StateObject var antigravitySettings:
         AntigravitySettingsViewModel

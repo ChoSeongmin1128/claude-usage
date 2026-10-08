@@ -46,7 +46,7 @@ enum MenuBarIconRenderer {
 
     static func gaugeListIcon(
         _ gauges: [Gauge], shape: MenuBarStyle, layout: MenuBarGaugeLayout,
-        showPercent: Bool, design: MenuBarDesign
+        showPercent: Bool, design: MenuBarDesign, showLabels: Bool = false
     ) -> NSImage? {
         guard !gauges.isEmpty, shape != .none else { return nil }
         if gauges.count == 2, layout == .stacked, shape.isBatteryStyle {
@@ -104,7 +104,7 @@ enum MenuBarIconRenderer {
         ]
         let labels = gauges.map { $0.value.title as NSString }
         let labelSizes = labels.map { $0.size(withAttributes: attributes) }
-        let showsLabels = gauges.count >= 3
+        let showsLabels = showLabels && gauges.count >= 3
         let widths = images.indices.map {
             images[$0].size.width + (showsLabels ? labelSizes[$0].width + BatteryGeometry.gap : 0)
         }

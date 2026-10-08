@@ -30,56 +30,31 @@ extension SettingsView {
             antigravityMenuBarDisplaySection()
         } else if let displayConfig = settings.menuBarDisplayConfig(for: provider) {
             VStack(alignment: .leading, spacing: AppDesign.Space.content) {
-                Text("메뉴바 표시")
-                    .font(AppDesign.Typography.subheadline.weight(.semibold))
-
-                Picker("표시 방식", selection: menuBarPresetBinding(for: provider)) {
+                Text("메뉴바 표시").font(AppDesign.Typography.headline)
+                Picker(
+                    "빠른 설정",
+                    selection: Binding(
+                        get: { settings.menuBarDisplayPreset(for: provider) },
+                        set: { settings.applyMenuBarDisplayPreset($0, for: provider) })
+                ) {
                     ForEach(ProviderMenuBarDisplayPreset.allCases) { preset in
-                        Text(preset.displayName).tag(preset)
+                        Text(preset.displayName).tag(preset).disabled(preset == .custom)
                     }
                 }
-                .pickerStyle(.segmented)
-
-                if let detail = currentMenuBarPreset(for: provider).detail {
-                    Text(detail)
-                        .font(AppDesign.Typography.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if currentMenuBarPreset(for: provider) == .custom {
-                    menuBarCustomControls(for: provider, displayConfig: displayConfig)
-                }
+                .pickerStyle(.menu)
+                .controlSize(.small)
+                menuBarSettingsPreview(for: provider, config: displayConfig)
+                gaugeSelectionControls(provider)
+                menuBarAppearanceControls(for: provider, displayConfig: displayConfig)
+                menuBarTextDisplayControls(for: provider)
             }
         }
     }
 
-    private func currentMenuBarPreset(for provider: AppProviderKind) -> ProviderMenuBarDisplayPreset {
-        if expandedCustomMenuBarProviders.contains(provider) {
-            return .custom
-        }
-        return settings.menuBarDisplayPreset(for: provider)
-    }
-
-    private func menuBarPresetBinding(for provider: AppProviderKind) -> Binding<ProviderMenuBarDisplayPreset> {
-        Binding(
-            get: { currentMenuBarPreset(for: provider) },
-            set: { preset in
-                if preset == .custom {
-                    expandedCustomMenuBarProviders.insert(provider)
-                    return
-                }
-                expandedCustomMenuBarProviders.remove(provider)
-                settings.applyMenuBarDisplayPreset(preset, for: provider)
-            }
-        )
-    }
-
-    @ViewBuilder
-    private func menuBarCustomControls(for provider: AppProviderKind, displayConfig: ProviderMenuBarDisplayConfig)
+    private func menuBarAppearanceControls(for provider: AppProviderKind, displayConfig: ProviderMenuBarDisplayConfig)
         -> some View
     {
         VStack(alignment: .leading, spacing: AppDesign.Space.row) {
-            menuBarSettingsPreview(for: provider, config: displayConfig)
             Toggle(
                 "서비스 로고",
                 isOn: Binding(
@@ -145,18 +120,10 @@ extension SettingsView {
     @ViewBuilder
     private func antigravityMenuBarDisplaySection() -> some View {
         VStack(alignment: .leading, spacing: AppDesign.Space.row) {
-            Text("메뉴바 표시").font(AppDesign.Typography.subheadline.weight(.semibold))
+            Text("메뉴바 표시").font(AppDesign.Typography.headline)
+            antigravityMenuBarSettingsPreview()
             if let display = antigravitySettings.state.display {
-                if case .content(let presentation) = antigravitySettings.state.quotaPresentation,
-                    let snapshot = MenuBarStatusComposer.antigravitySnapshot(
-                        presentation: presentation.menuBar,
-                        icon: ProviderBrandIconResolver.image(
-                            for: .antigravity, kind: .menuBar, appearance: NSApp.effectiveAppearance),
-                        appearance: NSApp.effectiveAppearance, design: settings.menuBarDesign,
-                        colorMode: settings.menuBarColorMode)
-                {
-                    MenuBarSettingsPreview(snapshot: snapshot)
-                }
+                gaugeSelectionControls(.antigravity)
                 HStack(spacing: AppDesign.Space.section) {
                     Toggle("메뉴바에 표시", isOn: antigravityMenuBarBinding(display, keyPath: \.isVisible))
                     Toggle("서비스 로고", isOn: antigravityMenuBarBinding(display, keyPath: \.showsProviderIcon))
@@ -195,12 +162,31 @@ extension SettingsView {
                         }
                     }
                 }
+                menuBarTextDisplayControls(for: .antigravity)
             } else {
                 Text("불러오는 중").foregroundStyle(.secondary)
             }
         }
         .font(AppDesign.Typography.subheadline)
         .controlSize(.small)
+    }
+
+    private func antigravityMenuBarSettingsPreview() -> MenuBarSettingsPreview {
+        let snapshot: MenuBarProviderSnapshot?
+        if case .content(let presentation) = antigravitySettings.state.quotaPresentation {
+            snapshot = MenuBarStatusComposer.antigravitySnapshot(
+                presentation: presentation.menuBar,
+                icon: ProviderBrandIconResolver.image(
+                    for: .antigravity, kind: .menuBar, appearance: NSApp.effectiveAppearance),
+                appearance: NSApp.effectiveAppearance, design: settings.menuBarDesign,
+                colorMode: settings.menuBarColorMode)
+        } else {
+            snapshot = nil
+        }
+        return MenuBarSettingsPreview(
+            snapshot: snapshot,
+            unavailableText: antigravitySettings.state.display?.menuBar.isVisible == false
+                ? "메뉴바 표시가 꺼져 있습니다." : "사용량을 확인하면 미리보기가 표시됩니다.")
     }
 
     var antigravityObservedLanes:

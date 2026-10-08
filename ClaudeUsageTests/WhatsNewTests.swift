@@ -59,6 +59,14 @@ final class WhatsNewTests: XCTestCase {
     }
 
     @MainActor
+    func testMultiGaugeGuideOpensTheMenuBarEditor() throws {
+        let page = try XCTUnwrap(WhatsNewCatalog.pages.first { $0.version == "2.9.0" })
+        XCTAssertEqual(page.action, .openSettings(.claude, section: .menuBar))
+        XCTAssertTrue(page.body.contains("메뉴바 표시"))
+        XCTAssertFalse(page.body.contains("이름을 붙여 가로로 표시"))
+    }
+
+    @MainActor
     func testSettingsActionPreservesWhatsNewWindowAndPendingNotesUntilClose() throws {
         let suite = "WhatsNewTests.window.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

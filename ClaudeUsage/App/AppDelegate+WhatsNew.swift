@@ -34,8 +34,8 @@ extension AppDelegate {
             },
             onAction: { [weak self] action in
                 switch action {
-                case .openSettings(let panel):
-                    self?.showSettingsWindow(settingsPanelRawValue: panel.rawValue)
+                case .openSettings(let panel, let section):
+                    self?.showSettingsWindow(destination: SettingsDestination(panel: panel, section: section))
                 case .toggleResetCreditsInMenuBar:
                     break
                 }
