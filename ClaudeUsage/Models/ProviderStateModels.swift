@@ -400,6 +400,7 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
     let colorMode: MenuBarColorMode
     let design: MenuBarDesign
     let quotaSelection: MenuBarQuotaSelection?
+    let gaugeSelection: MenuBarGaugeSelection?
 
     init(
         kind: AppProviderKind,
@@ -413,7 +414,7 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
         iconMetric: IconMetric,
         colorMode: MenuBarColorMode = .always, design: MenuBarDesign = .modern,
         basisOverride: UsageValueBasis? = nil,
-        quotaSelection: MenuBarQuotaSelection? = nil
+        quotaSelection: MenuBarQuotaSelection? = nil, gaugeSelection: MenuBarGaugeSelection? = nil
     ) {
         self.kind = kind
         self.showIcon = showIcon
@@ -428,6 +429,7 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
         self.design = design
         self.basisOverride = basisOverride
         self.quotaSelection = quotaSelection
+        self.gaugeSelection = gaugeSelection
     }
 }
 
@@ -466,7 +468,7 @@ enum ProviderMenuBarDisplayPreset: String, CaseIterable, Identifiable, Sendable,
     }
 
     static func resolved(for config: ProviderMenuBarDisplayConfig) -> Self {
-        guard config.quotaSelection == nil else { return .custom }
+        guard config.quotaSelection == nil, config.gaugeSelection == nil else { return .custom }
         if config.showIcon,
            config.style == .none,
            config.percentageDisplay == .fiveHour,

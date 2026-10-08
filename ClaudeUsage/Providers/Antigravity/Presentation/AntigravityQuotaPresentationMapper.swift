@@ -515,7 +515,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         )
         let selectedLane = selectedLanes.first
         let legacy = settings.menuBar.percentageLaneIDs == nil && settings.menuBar.resetLaneIDs == nil
-        if legacy && selectedLane?.percentageText == nil {
+        if legacy && selectedLane?.percentageText == nil && settings.menuBar.gaugeLaneIDs == nil {
             return AntigravityMenuBarQuotaPresentation(
                 isVisible: settings.menuBar.isVisible,
                 showsProviderIcon: settings.menuBar.showsProviderIcon,
@@ -561,13 +561,26 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         }
         let regularText = ids.compactMap { components($0, withLabel: true) }
         let condensedText = ids.compactMap { components($0, withLabel: false) }
+        let gauges = settings.menuBar.gaugeLaneIDs?.map { id in
+            let lane = availableLanes.first { $0.id == id }
+            return AntigravityMenuBarGaugePresentation(
+                value: MenuBarGaugeValue(
+                    id: id.rawValue,
+                    title: lane?.menuLabel ?? settings.menuBar.gaugeTitles?[id.rawValue] ?? "선택한 한도",
+                    usedPercentage: lane?.value.usedPercentage,
+                    basis: lane?.basis ?? .antigravity(settings.menuBar)),
+                tone: lane?.tone ?? .neutral)
+        }
         var describedIDs = ids
+        if settings.menuBar.style != .none {
+            for id in settings.menuBar.gaugeLaneIDs ?? [] where !describedIDs.contains(id) { describedIDs.append(id) }
+        }
         if settings.menuBar.style != .none, let id = selectedLane?.id, !describedIDs.contains(id) {
             describedIDs.append(id)
         }
         let descriptions = describedIDs.map { id in
             guard let lane = availableLanes.first(where: { $0.id == id }) else {
-                return components(id, withLabel: true) ?? "데이터 없음"
+                return (settings.menuBar.gaugeTitles?[id.rawValue] ?? "선택한 한도") + " 데이터 없음"
             }
             return "\(lane.accessibilityLabel), \(lane.accessibilityValue)"
         }
@@ -582,7 +595,9 @@ nonisolated enum AntigravityQuotaPresentationMapper {
                 condensedText.isEmpty
                     ? nil
                     : condensedText.joined(separator: " · "),
-            gaugePercentage: selectedLane.flatMap { menuBarGaugePercentage($0, settings: settings.menuBar) },
+            gaugePercentage: settings.menuBar.gaugeLaneIDs == nil
+                ? selectedLane.flatMap { menuBarGaugePercentage($0, settings: settings.menuBar) } : nil,
+            gauges: gauges,
             showsGaugePercentage:
                 settings.menuBar.showsGaugePercentage,
             tooltip: tooltip,

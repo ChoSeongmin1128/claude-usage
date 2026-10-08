@@ -99,37 +99,14 @@ extension SettingsView {
                 Text("게이지 모양")
                 Picker(
                     "게이지 모양",
-                    selection: Binding(
-                        get: { settings.menuBarDisplayConfig(for: provider)?.style ?? .none },
-                        set: { settings.setMenuBarStyle($0, for: provider) })
+                    selection: gaugeShapeBinding(provider)
                 ) {
-                    ForEach(MenuBarStyle.allCases, id: \.rawValue) { Text($0.displayName).tag($0) }
+                    ForEach([MenuBarStyle.none, .batteryBar, .circular], id: \.rawValue) {
+                        Text($0.displayName).tag($0)
+                    }
                 }.labelsHidden()
             }
-            if config.style != .none {
-                if providerUsageLimits(provider).isEmpty && config.quotaSelection == nil {
-                    GridRow {
-                        Text("게이지 한도")
-                        Picker(
-                            "게이지 한도",
-                            selection: Binding(
-                            get: { settings.menuBarDisplayConfig(for: provider)?.iconMetric ?? .fiveHour },
-                                set: { settings.setProviderIconMetric($0, for: provider) })
-                        ) {
-                            Text("5시간").tag(IconMetric.fiveHour)
-                            Text("주간").tag(IconMetric.weekly)
-                        }.labelsHidden()
-                    }
-                } else {
-                    gaugeQuotaRow(provider, index: 0, title: "첫 번째 게이지")
-                    if config.style == .dualBattery || config.style == .sideBySideBattery
-                        || config.style == .concentricRings
-                    {
-                        gaugeQuotaRow(provider, index: 1, title: "두 번째 게이지")
-                    }
-                }
-            }
-            if config.style == .batteryBar || config.style == .sideBySideBattery {
+            if config.style.gaugeShape == .batteryBar {
                 GridRow {
                     Text("숫자")
                     Toggle(
@@ -186,7 +163,11 @@ extension SettingsView {
                 }.toggleStyle(.checkbox)
                 Grid(alignment: .leading, horizontalSpacing: AppDesign.Space.row, verticalSpacing: AppDesign.Space.row)
                 {
-                    GridRow {
+                    if display.menuBar.gaugeLaneIDs == nil
+                        || (display.menuBar.percentageLaneIDs == nil && display.menuBar.showsSelectedLanePercentage)
+                        || (display.menuBar.resetLaneIDs == nil && display.menuBar.showsSelectedLaneResetTime)
+                    {
+                        GridRow {
                         Text("대표 한도")
                         Picker("게이지에 표시할 한도", selection: antigravityMenuBarLaneSelection(display)) {
                             Text("자동 (가장 많이 쓴 한도)").tag("")
@@ -194,6 +175,7 @@ extension SettingsView {
                                 Text("\(lane.scopeTitle) · \(lane.cadenceTitle)").tag(lane.id.rawValue)
                             }
                         }.labelsHidden()
+                        }
                     }
                     GridRow {
                         Text("게이지 모양")
@@ -291,6 +273,7 @@ extension SettingsView {
             set: { style in
                 updateAntigravityDisplay {
                     $0.menuBar.style = style
+                    if style == .none { $0.menuBar.gaugeLaneIDs = []; $0.menuBar.gaugeTitles = [:] }
                 }
             }
         )

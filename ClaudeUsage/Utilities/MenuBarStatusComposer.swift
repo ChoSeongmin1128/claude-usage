@@ -236,13 +236,13 @@ enum MenuBarStatusComposer {
         renderImages: Bool = true,
         appearance: NSAppearance? = nil
     ) -> MenuBarProviderSnapshot {
-        let projection = usage.flatMap { usage in
-            config.quotaSelection.map {
-                MenuBarQuotaProjection(
-                    selection: $0, limits: UsageLimitCatalog.claude(usage),
-                    basis: config.usageValueBasis, timeFormat: config.timeFormat)
-            }
-        }
+        let projection: MenuBarQuotaProjection? =
+            config.quotaSelection != nil || config.gaugeSelection != nil
+            ? MenuBarQuotaProjection(
+                selection: config.resolvedQuotaSelection(limits: usage.map(UsageLimitCatalog.claude) ?? []),
+                limits: usage.map(UsageLimitCatalog.claude) ?? [],
+                basis: config.usageValueBasis, timeFormat: config.timeFormat)
+            : nil
         let status = claudeStatus(
             config: config,
             usage: usage,
@@ -251,13 +251,15 @@ enum MenuBarStatusComposer {
             hasCredential: hasCredential,
             secondaryColor: secondaryColor
         )
+        let tooltip = [status.tooltip, usage == nil ? projection?.tooltip : nil]
+            .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
         let reset =
-            projection?.resetText ?? (config.quotaSelection == nil ? resetText(usage: usage, config: config) : nil)
+            config.quotaSelection == nil ? resetText(usage: usage, config: config) : projection?.resetText
         let renderKey = providerRenderKey(
             kind: .claude,
             regularText: status.text,
             condensedText: status.text,
-            tooltip: status.tooltip,
+            tooltip: tooltip,
             resetText: reset,
             showsProviderIcon: config.showIcon,
             visualConfiguration:
@@ -271,14 +273,14 @@ enum MenuBarStatusComposer {
             } ?? []) + (projection?.visualValues ?? []),
             systemStatus: systemStatus,
             accessibilityLabel: "\(config.kind.displayName) 사용량",
-            accessibilityValue: [status.tooltip, reset].compactMap { $0 }.joined(separator: ", "),
+            accessibilityValue: [tooltip, reset].compactMap { $0 }.joined(separator: ", "),
             isStale: false
         )
         return MenuBarProviderSnapshot(
             kind: .claude,
             text: status.text,
             color: status.color,
-            tooltip: status.tooltip,
+            tooltip: tooltip,
             icon:
                 renderImages && config.showIcon
                 ? icon
@@ -310,13 +312,14 @@ enum MenuBarStatusComposer {
         renderImages: Bool = true,
         appearance: NSAppearance? = nil
     ) -> MenuBarProviderSnapshot {
-        let projection = usage.flatMap { usage in
-            config.quotaSelection.map {
-                MenuBarQuotaProjection(
-                    selection: $0, limits: UsageLimitCatalog.codex(usage),
-                    basis: config.usageValueBasis, timeFormat: config.timeFormat)
-            }
-        }
+        let projection: MenuBarQuotaProjection? =
+            config.quotaSelection != nil || config.gaugeSelection != nil
+            ? MenuBarQuotaProjection(
+                selection: config.resolvedQuotaSelection(
+                    limits: usage.map(UsageLimitCatalog.codex) ?? [], codexUsage: usage),
+                limits: usage.map(UsageLimitCatalog.codex) ?? [],
+                basis: config.usageValueBasis, timeFormat: config.timeFormat)
+            : nil
         let status = codexStatus(
             config: config,
             usage: usage,
@@ -325,13 +328,15 @@ enum MenuBarStatusComposer {
             isAuthenticated: isAuthenticated,
             secondaryColor: secondaryColor
         )
+        let tooltip = [status.tooltip, usage == nil ? projection?.tooltip : nil]
+            .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
         let reset =
-            projection?.resetText ?? (config.quotaSelection == nil ? resetText(usage: usage, config: config) : nil)
+            config.quotaSelection == nil ? resetText(usage: usage, config: config) : projection?.resetText
         let renderKey = providerRenderKey(
             kind: .codex,
             regularText: status.text,
             condensedText: status.text,
-            tooltip: status.tooltip,
+            tooltip: tooltip,
             resetText: reset,
             showsProviderIcon: config.showIcon,
             visualConfiguration:
@@ -345,14 +350,14 @@ enum MenuBarStatusComposer {
             } ?? []) + (projection?.visualValues ?? []),
             systemStatus: systemStatus,
             accessibilityLabel: "\(config.kind.displayName) 사용량",
-            accessibilityValue: [status.tooltip, reset].compactMap { $0 }.joined(separator: ", "),
+            accessibilityValue: [tooltip, reset].compactMap { $0 }.joined(separator: ", "),
             isStale: false
         )
         return MenuBarProviderSnapshot(
             kind: .codex,
             text: status.text,
             color: status.color,
-            tooltip: status.tooltip,
+            tooltip: tooltip,
             icon:
                 renderImages && config.showIcon
                 ? icon
@@ -431,10 +436,13 @@ enum MenuBarStatusComposer {
                     ? "gauge.percent"
                     : "gauge.no-percent",
                 String(describing: presentation.tone),
-            ],
+            ]
+                + (presentation.gauges ?? []).map {
+                    $0.value.id + ":" + $0.value.title + ":" + String(describing: $0.tone)
+                },
             visualValues:
-                presentation.gaugePercentage.map { [$0] }
-                ?? [],
+            (presentation.gaugePercentage.map { [$0] } ?? [])
+                + (presentation.gauges ?? []).map { $0.value.percentage ?? -1 },
             systemStatus: nil,
             accessibilityLabel:
                 presentation.accessibilityLabel,
@@ -455,7 +463,26 @@ enum MenuBarStatusComposer {
             styleIcon:
                 renderImages
                 ? withAppearance(appearance) {
-                    antigravityStyleIcon(
+                    if let selected = presentation.gauges {
+                        let gauges = selected.map { entry in
+                            let warning = entry.tone == .warning || entry.tone == .critical
+                            let mono =
+                                colorMode == .monochrome || colorMode == .statusNumber
+                                || (colorMode == .warningOnly && !warning)
+                            let status = antigravityColor(for: entry.tone)
+                            return MenuBarIconRenderer.Gauge(
+                                value: entry.value, color: mono ? .labelColor : status,
+                                monochrome: colorMode == .monochrome || (colorMode == .warningOnly && !warning),
+                                textColor: colorMode == .statusNumber ? status : nil)
+                        }
+                        return MenuBarIconRenderer.gaugeListIcon(
+                            gauges,
+                            shape: presentation.style == .none
+                                ? .none
+                                : presentation.style == .circular ? .circular : .batteryBar,
+                            layout: .horizontal, showPercent: presentation.showsGaugePercentage, design: design)
+                    }
+                    return antigravityStyleIcon(
                         presentation: presentation, color: color, design: design,
                         cutoutText: usesCutoutText, textColor: batteryTextColor)
                 }
@@ -718,6 +745,11 @@ enum MenuBarStatusComposer {
             config.quotaSelection?.percentageIDs.joined(separator: ",") ?? "",
             config.quotaSelection?.resetIDs.joined(separator: ",") ?? "",
             config.quotaSelection?.gaugeIDs.joined(separator: ",") ?? "",
+            config.gaugeSelection == nil ? "legacy-gauge" : "selected-gauge",
+            config.gaugeSelection?.ids?.joined(separator: ",") ?? "legacy.ids",
+            config.gaugeSelection?.layout.rawValue ?? "legacy.layout",
+            config.gaugeSelection?.titles.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(
+                separator: ",") ?? "",
         ]
     }
 
@@ -756,6 +788,16 @@ enum MenuBarStatusComposer {
         )
     }
 
+    private static func quotaTooltip(
+        limits: [UsageLimit], config: ProviderMenuBarDisplayConfig, codexUsage: CodexUsageResponse? = nil
+    ) -> String? {
+        guard config.gaugeSelection != nil else { return nil }
+        return MenuBarQuotaProjection(
+            selection: config.resolvedQuotaSelection(limits: limits, codexUsage: codexUsage), limits: limits,
+            basis: config.usageValueBasis, timeFormat: config.timeFormat
+        ).tooltip
+    }
+
     private static func claudeStatus(
         config: ProviderMenuBarDisplayConfig,
         usage: ClaudeUsageResponse?,
@@ -784,9 +826,10 @@ enum MenuBarStatusComposer {
             return MenuBarProviderStatus(text: "…", color: secondaryColor, tooltip: "로딩 중")
         }
 
-        if let selection = config.quotaSelection {
+        if config.quotaSelection != nil {
             let projection = MenuBarQuotaProjection(
-                selection: selection, limits: UsageLimitCatalog.claude(usage),
+                selection: config.resolvedQuotaSelection(limits: UsageLimitCatalog.claude(usage)),
+                limits: UsageLimitCatalog.claude(usage),
                 basis: config.usageValueBasis, timeFormat: config.timeFormat)
             return MenuBarProviderStatus(
                 text: projection.percentageText,
@@ -816,7 +859,8 @@ enum MenuBarStatusComposer {
         return MenuBarProviderStatus(
             text: text,
             color: gaugeColor(for: usage.gaugePercentage, config: config),
-            tooltip: windowSummaryTooltip(session: fiveHour, weekly: weekly, config: config)
+            tooltip: (quotaTooltip(limits: UsageLimitCatalog.claude(usage), config: config)
+                ?? windowSummaryTooltip(session: fiveHour, weekly: weekly, config: config))
                 + staleNote(error: error, hasAuthError: hasAuthError)
         )
     }
@@ -843,9 +887,10 @@ enum MenuBarStatusComposer {
             return MenuBarProviderStatus(text: "…", color: secondaryColor, tooltip: "로딩 중")
         }
 
-        if let selection = config.quotaSelection {
+        if config.quotaSelection != nil {
             let projection = MenuBarQuotaProjection(
-                selection: selection, limits: UsageLimitCatalog.codex(usage),
+                selection: config.resolvedQuotaSelection(limits: UsageLimitCatalog.codex(usage), codexUsage: usage),
+                limits: UsageLimitCatalog.codex(usage),
                 basis: config.usageValueBasis, timeFormat: config.timeFormat)
             return MenuBarProviderStatus(
                 text: projection.percentageText,
@@ -877,7 +922,8 @@ enum MenuBarStatusComposer {
         return MenuBarProviderStatus(
             text: text,
             color: gaugeColor(for: usage.gaugePercentage, config: config),
-            tooltip: windowSummaryTooltip(session: hasPrimary ? primary : nil, weekly: weekly, config: config)
+            tooltip: (quotaTooltip(limits: UsageLimitCatalog.codex(usage), config: config, codexUsage: usage)
+                ?? windowSummaryTooltip(session: hasPrimary ? primary : nil, weekly: weekly, config: config))
                 + (usage.workspaceLimitNotice.map { " · \($0)" } ?? "")
                 + staleNote(error: error, hasAuthError: hasAuthError)
         )
@@ -960,6 +1006,17 @@ enum MenuBarStatusComposer {
     {
         guard !projection.selection.gaugeIDs.isEmpty else { return nil }
         let primary = projection.primary?.usedPercentage
+        if let layout = config.gaugeSelection?.layout {
+            let gauges = projection.gauges.map { value in
+                MenuBarIconRenderer.Gauge(
+                    value: value, color: gaugeColor(for: value.usedPercentage, config: config),
+                    monochrome: usesCutoutBatteryText(used: value.usedPercentage, mode: config.colorMode),
+                    textColor: batteryNumberColor(used: value.usedPercentage, mode: config.colorMode))
+            }
+            return MenuBarIconRenderer.gaugeListIcon(
+                gauges, shape: config.style, layout: layout,
+                showPercent: config.showBatteryPercent, design: config.design)
+        }
         if projection.selection.gaugeIDs.count == 1,
             config.style == .dualBattery || config.style == .sideBySideBattery || config.style == .concentricRings
         {

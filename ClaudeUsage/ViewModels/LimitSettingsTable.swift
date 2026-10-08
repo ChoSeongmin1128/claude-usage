@@ -84,7 +84,8 @@ nonisolated enum LimitSettingsTable {
     }
 
     static func antigravityRows(
-        lanes: [(id: String, title: String)], limits: [UsageLimit], selectedIDs: [AntigravityQuotaLaneID] = []
+        lanes: [(id: String, title: String)], limits: [UsageLimit], selectedIDs: [AntigravityQuotaLaneID] = [],
+        titles: [String: String] = [:]
     ) -> [LimitSettingsRow] {
         var rows = lanes.map { lane in
             LimitSettingsRow(
@@ -93,7 +94,8 @@ nonisolated enum LimitSettingsTable {
         }
         let observed = Set(lanes.map(\.id))
         for (index, id) in selectedIDs.enumerated() where !observed.contains(id.rawValue) {
-            let title = AntigravityDisplaySettings.MenuBarPresentationIntent.missingTextTitle(at: index)
+            let title =
+                titles[id.rawValue] ?? AntigravityDisplaySettings.MenuBarPresentationIntent.missingTextTitle(at: index)
             rows.append(LimitSettingsRow(id: id.rawValue, title: title + " (데이터 없음)", laneID: id.rawValue))
         }
         return rows

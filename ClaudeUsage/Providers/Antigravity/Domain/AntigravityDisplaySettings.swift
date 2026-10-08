@@ -134,6 +134,8 @@ nonisolated struct AntigravityDisplaySettings: Codable, Equatable, Sendable {
         var additionalLaneIDs: [AntigravityQuotaLaneID]? = nil
         var percentageLaneIDs: [AntigravityQuotaLaneID]? = nil
         var resetLaneIDs: [AntigravityQuotaLaneID]? = nil
+        var gaugeLaneIDs: [AntigravityQuotaLaneID]? = nil
+        var gaugeTitles: [String: String]? = nil
         var showsSelectedLanePercentage: Bool
         var showsSelectedLaneResetTime: Bool
         var timeFormat: TimeFormat
@@ -189,7 +191,8 @@ nonisolated struct AntigravityDisplaySettings: Codable, Equatable, Sendable {
             && menuBar.effectiveAdditionalLaneIDs.allSatisfy(
                 \.hasStableDisplayIdentifierShape
             )
-            && [menuBar.percentageLaneIDs, menuBar.resetLaneIDs].compactMap { $0 }.allSatisfy { ids in
+            && [menuBar.percentageLaneIDs, menuBar.resetLaneIDs, menuBar.gaugeLaneIDs].compactMap { $0 }.allSatisfy {
+                ids in
                 ids.count == Set(ids).count && ids.allSatisfy(\.hasStableDisplayIdentifierShape)
             }
     }

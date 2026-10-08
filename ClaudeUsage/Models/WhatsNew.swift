@@ -47,6 +47,11 @@ nonisolated enum WhatsNewCatalog {
             version: "2.8.2", symbol: "chart.bar", title: "메뉴바에 표시할 모델 선택",
             body: "Fable과 Codex 모델별 한도를 메뉴바에 표시할 수 있습니다. 한도 표에서 숫자와 초기화 시간을 고르고, 게이지에는 같은 목록의 한도를 지정합니다.",
             action: .openSettings(.claude), actionTitle: "Claude 설정 열기"),
+        WhatsNewPage(
+            version: "2.9.0", symbol: "chart.bar", title: "메뉴바 게이지를 여러 개",
+            body:
+                "5시간, 주간, Fable 같은 한도를 게이지로 함께 볼 수 있습니다. 각 서비스의 한도 표에서 게이지를 체크하고 바로 아래에서 순서를 바꾸세요. 세 개 이상은 이름을 붙여 가로로 표시합니다.",
+            action: .openSettings(.claude), actionTitle: "Claude 설정 열기"),
     ]
 
     static func notesText(_ note: UpdateNotesQueue.Note) -> (version: String, title: String, text: String) {

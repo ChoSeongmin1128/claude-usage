@@ -1026,6 +1026,189 @@ final class DesignSystemTests: XCTestCase {
         XCTAssertEqual(dependencies.reader.readCountSync, 0)
     }
 
+    func testGaugeShapeBeforeUsagePreservesLegacyTextAndPairedGaugesAcrossReload() async throws {
+        for provider in [AppProviderKind.claude, .codex] {
+            let suite = "DesignSystemTests.gauge-shape-before-usage.\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let settings = AppSettings(defaults: defaults)
+            settings.setMenuBarStyle(.dualBattery, for: provider)
+            settings.setProviderPercentageDisplay(.weekly, for: provider)
+            settings.setProviderResetTimeDisplay(.fiveHour, for: provider)
+            let dependencies = await makeSettingsGalleryDependencies(defaults: defaults, settings: settings)
+            defer { dependencies.antigravity.stopObserving() }
+            let view = SettingsView(
+                claudeAPIService: dependencies.claude, antigravitySettings: dependencies.antigravity,
+                settings: settings, updateRuntimeState: dependencies.updates,
+                claudeAccountStore: dependencies.accountStore, sessionKeyLoader: { _ in nil },
+                codexAuthStatusReader: dependencies.codex.status,
+                claudeOAuthMigrationCoordinator: dependencies.migration,
+                claudeLastUsage: { nil }, codexLastUsage: { nil })
+            view.gaugeShapeBinding(provider).wrappedValue = .circular
+            let reloaded = AppSettings(defaults: defaults)
+            let config = try XCTUnwrap(reloaded.menuBarDisplayConfig(for: provider))
+            XCTAssertNil(config.quotaSelection)
+            XCTAssertNil(config.gaugeSelection?.ids)
+            XCTAssertEqual(config.gaugeSelection?.layout, .concentric)
+            XCTAssertEqual(config.style, .concentricRings)
+            XCTAssertEqual(config.percentageDisplay, .weekly)
+            XCTAssertEqual(config.resetTimeDisplay, .fiveHour)
+            let claude = ClaudeUsageResponse(
+                fiveHour: .init(utilization: 12, resetsAt: "2030-01-01T01:00:00Z"),
+                sevenDay: .init(utilization: 34, resetsAt: "2030-01-03T04:00:00Z"))
+            let codex = try JSONDecoder().decode(
+                CodexUsageResponse.self,
+                from: Data(
+                    #"{"rate_limit":{"primary_window":{"used_percent":12,"limit_window_seconds":18000},"secondary_window":{"used_percent":34,"limit_window_seconds":604800}}}"#
+                        .utf8))
+            let limits = provider == .claude ? UsageLimitCatalog.claude(claude) : UsageLimitCatalog.codex(codex)
+            let selection = config.resolvedQuotaSelection(limits: limits, codexUsage: provider == .codex ? codex : nil)
+            XCTAssertEqual(selection.gaugeIDs, limits.map(\.id))
+            XCTAssertEqual(selection.percentageIDs, [limits[1].id])
+            XCTAssertEqual(selection.resetIDs, [limits[0].id])
+        }
+    }
+
+    func testGaugeEditWithPartialUsageDoesNotFreezeLegacyWeeklyText() async throws {
+        for provider in [AppProviderKind.claude, .codex] {
+            let suite = "DesignSystemTests.gauge-partial-usage.\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let settings = AppSettings(defaults: defaults)
+            settings.setMenuBarStyle(.none, for: provider)
+            settings.setProviderPercentageDisplay(.weekly, for: provider)
+            settings.setProviderResetTimeDisplay(.weekly, for: provider)
+            let partialClaude = ClaudeUsageResponse(fiveHour: .init(utilization: 12, resetsAt: nil), sevenDay: nil)
+            let partialCodex = try JSONDecoder().decode(
+                CodexUsageResponse.self,
+                from: Data(
+                    #"{"rate_limit":{"primary_window":{"used_percent":12,"limit_window_seconds":18000}}}"#.utf8))
+            let dependencies = await makeSettingsGalleryDependencies(defaults: defaults, settings: settings)
+            defer { dependencies.antigravity.stopObserving() }
+            let view = SettingsView(
+                claudeAPIService: dependencies.claude, antigravitySettings: dependencies.antigravity,
+                settings: settings, updateRuntimeState: dependencies.updates,
+                claudeAccountStore: dependencies.accountStore, sessionKeyLoader: { _ in nil },
+                codexAuthStatusReader: dependencies.codex.status,
+                claudeOAuthMigrationCoordinator: dependencies.migration,
+                claudeLastUsage: { partialClaude }, codexLastUsage: { partialCodex })
+            let partial =
+                provider == .claude ? UsageLimitCatalog.claude(partialClaude) : UsageLimitCatalog.codex(partialCodex)
+            let primary = try XCTUnwrap(partial.first)
+            let row = LimitSettingsRow(
+                id: primary.id, title: primary.title, quotaID: primary.id, notificationLimit: primary)
+            try XCTUnwrap(view.quotaGaugeBinding(row, provider: provider)).wrappedValue = true
+            let config = try XCTUnwrap(AppSettings(defaults: defaults).menuBarDisplayConfig(for: provider))
+            XCTAssertNil(config.quotaSelection)
+            XCTAssertEqual(config.gaugeSelection?.ids, [primary.id])
+            let completeClaude = ClaudeUsageResponse(
+                fiveHour: .init(utilization: 12, resetsAt: nil),
+                sevenDay: .init(utilization: 34, resetsAt: "2030-01-03T04:00:00Z"))
+            let completeCodex = try JSONDecoder().decode(
+                CodexUsageResponse.self,
+                from: Data(
+                    #"{"rate_limit":{"primary_window":{"used_percent":12,"limit_window_seconds":18000},"secondary_window":{"used_percent":34,"limit_window_seconds":604800,"reset_at":1893628800}}}"#
+                        .utf8))
+            let complete =
+                provider == .claude ? UsageLimitCatalog.claude(completeClaude) : UsageLimitCatalog.codex(completeCodex)
+            let selection = config.resolvedQuotaSelection(
+                limits: complete, codexUsage: provider == .codex ? completeCodex : nil)
+            XCTAssertEqual(selection.percentageIDs, [complete[1].id])
+            XCTAssertEqual(selection.resetIDs, [complete[1].id])
+            XCTAssertEqual(selection.gaugeIDs, [primary.id])
+        }
+    }
+
+    func testAntigravityGaugeCheckboxesSaveReloadReorderAndRemoveIndependentlyOfText() async throws {
+        let suite = "DesignSystemTests.agy-gauge-storage.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults)
+        let dependencies = await makeSettingsGalleryDependencies(defaults: defaults, settings: settings)
+        defer { dependencies.antigravity.stopObserving() }
+        let view = SettingsView(
+            claudeAPIService: dependencies.claude, antigravitySettings: dependencies.antigravity,
+            settings: settings, updateRuntimeState: dependencies.updates,
+            claudeAccountStore: dependencies.accountStore, sessionKeyLoader: { _ in nil },
+            codexAuthStatusReader: dependencies.codex.status,
+            claudeOAuthMigrationCoordinator: dependencies.migration)
+        let before = try XCTUnwrap(dependencies.antigravity.state.display)
+        let lanes = view.antigravityObservedLanes
+        XCTAssertEqual(lanes.count, 2)
+        func waitForIDs(_ ids: [AntigravityQuotaLaneID]) async throws {
+            let deadline = Date().addingTimeInterval(2)
+            while dependencies.antigravity.state.display?.menuBar.gaugeLaneIDs != ids, Date() < deadline {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            XCTAssertEqual(dependencies.antigravity.state.display?.menuBar.gaugeLaneIDs, ids)
+        }
+        for (index, lane) in lanes.enumerated() {
+            let row = LimitSettingsRow(id: lane.id.rawValue, title: lane.menuLabel, laneID: lane.id.rawValue)
+            try XCTUnwrap(view.quotaGaugeBinding(row, provider: .antigravity)).wrappedValue = true
+            try await waitForIDs(Array(lanes.prefix(index + 1).map(\.id)))
+        }
+        view.updateAntigravityDisplay { $0.menuBar.gaugeLaneIDs = lanes.reversed().map(\.id) }
+        try await waitForIDs(lanes.reversed().map(\.id))
+        let row = LimitSettingsRow(id: lanes[0].id.rawValue, title: lanes[0].menuLabel, laneID: lanes[0].id.rawValue)
+        try XCTUnwrap(view.quotaGaugeBinding(row, provider: .antigravity)).wrappedValue = false
+        try await waitForIDs([lanes[1].id])
+        await dependencies.antigravity.load()
+        XCTAssertEqual(view.gaugeSelection(.antigravity).ids, [lanes[1].id.rawValue])
+        let after = try XCTUnwrap(dependencies.antigravity.state.display)
+        XCTAssertEqual(after.menuBar.percentageLaneIDs, before.menuBar.percentageLaneIDs)
+        XCTAssertEqual(after.menuBar.resetLaneIDs, before.menuBar.resetLaneIDs)
+        XCTAssertEqual(after.menuBar.laneSelection, before.menuBar.laneSelection)
+        XCTAssertTrue(after.isCurrentAndValid)
+    }
+
+    func testGaugeTableEnablesThirdModelWithoutChangingTextAndRendersMinimumSettingsWidth() async throws {
+        let suite = "DesignSystemTests.multiple-gauges.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults, hasExistingAccountStorage: false)
+        settings.welcomeState = .completed
+        settings.motion.mode = .instant
+        settings.setMenuBarStyle(.none, for: .claude)
+        let usage = ClaudeUsageResponse(
+            fiveHour: .init(utilization: 8, resetsAt: nil),
+            sevenDay: .init(utilization: 20, resetsAt: nil),
+            scopedLimits: [
+                .init(
+                    kind: "weekly_scoped", percent: 61, resetsAt: nil,
+                    modelID: "fable", modelName: "Fable")
+            ])
+        let dependencies = await makeSettingsGalleryDependencies(defaults: defaults, settings: settings)
+        defer { dependencies.antigravity.stopObserving() }
+        let view = SettingsView(
+            claudeAPIService: dependencies.claude, antigravitySettings: dependencies.antigravity,
+            settings: settings, updateRuntimeState: dependencies.updates,
+            claudeAccountStore: dependencies.accountStore, sessionKeyLoader: { _ in nil },
+            codexAuthStatusReader: dependencies.codex.status,
+            claudeOAuthMigrationCoordinator: dependencies.migration,
+            claudeLastUsage: { usage }, initialPanel: .claude, initialSection: .limits)
+        let before = try XCTUnwrap(view.effectiveMenuBarSelection(.claude))
+        XCTAssertEqual(settings.menuBarDisplayConfig(for: .claude)?.style, MenuBarStyle.none)
+        let limits = UsageLimitCatalog.claude(usage)
+        for limit in limits {
+            let row = LimitSettingsRow(id: limit.id, title: limit.title, quotaID: limit.id, notificationLimit: limit)
+            try XCTUnwrap(view.quotaGaugeBinding(row, provider: .claude)).wrappedValue = true
+        }
+        let selected = try XCTUnwrap(view.effectiveMenuBarSelection(.claude))
+        XCTAssertEqual(selected.gaugeIDs, limits.map(\.id))
+        XCTAssertEqual(selected.percentageIDs, before.percentageIDs)
+        XCTAssertEqual(selected.resetIDs, before.resetIDs)
+        XCTAssertEqual(settings.menuBarDisplayConfig(for: .claude)?.style, .batteryBar)
+        let size = AppDesign.Window.settingsMinimum
+        let image = try await renderSettingsNativeVerified(
+            view.frame(width: size.width, height: size.height)
+                .background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(.dark),
+            size: size, appearance: .darkAqua,
+            ready: { dependencies.updates.engineStatus != nil && dependencies.reader.readCountSync > 0 })
+        attach(image, "Settings-three-gauges-minimum-width")
+        XCTAssertGreaterThan(dependencies.reader.readCountSync, 0)
+        XCTAssertEqual(dependencies.updateEngine.checks, 0)
+    }
+
     func testSettingsGalleryUsesAnEmptyMetadataCache() async throws {
         let suite = "DesignSystemTests.empty-cache.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -1570,7 +1753,7 @@ private actor SettingsGalleryLoadGate {
 }
 
 private actor SettingsGalleryAGYRuntime: AntigravitySettingsRuntimeControlling {
-    private let value: AntigravityRuntimeSnapshot
+    private var value: AntigravityRuntimeSnapshot
     private let loadGate: SettingsGalleryLoadGate?
     private var bootstrapRequests: [Bool] = []
 
@@ -1598,7 +1781,18 @@ private actor SettingsGalleryAGYRuntime: AntigravitySettingsRuntimeControlling {
     func refresh(trigger: AntigravityRefreshTrigger) async -> AntigravityRuntimeSnapshot { value }
     func updateDisplay(
         _ display: AntigravityDisplaySettings, replacing expectedDisplay: AntigravityDisplaySettings
-    ) async throws -> AntigravityRuntimeSnapshot { value }
+    ) async throws -> AntigravityRuntimeSnapshot {
+        XCTAssertEqual(value.settings?.display, expectedDisplay)
+        let stored = try JSONDecoder().decode(AntigravityDisplaySettings.self, from: JSONEncoder().encode(display))
+        value = AntigravityRuntimeSnapshot(
+            readiness: value.readiness,
+            settings: .init(connection: value.settings?.connection ?? .default, display: stored),
+            presentationState: value.presentationState, quotaPresentation: value.quotaPresentation,
+            managedRuntimeAvailability: value.managedRuntimeAvailability,
+            lastAttemptAt: value.lastAttemptAt, lastSuccessfulAt: value.lastSuccessfulAt,
+            publicationRevision: value.publicationRevision + 1)
+        return value
+    }
     func consumePendingSettingsNotice() async -> AntigravityRuntimeSnapshot { value }
 }
 

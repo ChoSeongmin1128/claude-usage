@@ -186,6 +186,11 @@ nonisolated struct AntigravityCompactQuotaPresentation:
     )
 }
 
+nonisolated struct AntigravityMenuBarGaugePresentation: Sendable, Equatable {
+    let value: MenuBarGaugeValue
+    let tone: AntigravityQuotaRiskTone
+}
+
 nonisolated struct AntigravityMenuBarQuotaPresentation:
     Sendable,
     Equatable
@@ -198,6 +203,7 @@ nonisolated struct AntigravityMenuBarQuotaPresentation:
     let regularText: String?
     let condensedText: String?
     let gaugePercentage: Double?
+    var gauges: [AntigravityMenuBarGaugePresentation]? = nil
     let showsGaugePercentage: Bool
     let tooltip: String
     let tone: AntigravityQuotaRiskTone

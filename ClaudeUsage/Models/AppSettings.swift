@@ -48,7 +48,15 @@ enum MenuBarStyle: String, Codable, CaseIterable, Sendable {
         }
     }
 
-    var isDualStyle: Bool {
+    var gaugeShape: MenuBarStyle {
+        switch self {
+        case .dualBattery, .sideBySideBattery: .batteryBar
+        case .concentricRings: .circular
+        default: self
+        }
+    }
+
+    nonisolated var isDualStyle: Bool {
         switch self {
         case .concentricRings, .dualBattery, .sideBySideBattery: return true
         default: return false
@@ -1037,6 +1045,9 @@ class AppSettings: ObservableObject {
         if menuBarQuotaPreferences.providers[kind.rawValue] != nil {
             menuBarQuotaPreferences.providers[kind.rawValue] = MenuBarQuotaSelection()
         }
+        if menuBarQuotaPreferences.gauges?[kind.rawValue] != nil {
+            setMenuBarGaugeSelection(MenuBarGaugeSelection(ids: []), for: kind)
+        }
         setProviderShowIcon(false, for: kind)
         setProviderPercentageDisplay(.none, for: kind)
         setProviderResetTimeDisplay(.none, for: kind)
@@ -1050,7 +1061,10 @@ class AppSettings: ObservableObject {
 
     func applyMenuBarDisplayPreset(_ preset: ProviderMenuBarDisplayPreset, for kind: AppProviderKind) {
         guard Self.ownsGenericMenuBarDisplay(kind) else { return }
-        if preset != .custom { menuBarQuotaPreferences.providers[kind.rawValue] = nil }
+        if preset != .custom {
+            menuBarQuotaPreferences.providers[kind.rawValue] = nil
+            menuBarQuotaPreferences.gauges?[kind.rawValue] = nil
+        }
         switch preset {
         case .basic:
             setProviderShowIcon(true, for: kind)
@@ -1105,7 +1119,8 @@ class AppSettings: ObservableObject {
                 circularDisplayMode: circularDisplayMode,
                 iconMetric: iconMetric,
                 colorMode: menuBarColorMode, design: menuBarDesign, basisOverride: usageDisplayMode.basis,
-                quotaSelection: menuBarQuotaPreferences.providers[kind.rawValue]
+                quotaSelection: menuBarQuotaPreferences.providers[kind.rawValue],
+                gaugeSelection: menuBarQuotaPreferences.gauges?[kind.rawValue]
             )
         case .codex:
             return ProviderMenuBarDisplayConfig(
@@ -1119,7 +1134,8 @@ class AppSettings: ObservableObject {
                 circularDisplayMode: codexCircularDisplayMode,
                 iconMetric: codexIconMetric,
                 colorMode: menuBarColorMode, design: menuBarDesign, basisOverride: usageDisplayMode.basis,
-                quotaSelection: menuBarQuotaPreferences.providers[kind.rawValue]
+                quotaSelection: menuBarQuotaPreferences.providers[kind.rawValue],
+                gaugeSelection: menuBarQuotaPreferences.gauges?[kind.rawValue]
             )
         case .antigravity:
             // AGY의 서비스별 표시는 typed 설정이 소유하며 공통 표시 기준은 runtime mapper에 별도로 전달한다.
@@ -1276,19 +1292,22 @@ class AppSettings: ObservableObject {
     }
 
     private func isMenuBarConfigVisible(_ config: ProviderMenuBarDisplayConfig) -> Bool {
-        if let selection = config.quotaSelection {
-            return config.showIcon || (config.style != .none && !selection.gaugeIDs.isEmpty)
-                || !selection.percentageIDs.isEmpty
-                || !selection.resetIDs.isEmpty
-        }
-        return config.showIcon
-            || config.percentageDisplay != .none
-            || config.resetTimeDisplay != .none
-            || config.style != .none
+        let gaugeVisible =
+            config.style != .none
+            && (config.gaugeSelection?.ids.map { !$0.isEmpty } ?? config.quotaSelection.map { !$0.gaugeIDs.isEmpty }
+                ?? true)
+        let numberVisible =
+            config.quotaSelection.map { !$0.percentageIDs.isEmpty } ?? (config.percentageDisplay != .none)
+        let resetVisible = config.quotaSelection.map { !$0.resetIDs.isEmpty } ?? (config.resetTimeDisplay != .none)
+        return config.showIcon || gaugeVisible || numberVisible || resetVisible
     }
 
     private func hasExplicitMenuBarCustomization(for kind: AppProviderKind) -> Bool {
-        if menuBarQuotaPreferences.providers[kind.rawValue] != nil { return true }
+        if menuBarQuotaPreferences.providers[kind.rawValue] != nil
+            || menuBarQuotaPreferences.gauges?[kind.rawValue] != nil
+        {
+            return true
+        }
         switch kind {
         case .claude:
             return true

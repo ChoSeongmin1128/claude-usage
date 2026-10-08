@@ -1,9 +1,111 @@
+import AppKit
 import XCTest
 @testable import ClaudeUsage
 
 final class AntigravityQuotaPresentationMapperTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
     private let utc = TimeZone(secondsFromGMT: 0)!
+
+    @MainActor
+    func testThreeAntigravityGaugesRenderAndExplicitEmptySelectionHasNoGauge() throws {
+        let ids: [AntigravityQuotaLaneID] = [.geminiFiveHour, .thirdPartyWeekly, .geminiWeekly]
+        var settings = AntigravityDisplaySettings.default
+        settings.menuBar.style = .batteryBar
+        settings.menuBar.gaugeLaneIDs = ids
+        settings.menuBar.gaugeTitles = [AntigravityQuotaLaneID.geminiWeekly.rawValue: "Gemini 주간"]
+        let lanes = [
+            makeLane(
+                id: AntigravityQuotaLaneID.geminiFiveHour.rawValue, scope: .gemini,
+                cadence: .fiveHour, remaining: 0.9),
+            makeLane(
+                id: AntigravityQuotaLaneID.thirdPartyWeekly.rawValue, scope: .thirdPartyModels,
+                cadence: .weekly, remaining: 0.4),
+        ]
+        let presentation = AntigravityQuotaPresentationMapper.map(
+            snapshot: makeSnapshot(lanes: lanes, fetchedAt: now), settings: settings,
+            basisOverride: .remaining, now: now)
+        let snapshot = try XCTUnwrap(
+            MenuBarStatusComposer.antigravitySnapshot(
+                presentation: presentation.menuBar, icon: nil, appearance: NSAppearance(named: .darkAqua)))
+        let image = try XCTUnwrap(snapshot.styleIcon)
+        XCTAssertGreaterThan(image.size.width, BatteryGeometry.Layout.sideBySide.size.width)
+        XCTAssertEqual(image.size.height, BatteryGeometry.height)
+        let attachment = XCTAttachment(
+            image: MenuBarStatusComposer.singleProviderContent(
+                snapshot: snapshot, secondaryColor: .secondaryLabelColor,
+                appearance: try XCTUnwrap(NSAppearance(named: .darkAqua))
+            ).image)
+        attachment.name = "AGY-three-gauges-with-missing-slot"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        settings.menuBar.gaugeLaneIDs = []
+        let empty = AntigravityQuotaPresentationMapper.map(
+            snapshot: makeSnapshot(lanes: lanes, fetchedAt: now), settings: settings, now: now)
+        XCTAssertNil(MenuBarStatusComposer.antigravitySnapshot(presentation: empty.menuBar, icon: nil)?.styleIcon)
+    }
+
+    func testExplicitGaugeListKeepsOrderMissingSlotsAndAccountIndependentValues() throws {
+        let ids: [AntigravityQuotaLaneID] = [.geminiFiveHour, .thirdPartyWeekly, .geminiWeekly]
+        var settings = AntigravityDisplaySettings.default
+        settings.menuBar.style = .batteryBar
+        settings.menuBar.gaugeLaneIDs = ids
+        settings.menuBar.gaugeTitles = [AntigravityQuotaLaneID.geminiWeekly.rawValue: "Gemini 주간"]
+        let lanes = [
+            makeLane(
+                id: AntigravityQuotaLaneID.geminiFiveHour.rawValue, scope: .gemini,
+                cadence: .fiveHour, remaining: 0.9),
+            makeLane(
+                id: AntigravityQuotaLaneID.thirdPartyWeekly.rawValue, scope: .thirdPartyModels,
+                cadence: .weekly, remaining: 0.4),
+        ]
+        let result = AntigravityQuotaPresentationMapper.map(
+            snapshot: makeSnapshot(lanes: lanes, fetchedAt: now), settings: settings,
+            basisOverride: .remaining, now: now)
+        let gauges = try XCTUnwrap(result.menuBar.gauges)
+        XCTAssertEqual(gauges.map { $0.value.id }, ids.map(\.rawValue))
+        XCTAssertEqual(gauges[0].value.percentage ?? -1, 90, accuracy: 0.001)
+        XCTAssertEqual(gauges[1].value.percentage ?? -1, 40, accuracy: 0.001)
+        XCTAssertNil(gauges[2].value.percentage)
+        XCTAssertEqual(gauges[2].value.title, "Gemini 주간")
+        XCTAssertTrue(result.menuBar.accessibilityValue.contains("Gemini 주간"))
+        XCTAssertNil(result.menuBar.gaugePercentage)
+        let roundTrip = try JSONDecoder().decode(
+            AntigravityDisplaySettings.self,
+            from: JSONEncoder().encode(settings))
+        XCTAssertEqual(roundTrip.menuBar.gaugeLaneIDs, ids)
+        XCTAssertTrue(roundTrip.isCurrentAndValid)
+        settings.menuBar.gaugeLaneIDs = []
+        let empty = AntigravityQuotaPresentationMapper.map(
+            snapshot: makeSnapshot(lanes: lanes, fetchedAt: now), settings: settings, now: now)
+        XCTAssertEqual(empty.menuBar.gauges, [])
+        XCTAssertNil(empty.menuBar.gaugePercentage)
+    }
+
+    @MainActor
+    func testFourObservedAntigravityGaugesKeepEachLaneValueAndSelectionOrder() throws {
+        let ids: [AntigravityQuotaLaneID] = [.geminiFiveHour, .thirdPartyWeekly, .geminiWeekly, .thirdPartyFiveHour]
+        let remaining: [Double] = [0.9, 0.4, 0.7, 0.2]
+        let lanes = ids.enumerated().map { index, id in
+            makeLane(
+                id: id.rawValue, scope: index % 2 == 0 ? .gemini : .thirdPartyModels,
+                cadence: index == 0 || index == 3 ? .fiveHour : .weekly, remaining: remaining[index])
+        }
+        var settings = AntigravityDisplaySettings.default
+        settings.menuBar.style = .batteryBar
+        settings.menuBar.gaugeLaneIDs = ids
+        let result = AntigravityQuotaPresentationMapper.map(
+            snapshot: makeSnapshot(lanes: lanes, fetchedAt: now), settings: settings, basisOverride: .remaining,
+            now: now)
+        let values = try XCTUnwrap(result.menuBar.gauges)
+        XCTAssertEqual(values.map { $0.value.id }, ids.map(\.rawValue))
+        for (value, expected) in zip(values, remaining) {
+            XCTAssertEqual(try XCTUnwrap(value.value.percentage), expected * 100, accuracy: 0.001)
+        }
+        let image = try XCTUnwrap(
+            MenuBarStatusComposer.antigravitySnapshot(presentation: result.menuBar, icon: nil)?.styleIcon)
+        XCTAssertEqual(image.size.height, BatteryGeometry.height)
+        XCTAssertGreaterThan(image.size.width, BatteryGeometry.Layout.sideBySide.size.width)
+    }
 
     func testCompactPassesRawResetAndCadenceToSharedUsageRow() throws {
         let reset = now.addingTimeInterval(3 * 3600)

@@ -6,7 +6,7 @@ nonisolated struct MenuBarQuotaSelection: Codable, Equatable, Sendable {
     var gaugeIDs: [String] = []
     var titles: [String: String] = [:]
 
-    enum Surface { case percentage, reset }
+    enum Surface { case percentage, reset, gauge }
 
     mutating func setSelected(_ selected: Bool, id: String, surface: Surface, limits: [UsageLimit]) {
         if selected {
@@ -22,6 +22,17 @@ nonisolated struct MenuBarQuotaSelection: Codable, Equatable, Sendable {
         case .reset:
             resetIDs.removeAll { $0 == id }
             if selected { resetIDs.append(id) }
+        case .gauge:
+            gaugeIDs.removeAll { $0 == id }
+            if selected { gaugeIDs.append(id) }
+        }
+    }
+
+    func ids(for surface: Surface) -> [String] {
+        switch surface {
+        case .percentage: percentageIDs
+        case .reset: resetIDs
+        case .gauge: gaugeIDs
         }
     }
 
@@ -67,7 +78,10 @@ nonisolated struct MenuBarQuotaSelection: Codable, Equatable, Sendable {
         case .dual: result.resetIDs = [primary, weekly].compactMap { $0?.id }
         }
         let gauge = config.iconMetric == .weekly ? weekly : displayPrimary
-        if config.style == .dualBattery || config.style == .sideBySideBattery || config.style == .concentricRings {
+        if config.style == .none {
+            result.gaugeIDs = []
+        } else if config.style == .dualBattery || config.style == .sideBySideBattery || config.style == .concentricRings
+        {
             result.gaugeIDs = [primary, weekly].compactMap { $0?.id }
         } else {
             result.gaugeIDs = gauge.map { [$0.id] } ?? []
@@ -80,6 +94,7 @@ nonisolated struct MenuBarQuotaPreferences: Codable, Equatable, Sendable {
     static let key = AppIdentifiers.defaultsKey("menuBarQuotaSelection.v1")
     var version = 1
     var providers: [String: MenuBarQuotaSelection] = [:]
+    var gauges: [String: MenuBarGaugeSelection]? = nil
 
     static func load(from defaults: UserDefaults) -> Self {
         guard let data = defaults.data(forKey: key),
@@ -91,6 +106,39 @@ nonisolated struct MenuBarQuotaPreferences: Codable, Equatable, Sendable {
     func save(to defaults: UserDefaults) {
         if let data = try? JSONEncoder().encode(self) { defaults.set(data, forKey: Self.key) }
     }
+}
+
+nonisolated struct MenuBarGaugeSelection: Codable, Equatable, Sendable {
+    var ids: [String]? = nil
+    var titles: [String: String] = [:]
+    var layout: MenuBarGaugeLayout = .horizontal
+
+    mutating func move(_ id: String, by offset: Int) {
+        guard var ids, let source = ids.firstIndex(of: id), ids.indices.contains(source + offset) else { return }
+        ids.swapAt(source, source + offset)
+        self.ids = ids
+    }
+}
+
+nonisolated enum MenuBarGaugeLayout: String, Codable, Equatable, Sendable {
+    case horizontal, stacked, concentric
+
+    static func legacy(_ style: MenuBarStyle) -> Self {
+        switch style {
+        case .dualBattery: .stacked
+        case .concentricRings: .concentric
+        default: .horizontal
+        }
+    }
+}
+
+nonisolated struct MenuBarGaugeValue: Equatable, Sendable {
+    let id: String
+    let title: String
+    let usedPercentage: Double?
+    let basis: UsageValueBasis
+
+    var percentage: Double? { basis.percentage(fromUsed: usedPercentage) }
 }
 
 nonisolated struct MenuBarQuotaProjection {
@@ -105,6 +153,15 @@ nonisolated struct MenuBarQuotaProjection {
 
     var primary: UsageLimit? { limit(selection.gaugeIDs.first) }
     var secondary: UsageLimit? { limit(selection.gaugeIDs.dropFirst().first) }
+
+    var gauges: [MenuBarGaugeValue] {
+        selection.gaugeIDs.map { id in
+            let item = limit(id)
+            return MenuBarGaugeValue(
+                id: id, title: item?.shortTitle ?? selection.titles[id] ?? "한도",
+                usedPercentage: item?.usedPercentage, basis: basis)
+        }
+    }
 
     var percentageText: String {
         selection.percentageIDs.map { id in

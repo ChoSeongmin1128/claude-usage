@@ -22,7 +22,7 @@ extension SettingsView {
             {
                 GridRow {
                     Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                    ForEach(["메뉴바 숫자", "초기화 시간", "알림"], id: \.self) { title in
+                    ForEach(["메뉴바 숫자", "초기화 시간", "게이지", "알림"], id: \.self) { title in
                         Text(title)
                             .font(AppDesign.Typography.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
@@ -33,6 +33,8 @@ extension SettingsView {
             }
             .font(AppDesign.Typography.subheadline)
             .controlSize(.small)
+            gaugeOrderControls(provider)
+                .controlSize(.small)
         }
     }
 
@@ -61,6 +63,10 @@ extension SettingsView {
             }
             limitsCell(menuBarResetBinding(row, provider: provider), help: "메뉴바에 초기화 시간 표시", row: row.title)
                 .disabled(quotaCellUnavailable(row, provider: provider, surface: .reset))
+            limitsCell(quotaGaugeBinding(row, provider: provider), help: "메뉴바에 게이지로 표시", row: row.title)
+                .disabled(
+                    quotaCellUnavailable(row, provider: provider, surface: .gauge)
+                        || (provider == .antigravity && antigravitySettings.state.activity.isBusy))
             notificationCell(row, provider: provider)
         }
     }
@@ -106,11 +112,17 @@ extension SettingsView {
     private func limitRows(for provider: AppProviderKind) -> [LimitSettingsRow] {
         let _ = runtimeEnvironmentRefreshTick
         if provider == .antigravity {
+            let selected =
+                (antigravitySettings.state.display?.menuBar.textLaneIDs(
+                    fallback: antigravityObservedLanes.map(\.id)) ?? [])
+                + (gaugeSelection(.antigravity).ids ?? []).map(AntigravityQuotaLaneID.init(rawValue:))
+            let unique = selected.reduce(into: [AntigravityQuotaLaneID]()) { result, id in
+                if !result.contains(id) { result.append(id) }
+            }
             return LimitSettingsTable.antigravityRows(
                 lanes: antigravityObservedLanes.map { ($0.id.rawValue, "\($0.scopeTitle) · \($0.cadenceTitle)") },
                 limits: notificationManager.inventories[.antigravity] ?? [],
-                selectedIDs: antigravitySettings.state.display?.menuBar.textLaneIDs(
-                    fallback: antigravityObservedLanes.map(\.id)) ?? [])
+                selectedIDs: unique, titles: gaugeSelection(.antigravity).titles)
         }
         guard let service = provider.runtimeService,
             let catalog = UsageItemCatalogRegistry.catalog(for: service)
@@ -131,7 +143,7 @@ extension SettingsView {
                     id: limit.id, title: limit.title, quotaID: limit.id,
                     notificationLimit: limit, takesNotification: true))
         }
-        if let selection = settings.menuBarDisplayConfig(for: provider)?.quotaSelection {
+        if let selection = effectiveMenuBarSelection(provider) {
             let observed = Set(providerUsageLimits(provider).map(\.id))
             for id in selection.selectedIDs.sorted() where !observed.contains(id) {
                 rows.append(LimitSettingsRow(id: id, title: "\(selection.titles[id] ?? "한도") (데이터 없음)", quotaID: id))
