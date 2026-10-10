@@ -7,7 +7,7 @@ ClaudeUsage는 AGY CLI의 공식 사용량 보고로 Google Antigravity quota를
 - [Google Antigravity CLI](https://antigravity.google/blog/introducing-google-antigravity-cli?app=antigravity)
 - [Antigravity CLI 문서](https://antigravity.google/docs/cli/overview)
 
-2.8.0부터 AGY CLI만 조회합니다. Antigravity 2.0 독립 앱은 기계로 읽을 수 있는 공식 사용량 경로가 없어 조회하지 않으며, 이전 버전에서 독립 앱을 고른 설정은 AGY CLI로 바뀝니다. Antigravity IDE는 지원하지 않습니다.
+AGY CLI만 조회합니다. Antigravity 2.0 독립 앱과 IDE는 현재 조회 대상이 아닙니다. 이전 버전에서 저장한 독립 앱 선택은 되돌리기 호환을 위해 보존하지만 현재 조회에는 사용하지 않으며, 설정 화면은 AGY CLI 연결을 안내합니다.
 
 Google 계정 연결이나 별도 OAuth 로그인은 제공하지 않습니다. 로그인 변경은 AGY CLI에서 직접 수행한 뒤 ClaudeUsage를 새로고침합니다. 설치는 `curl -fsSL https://antigravity.google/cli/install.sh | bash`로 하고, 설치 뒤 `agy`를 실행해 로그인합니다.
 
@@ -27,6 +27,14 @@ Google 계정 연결이나 별도 OAuth 로그인은 제공하지 않습니다. 
 Antigravity의 설정 파일이나 대화형 TUI 화면은 사용량 자료로 파싱하지 않습니다.
 
 계정에 따라 quota 종류와 주기가 다를 수 있습니다. 응답에 없는 quota를 0%나 100%로 만들지 않으며, 계정만 확인되고 숫자 사용량이 없으면 수치 미지원 상태로 표시합니다. 일시적인 조회 실패에는 마지막 성공 값과 확인 시각을 이전 값으로 유지합니다.
+
+## 메뉴바와 알림
+
+서비스 설정의 메뉴바 한도 목록에서 실제 조회된 모델·공유 한도를 추가하고 각 항목의 게이지, 숫자와 초기화 시간을 고릅니다. 목록 손잡이로 순서를 바꾸며 미리보기는 묶음 전체를 가로로 옮깁니다. 원형 게이지는 둘씩 동심원으로, 배터리 게이지는 둘씩 두 줄로 배치할 수 있습니다. 없는 모델의 수치를 다른 모델 값으로 대신 표시하지 않습니다.
+
+부분 응답에서 숫자를 알 수 없고 초기화 시간만 확인돼도 시간 선택은 유지합니다. 기존 자동 선택과 명시적으로 끈 선택은 구별하며 설정을 여는 것만으로 저장하지 않습니다.
+
+현재 CLI 보고에는 계정 식별자가 없습니다. 사용량 표시와 알림 대상 목록은 제공하지만, 계정별 이력이 필요한 임계값 알림은 발송하지 않습니다. 마지막으로 확인한 값과 실제 이번 조회 값을 구별합니다.
 
 ## 실행 파일과 프로세스 보호
 
