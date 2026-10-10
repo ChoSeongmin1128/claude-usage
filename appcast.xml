@@ -4,21 +4,25 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>ClaudeUsage</title>
         <item>
-            <title>Version 2.9.2</title>
-            <pubDate>Fri, 09 Oct 2026 00:52:20 +0900</pubDate>
-            <sparkle:version>20645</sparkle:version>
-            <sparkle:shortVersionString>2.9.2</sparkle:shortVersionString>
+            <title>Version 2.9.3</title>
+            <pubDate>Sun, 11 Oct 2026 02:17:37 +0900</pubDate>
+            <sparkle:version>20646</sparkle:version>
+            <sparkle:shortVersionString>2.9.3</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.9.2/ClaudeUsage.dmg" length="6934490" type="application/octet-stream" sparkle:edSignature="oSpA/47LFjhra4GVruJZkqPWBdUrurvSovbNAtZyhfBzCznjbIfKZF394v5i2lBlg061JuPHan+TqqLJa8aoBw=="></enclosure>
-            <description sparkle:format="plain-text"># 2.9.2
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.9.3/ClaudeUsage.dmg" length="7148748" type="application/octet-stream" sparkle:edSignature="s1RfQBQF05nANCWWxzuMnjarz0PpM6V+YH3w4ZJLHYUyh9/eOn9hOQ4EhcilVFYF1RHMwLYvAntaxcRIWxSHCQ=="></enclosure>
+            <description sparkle:format="plain-text"># 2.9.3
 
-- Claude와 Codex 메뉴바의 사용률과 초기화 시간 앞에 자동으로 붙던 한도 이름을 제거했습니다. 다시 숫자와 시간만 표시합니다.
-- 같은 한도를 골라도 설정 저장 방식에 따라 표시가 달라지던 문제를 수정했습니다. 한도 선택, 게이지 순서와 모양은 유지됩니다.
+- 메뉴바 설정을 한도 목록으로 정리했습니다. 각 항목에서 게이지, 숫자와 초기화 시간을 고르고 목록이나 미리보기에서 드래그해 순서를 바꿀 수 있습니다.
+- 동심원과 두 줄 배치는 둘씩 묶어 표시합니다. 동심원의 바깥쪽과 안쪽을 확인하고 순서를 바꿀 수 있으며, 미리보기에서는 묶음 전체를 가로로 옮깁니다.
+- 기존 선택과 이름 숨김은 유지합니다. 사용량이 없는 한도를 다른 한도나 0%로 대신 표시하지 않습니다.
+- 조회 도중 로그인이 바뀌었을 때 다른 계정의 사용량이 섞일 수 있는 경로를 수정했습니다.
+- 초기화권 수량이 확인되지 않는 응답을 0개로 처리하던 문제와 오래된 로그인 잠금이 조회를 끝내지 못하게 하던 문제를 수정했습니다.
+- 부분 사용량 응답 이후 기존 표시가 복원되지 않거나, 모델별 숫자의 색상이 갱신되지 않던 문제를 수정했습니다.
 </description>
-            <claudeusage:zipSHA256>30948ddcd227f49c90efee5e8415eb4be669435e7744ae74f85ece642185d05b</claudeusage:zipSHA256>
+            <claudeusage:zipSHA256>11667af44414645ee7e5b6e444a1036c30685ba1eea7cee2c9c2b91b5f01b0b1</claudeusage:zipSHA256>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: x3+bJPJCuqPgzexwoYOTguvv3nipQchZxp3n/zmzlypWsPps2MiBX9o06az2MNLUkBkBmikcVpGnzqm/jZufBQ==
-length: 1701
+edSignature: p49bPdbJfXIQHjfAM2ZgkohHosW1n/CbYl9b+X4rHbSIq7GIY96aOzP4KXeyZjV1lqD2EgPmj4UXl/12jolDBw==
+length: 2376
 -->
