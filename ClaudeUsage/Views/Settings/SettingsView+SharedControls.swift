@@ -43,10 +43,9 @@ extension SettingsView {
                 }
                 .pickerStyle(.menu)
                 .controlSize(.small)
-                menuBarSettingsPreview(for: provider, config: displayConfig)
-                gaugeSelectionControls(provider)
+                providerMenuBarQuotaEditor(for: provider)
                 menuBarAppearanceControls(for: provider, displayConfig: displayConfig)
-                menuBarTextDisplayControls(for: provider)
+                menuBarResetCreditControls(for: provider)
             }
         }
     }
@@ -63,6 +62,7 @@ extension SettingsView {
             )
             .toggleStyle(.checkbox)
             menuBarGaugeControls(for: provider, config: displayConfig)
+            menuBarGaugeArrangementControls(for: provider)
         }
         .controlSize(.small)
     }
@@ -97,33 +97,12 @@ extension SettingsView {
         .font(AppDesign.Typography.subheadline)
     }
 
-    private func menuBarSettingsPreview(for provider: AppProviderKind, config: ProviderMenuBarDisplayConfig)
-        -> some View
-    {
-        let appearance = NSApp.effectiveAppearance
-        let icon = ProviderBrandIconResolver.image(for: provider, kind: .menuBar, appearance: appearance)
-        let snapshot: MenuBarProviderSnapshot
-        if provider == .claude {
-            snapshot = MenuBarStatusComposer.claudeSnapshot(
-                config: config, usage: claudeLastUsage?(), error: nil,
-                hasAuthError: false, hasCredential: hasReadyClaudeCredential, secondaryColor: .secondaryLabelColor,
-                icon: icon, appearance: appearance)
-        } else {
-            snapshot = MenuBarStatusComposer.codexSnapshot(
-                config: config, usage: codexLastUsage?(), error: codexLastError?(),
-                hasAuthError: false, isAuthenticated: codexAuthStatus == .authenticated,
-                secondaryColor: .secondaryLabelColor, icon: icon, appearance: appearance)
-        }
-        return MenuBarSettingsPreview(snapshot: snapshot)
-    }
-
     @ViewBuilder
     private func antigravityMenuBarDisplaySection() -> some View {
         VStack(alignment: .leading, spacing: AppDesign.Space.row) {
             Text("메뉴바 표시").font(AppDesign.Typography.headline)
-            antigravityMenuBarSettingsPreview()
             if let display = antigravitySettings.state.display {
-                gaugeSelectionControls(.antigravity)
+                providerMenuBarQuotaEditor(for: .antigravity)
                 HStack(spacing: AppDesign.Space.section) {
                     Toggle("메뉴바에 표시", isOn: antigravityMenuBarBinding(display, keyPath: \.isVisible))
                     Toggle("서비스 로고", isOn: antigravityMenuBarBinding(display, keyPath: \.showsProviderIcon))
@@ -146,10 +125,10 @@ extension SettingsView {
                     }
                     GridRow {
                         Text("게이지 모양")
-                        Picker("게이지 모양", selection: antigravityMenuBarStyleBinding(display)) {
-                            Text("없음").tag(AntigravityDisplaySettings.MenuBarPresentationIntent.Style.none)
-                            Text("배터리바").tag(AntigravityDisplaySettings.MenuBarPresentationIntent.Style.batteryBar)
-                            Text("원형").tag(AntigravityDisplaySettings.MenuBarPresentationIntent.Style.circular)
+                        Picker("게이지 모양", selection: gaugeShapeBinding(.antigravity)) {
+                            ForEach([MenuBarStyle.none, .batteryBar, .circular], id: \.rawValue) {
+                                Text($0.displayName).tag($0)
+                            }
                         }.labelsHidden()
                     }
                     if display.menuBar.style == .batteryBar {
@@ -162,31 +141,14 @@ extension SettingsView {
                         }
                     }
                 }
-                menuBarTextDisplayControls(for: .antigravity)
+                menuBarGaugeArrangementControls(for: .antigravity)
             } else {
                 Text("불러오는 중").foregroundStyle(.secondary)
             }
         }
         .font(AppDesign.Typography.subheadline)
         .controlSize(.small)
-    }
-
-    private func antigravityMenuBarSettingsPreview() -> MenuBarSettingsPreview {
-        let snapshot: MenuBarProviderSnapshot?
-        if case .content(let presentation) = antigravitySettings.state.quotaPresentation {
-            snapshot = MenuBarStatusComposer.antigravitySnapshot(
-                presentation: presentation.menuBar,
-                icon: ProviderBrandIconResolver.image(
-                    for: .antigravity, kind: .menuBar, appearance: NSApp.effectiveAppearance),
-                appearance: NSApp.effectiveAppearance, design: settings.menuBarDesign,
-                colorMode: settings.menuBarColorMode)
-        } else {
-            snapshot = nil
-        }
-        return MenuBarSettingsPreview(
-            snapshot: snapshot,
-            unavailableText: antigravitySettings.state.display?.menuBar.isVisible == false
-                ? "메뉴바 표시가 꺼져 있습니다." : "사용량을 확인하면 미리보기가 표시됩니다.")
+        .disabled(antigravitySettings.state.activity.isBusy)
     }
 
     var antigravityObservedLanes:
@@ -243,23 +205,6 @@ extension SettingsView {
                     $0.menuBar[
                         keyPath: keyPath
                     ] = value
-                }
-            }
-        )
-    }
-
-    private func antigravityMenuBarStyleBinding(
-        _ display: AntigravityDisplaySettings
-    ) -> Binding<
-        AntigravityDisplaySettings
-            .MenuBarPresentationIntent.Style
-    > {
-        Binding(
-            get: { display.menuBar.style },
-            set: { style in
-                updateAntigravityDisplay {
-                    $0.menuBar.style = style
-                    if style == .none { $0.menuBar.gaugeLaneIDs = []; $0.menuBar.gaugeTitles = [:] }
                 }
             }
         )

@@ -47,10 +47,24 @@ final class AdaptiveRefreshPolicyTests: XCTestCase {
             now.addingTimeInterval(60))
     }
 
+    func testResetFollowUpSurvivesAnotherProviderRefreshDuringServerGracePeriod() {
+        let reset = now
+        let expected = reset.addingTimeInterval(5)
+        for offset in [0.0, 1.0, 4.99] {
+            XCTAssertEqual(
+                AdaptiveRefreshPolicy.nextResetFollowUp(resetDates: [reset], now: reset.addingTimeInterval(offset)),
+                expected)
+        }
+        XCTAssertNil(AdaptiveRefreshPolicy.nextResetFollowUp(resetDates: [reset], now: expected))
+        XCTAssertNil(AdaptiveRefreshPolicy.nextResetFollowUp(resetDates: [reset], now: expected.addingTimeInterval(1)))
+    }
+
     func testResetFollowUpTargetsTheNextReset() {
         let resets = [now.addingTimeInterval(-60), now.addingTimeInterval(900), now.addingTimeInterval(300)]
         XCTAssertEqual(
             AdaptiveRefreshPolicy.nextResetFollowUp(resetDates: resets, now: now), now.addingTimeInterval(305))
-        XCTAssertNil(AdaptiveRefreshPolicy.nextResetFollowUp(resetDates: [now.addingTimeInterval(-1)], now: now))
+        XCTAssertEqual(
+            AdaptiveRefreshPolicy.nextResetFollowUp(resetDates: [now.addingTimeInterval(-1)], now: now),
+            now.addingTimeInterval(4))
     }
 }

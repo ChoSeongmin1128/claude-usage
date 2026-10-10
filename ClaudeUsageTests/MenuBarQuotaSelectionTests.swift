@@ -63,11 +63,17 @@ final class MenuBarQuotaSelectionTests: XCTestCase {
         XCTAssertFalse(projection.percentageText.contains("0%"))
         XCTAssertNil(projection.primary)
         XCTAssertNil(projection.resetText)
-        var mutable = selection
-        mutable.setSelected(false, id: model.id, surface: .percentage, limits: limits)
-        XCTAssertTrue(mutable.percentageIDs.isEmpty)
-        mutable.setSelected(true, id: model.id, surface: .percentage, limits: limits)
-        XCTAssertTrue(mutable.percentageIDs.isEmpty)
+        let editor = MenuBarQuotaEditorModel(
+            provider: .claude,
+            items: limits.map {
+                .init(
+                    id: $0.id, title: $0.title, usedPercentage: $0.usedPercentage, canSelect: $0.usedPercentage != nil)
+            },
+            selection: selection, arrangement: .baseline(selection: selection, layout: .horizontal), shape: .batteryBar)
+        let removed = editor.applying(.setSurface(model.id, .percentage, false))
+        XCTAssertTrue(removed.selection.percentageIDs.isEmpty)
+        let rejected = removed.applying(.setSurface(model.id, .percentage, true))
+        XCTAssertTrue(rejected.selection.percentageIDs.isEmpty)
     }
 
     func testLegacySelectionsAndRawKeysStayUntouchedUntilOptInAndResetRestoresLegacy() throws {
@@ -80,7 +86,7 @@ final class MenuBarQuotaSelectionTests: XCTestCase {
         let limits = UsageLimitCatalog.claude(try usage())
         var selection = try XCTUnwrap(settings.menuBarQuotaSelection(for: .claude, limits: limits))
         let model = try XCTUnwrap(limits.first(where: \.isModelScoped))
-        selection.setSelected(true, id: model.id, surface: .percentage, limits: limits)
+        selection.setSelected(true, id: model.id, surface: .percentage, title: model.title)
         settings.setMenuBarQuotaSelection(selection, for: .claude)
         XCTAssertEqual(defaults.string(forKey: "percentageDisplay"), "pct_weekly")
         XCTAssertEqual(AppSettings(defaults: defaults).menuBarDisplayConfig(for: .claude)?.quotaSelection, selection)
@@ -209,8 +215,7 @@ extension MenuBarQuotaSelectionTests {
         let limits = UsageLimitCatalog.claude(try usage())
         let ids = limits.map(\.id)
         let selection = MenuBarQuotaSelection(percentageIDs: [ids[0]], resetIDs: [ids[1]], gaugeIDs: ids)
-        var gauges = MenuBarGaugeSelection(ids: ids)
-        gauges.move(ids[2], by: -1)
+        let gauges = MenuBarGaugeSelection(ids: [ids[0], ids[2], ids[1]])
         let preferences = MenuBarQuotaPreferences(providers: ["claude": selection], gauges: ["claude": gauges])
         let decoded = try JSONDecoder().decode(MenuBarQuotaPreferences.self, from: JSONEncoder().encode(preferences))
         XCTAssertEqual(decoded, preferences)
@@ -509,6 +514,7 @@ extension MenuBarQuotaSelectionTests {
             quotaSelection: MenuBarQuotaSelection.legacy(config: self.config(nil), limits: limits))
         var selection = try XCTUnwrap(config.quotaSelection)
         selection.percentageIDs = []
+        selection.legacyPercentageDisplay = nil
         let selectedConfig = ProviderMenuBarDisplayConfig(
             kind: .claude, showIcon: false, style: .batteryBar, percentageDisplay: .none,
             showBatteryPercent: true, resetTimeDisplay: .fiveHour, timeFormat: .remaining,

@@ -154,6 +154,24 @@ final class AccountSwitchingTests: XCTestCase {
             "잡지 못하면 먼저 잡은 잠금도 놓아야 합니다")
     }
 
+    func testNonemptyStaleLockStillTimesOutAndReleasesPreviouslyAcquiredLocks() throws {
+        let directory = root.appendingPathComponent("blocked", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let blocked = ClaudeCodeDirectoryLock.legacyRefreshLock(for: directory)
+        try FileManager.default.createDirectory(at: blocked, withIntermediateDirectories: false)
+        try Data("held".utf8).write(to: blocked.appendingPathComponent("owner"))
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(-120)], ofItemAtPath: blocked.path)
+        let start = Date()
+        XCTAssertThrowsError(try ClaudeCodeDirectoryLock(configDirectory: directory).acquire(timeout: 0.05)) {
+            XCTAssertEqual($0 as? AccountSwitchError, .busy)
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(start), 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: blocked.appendingPathComponent("owner").path))
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: directory.appendingPathComponent(".oauth_refresh.lock").path))
+    }
+
     func testLockWaitsForLiveHolderButClearsStaleLock() throws {
         let directory = root.appendingPathComponent("locked", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

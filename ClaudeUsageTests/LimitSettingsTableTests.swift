@@ -3,7 +3,7 @@ import XCTest
 
 @MainActor
 final class LimitSettingsTableTests: XCTestCase {
-    func testClaudeRowsJoinPopoverItemsMenuBarSlotsAndNotificationLimits() {
+    func testClaudeRowsJoinPopoverItemsAndNotificationLimits() {
         let usage = ClaudeUsageResponse(
             fiveHour: .init(utilization: 10, resetsAt: nil),
             sevenDay: .init(utilization: 20, resetsAt: nil),
@@ -13,10 +13,8 @@ final class LimitSettingsTableTests: XCTestCase {
             limits: UsageLimitCatalog.claude(usage), displayName: ClaudeItemCatalog().displayName(for:))
 
         XCTAssertEqual(rows.map(\.title), ["5시간 한도", "주간 한도", "모델별 주간 한도", "Fable · 주간", "추가 사용량", "초기화권"])
-        XCTAssertEqual(rows.map(\.menuBarSlot), [.fiveHour, .weekly, nil, nil, nil, nil])
         XCTAssertEqual(rows.map(\.controlsResetCreditMenuBar), [false, false, false, false, false, true])
         XCTAssertEqual(rows[0].notificationLimit?.scope, "five_hour")
-        XCTAssertTrue(rows[3].isChild)
         for row in rows.suffix(2) {
             XCTAssertNil(row.notificationLimit)
             XCTAssertFalse(row.takesNotification)
@@ -48,13 +46,12 @@ final class LimitSettingsTableTests: XCTestCase {
         XCTAssertEqual(rows.map(\.id), ["codexSecondary", "codexCredits"])
         XCTAssertEqual(rows.map(\.title), ["주간 한도", "크레딧 잔액"])
         XCTAssertEqual(rows[0].notificationLimit?.windowSlot, "primary")
-        XCTAssertEqual(rows[0].menuBarSlot, .weekly)
         XCTAssertTrue(rows[0].takesNotification)
         XCTAssertNil(rows[1].notificationLimit)
         XCTAssertFalse(rows[1].takesNotification)
     }
 
-    func testCodexSwappedApiWindowsKeepSemanticMenuBarSlotsAndOriginalNotificationIDs() throws {
+    func testCodexSwappedApiWindowsKeepSemanticTitlesAndOriginalNotificationIDs() throws {
         let usage = try JSONDecoder().decode(
             CodexUsageResponse.self,
             from: Data(
@@ -71,7 +68,6 @@ final class LimitSettingsTableTests: XCTestCase {
 
         XCTAssertEqual(rows.map(\.id), ["codexPrimary", "codexSecondary"])
         XCTAssertEqual(rows.map(\.title), ["5시간 한도", "주간 한도"])
-        XCTAssertEqual(rows.map(\.menuBarSlot), [.fiveHour, .weekly])
         XCTAssertEqual(rows.map { $0.notificationLimit?.windowSlot }, ["secondary", "primary"])
         XCTAssertEqual(rows[0].notificationLimit?.id, limits.first { $0.windowSlot == "secondary" }?.id)
         XCTAssertEqual(rows[1].notificationLimit?.id, limits.first { $0.windowSlot == "primary" }?.id)
@@ -125,9 +121,7 @@ final class LimitSettingsTableTests: XCTestCase {
             let reloaded = AppSettings(defaults: defaults, hasExistingAccountStorage: false)
             XCTAssertEqual(reloaded.menuBarDisplayConfig(for: .codex)?.percentageDisplay, raw)
         }
-        let saved = try XCTUnwrap(settings.menuBarDisplayConfig(for: .codex)?.percentageDisplay)
-        settings.setProviderPercentageDisplay(
-            saved.effectiveCodexSelection(usage: weeklyOnly).setting(.weekly, to: false), for: .codex)
+        settings.setProviderPercentageDisplay(.none, for: .codex)
         let changed = try XCTUnwrap(settings.menuBarDisplayConfig(for: .codex)?.percentageDisplay)
         XCTAssertEqual(changed, PercentageDisplay.none)
         XCTAssertFalse(changed.effectiveCodexSelection(usage: weeklyOnly).contains(.weekly))
@@ -135,13 +129,6 @@ final class LimitSettingsTableTests: XCTestCase {
         XCTAssertEqual(PercentageDisplay.dual.effectiveCodexSelection(usage: sessionOnly), .fiveHour)
         XCTAssertEqual(PercentageDisplay.weekly.effectiveCodexSelection(usage: sessionOnly), PercentageDisplay.none)
         XCTAssertEqual(PercentageDisplay.dual.effectiveCodexSelection(usage: noWindows), PercentageDisplay.none)
-    }
-
-    func testMenuBarPercentageCombinesSlots() {
-        XCTAssertEqual(PercentageDisplay.none.setting(.fiveHour, to: true), .fiveHour)
-        XCTAssertEqual(PercentageDisplay.fiveHour.setting(.weekly, to: true), .dual)
-        XCTAssertEqual(PercentageDisplay.dual.setting(.fiveHour, to: false), .weekly)
-        XCTAssertEqual(PercentageDisplay.weekly.setting(.weekly, to: false), PercentageDisplay.none)
     }
 
     func testStoredTabsFromEarlierVersionsOpenTheNewPanels() {

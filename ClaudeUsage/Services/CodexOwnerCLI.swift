@@ -3,9 +3,20 @@ import Darwin
 import Foundation
 import os
 
+nonisolated struct CodexOwnedRateLimits: Sendable {
+    let email: String
+    let accountID: String
+    let quota: CodexOwnerResultBox
+}
+
+nonisolated protocol CodexOwnedRateLimitsReading: Sendable {
+    func readOwnedRateLimits(sourceURL: URL, expectedAccountID: String, budget: CodexRequestBudget) async throws
+        -> CodexOwnedRateLimits
+}
+
 /// A bounded stdio session with the CLI that owns the auth file. No threads,
 /// turns, user prompts, token arguments or external processes are involved.
-nonisolated struct CodexOwnerCLI: CodexOwnerRefreshing {
+nonisolated struct CodexOwnerCLI: CodexOwnerRefreshing, CodexOwnedRateLimitsReading {
     let executableURL: URL?
 
     init(executableURL: URL? = nil) {
@@ -69,8 +80,7 @@ nonisolated struct CodexOwnerCLI: CodexOwnerRefreshing {
             try await Task.detached(priority: .utility) {
                 let session = try CodexOwnerSession(
                     executableURL: try self.resolvedExecutable(), sourceURL: sourceURL,
-                    budget: budget, cancelled: cancelled
-                )
+                    budget: budget, cancelled: cancelled)
                 defer { session.close() }
                 _ = try session.request(
                     1, "initialize",
@@ -89,6 +99,54 @@ nonisolated struct CodexOwnerCLI: CodexOwnerRefreshing {
             cancelled.withLock { $0 = true }
         }
         return box.value
+    }
+
+    func readOwnedRateLimits(sourceURL: URL, expectedAccountID: String, budget: CodexRequestBudget) async throws
+        -> CodexOwnedRateLimits
+    {
+        let cancelled = OSAllocatedUnfairLock(initialState: false)
+        let result = try await withTaskCancellationHandler {
+            try await Task.detached(priority: .utility) {
+                let session = try CodexOwnerSession(
+                    executableURL: try self.resolvedExecutable(), sourceURL: sourceURL,
+                    budget: budget, cancelled: cancelled)
+                defer { session.close() }
+                _ = try session.request(
+                    1, "initialize",
+                    params: [
+                        "clientInfo": ["name": "claudeusage", "version": "1"],
+                        "capabilities": ["experimentalApi": false],
+                    ])
+                try session.send(["method": "initialized"])
+                let before = try Self.accountEmail(
+                    session.request(2, "account/read", params: ["refreshToken": false]))
+                let quota = try session.request(3, "account/rateLimits/read")
+                guard quota["accountId"] as? String == expectedAccountID else {
+                    throw CodexOwnerError.accountMismatch
+                }
+                let after = try Self.accountEmail(
+                    session.request(4, "account/read", params: ["refreshToken": false]))
+                guard before.caseInsensitiveCompare(after) == .orderedSame else {
+                    throw CodexOwnerError.accountMismatch
+                }
+                return CodexOwnedRateLimits(
+                    email: after, accountID: expectedAccountID, quota: CodexOwnerResultBox(value: quota))
+            }.value
+        } onCancel: {
+            cancelled.withLock { $0 = true }
+        }
+        try budget.check()
+        return result
+    }
+
+    private static func accountEmail(_ result: [String: Any]) throws -> String {
+        guard let account = result["account"] as? [String: Any], account["type"] as? String == "chatgpt" else {
+            throw CodexOwnerError.rejected
+        }
+        guard let email = (account["email"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !email.isEmpty
+        else { throw CodexOwnerError.invalidResponse }
+        return email
     }
 
     static func resetCredits(from value: Any?) -> CodexResetCreditsResponse? {

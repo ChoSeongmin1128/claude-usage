@@ -131,6 +131,7 @@ nonisolated enum CodexAuthStatusResolver {
 
 struct SettingsView: View {
     @Environment(\.accessibilityReduceMotion) var reduceMotion
+    @Environment(\.colorScheme) var colorScheme
     let claudeAPIService: ClaudeAPIService
     let claudeOAuthMigrationCoordinator: ClaudeOAuthCredentialMigrationCoordinator
     let initialPanel: SettingsProviderPanel?
@@ -176,7 +177,6 @@ struct SettingsView: View {
     @State var codexAuthStatus: CodexAuthStatus = .checking
     @State var codexAuthCheckTask: Task<Void, Never>?
     @State var runtimeEnvironmentRefreshTick: Int = 0
-    @State var expandedMenuBarTextProviders: Set<AppProviderKind> = []
     @State var pendingDestructiveAction: SettingsDestructiveAction?
     @StateObject var antigravitySettings:
         AntigravitySettingsViewModel

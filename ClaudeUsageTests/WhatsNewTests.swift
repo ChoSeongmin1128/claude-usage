@@ -66,6 +66,16 @@ final class WhatsNewTests: XCTestCase {
         XCTAssertFalse(page.body.contains("이름을 붙여 가로로 표시"))
     }
 
+    func testNewMenuBarGuideDescribesTheCurrentEditorAndPreservesOldInstallDefaults() throws {
+        let page = try XCTUnwrap(WhatsNewCatalog.latestPages(upTo: "2.9.3").first)
+        XCTAssertEqual(page.version, "2.9.3")
+        XCTAssertEqual(page.action, .openSettings(.claude, section: .menuBar))
+        XCTAssertTrue(page.body.contains("드래그"))
+        XCTAssertTrue(page.body.contains("기존 설정과 이름 숨김"))
+        XCTAssertFalse(page.body.contains("체크"))
+        XCTAssertFalse(page.body.contains("화살표"))
+    }
+
     @MainActor
     func testSettingsActionPreservesWhatsNewWindowAndPendingNotesUntilClose() throws {
         let suite = "WhatsNewTests.window.\(UUID().uuidString)"

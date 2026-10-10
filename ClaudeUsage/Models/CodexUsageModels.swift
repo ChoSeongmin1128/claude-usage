@@ -219,6 +219,11 @@ nonisolated struct CodexUsageWindow: Codable, Sendable {
             )
         }
 
+        guard usedPercent.isFinite, usedPercent >= 0 else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .usedPercent, in: container, debugDescription: "valid_numeric_usage_required")
+        }
+
         // resetAt: Int, Double 또는 숫자 문자열. 읽지 못하면 초기화 시각만 비운다.
         let parsedReset: Double?
         if let number = try? container.decode(Double.self, forKey: .resetAt) {

@@ -62,6 +62,114 @@ final class ResetCreditsTests: XCTestCase {
         XCTAssertEqual(summary.availableCount, 2)
     }
 
+    func testMalformedClaudeGrantCountRemainsUnknownAndPreservesBaseUsage() throws {
+        for field in [
+            "", #", "resets_left": null"#, #", "resets_left": "unknown""#,
+            #", "resets_left": -1"#, #", "resets_left": 1.5"#, #", "resets_left": true"#,
+        ] {
+            let usage = try claudeUsage(
+                #"{"eligible":true,"grants":[{"id":"grant-fixture"\#(field)}]}"#)
+            let grants = try XCTUnwrap(usage.resetGrants)
+            XCTAssertEqual(usage.fiveHour?.utilization, 24)
+            XCTAssertEqual(grants.grants.count, 1)
+            XCTAssertNil(grants.grants.first?.resetsLeft)
+            XCTAssertNil(grants.availableCount(at: now))
+            XCTAssertNil(ResetCreditSummary.claude(grants, now: now))
+        }
+    }
+
+    func testPartialClaudeCountsCannotOverwriteSeenCountOrKnownIDs() throws {
+        let suite = "ResetCreditsTests.partial.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let account = "claude/fixture"
+        func summary(_ json: String) throws -> ResetCreditSummary? {
+            ResetCreditSummary.claude(try claudeUsage(json).resetGrants, now: now)
+        }
+        let first = try XCTUnwrap(
+            summary(
+                #"{"eligible":true,"grants":[{"id":"first","resets_left":1}]}"#))
+        let completeJSON =
+            #"{"eligible":true,"grants":[{"id":"first","resets_left":1},{"id":"second","resets_left":1}]}"#
+        let complete = try XCTUnwrap(summary(completeJSON))
+        ResetCreditSeenStore.observe(
+            summary: first, count: first.availableCount, accountKey: account, defaults: defaults)
+        ResetCreditSeenStore.observe(
+            summary: complete, count: complete.availableCount, accountKey: account, defaults: defaults)
+        let receipt = try XCTUnwrap(
+            ResetCreditSeenStore.receipt(service: .claude, accountKey: account, defaults: defaults))
+        let stored = try XCTUnwrap(defaults.data(forKey: ResetCreditSeenStore.key))
+        XCTAssertTrue(ResetCreditSeenStore.isNew(accountKey: account, defaults: defaults))
+
+        let partialUsage = try claudeUsage(
+            #"{"eligible":true,"exhausted":[{}],"grants":[{"id":"first","resets_left":1},{"id":"second","resets_left":"unknown"}]}"#
+        )
+        let partialGrants = try XCTUnwrap(partialUsage.resetGrants)
+        XCTAssertEqual(partialGrants.grants.map(\.id), ["first", "second"])
+        XCTAssertEqual(partialGrants.grants.first?.resetsLeft, 1)
+        XCTAssertNil(partialGrants.availableCount(at: now))
+        let partial = ResetCreditSummary.claude(partialGrants, now: now)
+        XCTAssertNil(partial, "One known grant is not a verified total, even when exhausted grants also exist.")
+        XCTAssertNil(MenuBarResetCreditBadge.resolve(summary: partial, isNew: true, mode: .always, now: now))
+        // This is the same summary/count projection used by AppDelegate.observeResetCredits.
+        ResetCreditSeenStore.observe(
+            summary: partial, count: partial?.availableCount, accountKey: account, defaults: defaults)
+        XCTAssertEqual(defaults.data(forKey: ResetCreditSeenStore.key), stored)
+        XCTAssertEqual(
+            ResetCreditSeenStore.receipt(service: .claude, accountKey: account, defaults: defaults), receipt)
+        XCTAssertTrue(ResetCreditSeenStore.isNew(accountKey: account, defaults: defaults))
+
+        ResetCreditSeenStore.observe(
+            summary: try summary(completeJSON), count: complete.availableCount, accountKey: account, defaults: defaults)
+        XCTAssertEqual(
+            defaults.data(forKey: ResetCreditSeenStore.key), stored,
+            "Completing the same IDs must not create another revision after the unknown response.")
+    }
+
+    func testVerifiedClaudeZeroAndExhaustedCountsRemainZero() throws {
+        for json in [
+            #"{"eligible":true,"grants":[{"id":"zero","resets_left":0}]}"#,
+            #"{"eligible":true,"grants":[],"exhausted":[{}]}"#,
+        ] {
+            let grants = try XCTUnwrap(try claudeUsage(json).resetGrants)
+            XCTAssertEqual(grants.availableCount(at: now), 0)
+            let summary = try XCTUnwrap(ResetCreditSummary.claude(grants, now: now))
+            XCTAssertEqual(summary.availableCount, 0)
+            XCTAssertTrue(summary.items.isEmpty)
+        }
+    }
+
+    func testInactiveUnknownGrantsDoNotHideTheVerifiedActiveCount() {
+        let active = ClaudeResetGrants.Grant(
+            id: "active", label: nil, resetsLeft: 2,
+            startsAt: nil, endsAt: nil, clears: [], paused: false)
+        let inactive = [
+            ClaudeResetGrants.Grant(
+                id: "paused", label: nil, resetsLeft: nil,
+                startsAt: nil, endsAt: nil, clears: [], paused: true),
+            ClaudeResetGrants.Grant(
+                id: "future", label: nil, resetsLeft: nil,
+                startsAt: now.addingTimeInterval(1), endsAt: nil, clears: [], paused: false),
+            ClaudeResetGrants.Grant(
+                id: "expired", label: nil, resetsLeft: nil,
+                startsAt: nil, endsAt: now, clears: [], paused: false),
+        ]
+        for grant in inactive {
+            let grants = ClaudeResetGrants(eligible: true, atLimit: false, grants: [active, grant])
+            XCTAssertEqual(grants.availableCount(at: now), 2)
+            XCTAssertEqual(ResetCreditSummary.claude(grants, now: now)?.items.map(\.id), ["active"])
+        }
+    }
+
+    func testUnrepresentableClaudeTotalRemainsUnknown() throws {
+        let usage = try claudeUsage(
+            #"{"eligible":true,"grants":[{"id":"maximum","resets_left":\#(Int.max)},{"id":"one","resets_left":1}]}"#)
+        let grants = try XCTUnwrap(usage.resetGrants)
+        XCTAssertEqual(grants.grants.first?.resetsLeft, Int.max)
+        XCTAssertNil(grants.availableCount(at: now))
+        XCTAssertNil(ResetCreditSummary.claude(grants, now: now))
+    }
+
     func testCodexSummaryUsesCountWhenDetailsAreMissing() throws {
         var usage = try JSONDecoder().decode(CodexUsageResponse.self, from: Data(#"{ "account_id": "a" }"#.utf8))
         usage.resetCredits = CodexResetCreditsResponse(credits: [], availableCountField: 2)

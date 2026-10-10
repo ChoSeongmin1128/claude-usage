@@ -382,6 +382,9 @@ final class AntigravityCLIReportProcessRunnerTests: XCTestCase {
     }
 
     func testInstalledOfficialAGYPassesProductionTrustChecks() async throws {
+        guard ProcessInfo.processInfo.environment["CLAUDEUSAGE_RUN_LIVE_AGY_TESTS"] == "1" else {
+            throw XCTSkip("CLAUDEUSAGE_RUN_LIVE_AGY_TESTS=1 is required")
+        }
         let home = FileManager.default.realHomeDirectory
         guard
             let executable = AntigravityProductionExecutableCatalogResolver(homeDirectoryURL: home)

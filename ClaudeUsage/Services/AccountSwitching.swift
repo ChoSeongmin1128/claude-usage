@@ -51,13 +51,12 @@ nonisolated final class ClaudeCodeDirectoryLock: @unchecked Sendable {
                 }
                 let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
                     .contentModificationDate
-                if let modified, Date().timeIntervalSince(modified) > stale {
-                    rmdir(url.path)
-                    continue
-                }
                 guard Date() < deadline else {
                     release()
                     throw AccountSwitchError.busy
+                }
+                if let modified, Date().timeIntervalSince(modified) > stale, rmdir(url.path) == 0 {
+                    continue
                 }
                 usleep(200_000)
             }

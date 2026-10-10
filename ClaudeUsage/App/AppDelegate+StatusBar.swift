@@ -704,7 +704,15 @@ extension AppDelegate {
                 ) : nil,
                 renderImages: renderImages,
                 appearance: appearance, design: AppSettings.shared.menuBarDesign,
-                colorMode: AppSettings.shared.menuBarColorMode
+                colorMode: AppSettings.shared.menuBarColorMode,
+                quotaUnits: renderImages
+                    ? currentAntigravityRuntimeSnapshot.settings.map {
+                        AntigravityMenuBarQuotaEditorAdapter.renderedUnits(
+                            settings: $0.display, presentation: presentation, design: AppSettings.shared.menuBarDesign,
+                            colorMode: AppSettings.shared.menuBarColorMode, appearance: appearance,
+                            secondaryColor: secondaryColor)
+                    } ?? nil : nil,
+                arrangement: currentAntigravityRuntimeSnapshot.settings?.display.menuBar.arrangement
             )
         }
     }

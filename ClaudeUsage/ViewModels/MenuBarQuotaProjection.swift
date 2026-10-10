@@ -47,22 +47,26 @@ nonisolated struct MenuBarQuotaProjection {
         }
     }
 
+    func percentageText(for id: String) -> String {
+        guard let limit = limit(id), let used = limit.usedPercentage else {
+            return "\(selection.titles[id] ?? "한도") 데이터 없음"
+        }
+        return basis.text(fromUsed: used)
+    }
+
+    func resetText(for id: String) -> String? {
+        guard let limit = limit(id), let date = limit.resetAt else { return nil }
+        return TimeFormatter.formatResetTime(
+            from: date, isWeekly: (limit.periodSeconds ?? 0) >= 86_400 || weeklyResetIDs.contains(id),
+            style: timeFormat, includeDateIfNotToday: false)
+    }
+
     var percentageText: String {
-        selection.percentageIDs.map { id in
-            guard let limit = limit(id), let used = limit.usedPercentage else {
-                return "\(selection.titles[id] ?? "한도") 데이터 없음"
-            }
-            return basis.text(fromUsed: used)
-        }.joined(separator: "·")
+        selection.percentageIDs.map { percentageText(for: $0) }.joined(separator: "·")
     }
 
     var resetText: String? {
-        let text = selection.resetIDs.compactMap { id -> String? in
-            guard let limit = limit(id), let date = limit.resetAt else { return nil }
-            return TimeFormatter.formatResetTime(
-                from: date, isWeekly: (limit.periodSeconds ?? 0) >= 86_400 || weeklyResetIDs.contains(id),
-                style: timeFormat, includeDateIfNotToday: false)
-        }.joined(separator: " · ")
+        let text = selection.resetIDs.compactMap { resetText(for: $0) }.joined(separator: " · ")
         return text.isEmpty ? nil : text
     }
 
@@ -78,7 +82,7 @@ nonisolated struct MenuBarQuotaProjection {
     }
 
     var visualValues: [Double] {
-        selection.gaugeIDs.map { limit($0)?.usedPercentage ?? -1 }
+        selection.selectedIDs.sorted().map { limit($0)?.usedPercentage ?? -1 }
     }
 }
 

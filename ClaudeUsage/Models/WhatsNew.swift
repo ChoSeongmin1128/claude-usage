@@ -45,12 +45,17 @@ nonisolated enum WhatsNewCatalog {
             action: .openSettings(.claude), actionTitle: "계정 설정 열기"),
         WhatsNewPage(
             version: "2.8.2", symbol: "chart.bar", title: "메뉴바에 표시할 모델 선택",
-            body: "Fable과 Codex 모델별 한도를 메뉴바에 표시할 수 있습니다. 한도 표에서 숫자와 초기화 시간을 고르고, 게이지에는 같은 목록의 한도를 지정합니다.",
+            body: "Fable과 Codex 모델별 한도를 메뉴바에 표시할 수 있습니다. 서비스 설정의 메뉴바 표시에서 한도를 추가하고 게이지, 숫자와 초기화 시간을 고릅니다.",
             action: .openSettings(.claude), actionTitle: "Claude 설정 열기"),
         WhatsNewPage(
             version: "2.9.0", symbol: "chart.bar", title: "메뉴바 게이지를 여러 개",
             body:
-                "5시간, 주간, Fable 같은 한도를 게이지로 함께 볼 수 있습니다. 서비스 설정의 ‘메뉴바 표시’에서 한도를 체크하고 화살표로 순서를 바꾸세요. 게이지 이름은 ‘게이지 이름 표시’를 켜면 나옵니다.",
+                "5시간, 주간, Fable 같은 한도를 게이지로 함께 볼 수 있습니다. 서비스 설정의 ‘메뉴바 표시’에서 한도를 추가하고 드래그해 순서를 바꾸세요. 게이지 이름은 ‘게이지 이름 표시’를 켜면 나옵니다.",
+            action: .openSettings(.claude, section: .menuBar), actionTitle: "Claude 메뉴바 설정 열기"),
+        WhatsNewPage(
+            version: "2.9.3", symbol: "slider.horizontal.3", title: "메뉴바 한도 편집",
+            body:
+                "한도를 추가하고 각 항목의 게이지, 숫자와 초기화 시간을 고릅니다. 목록이나 미리보기에서 드래그해 순서를 바꿀 수 있습니다. 동심원은 바깥쪽과 안쪽을 표시합니다. 기존 설정과 이름 숨김은 유지됩니다.",
             action: .openSettings(.claude, section: .menuBar), actionTitle: "Claude 메뉴바 설정 열기"),
     ]
 

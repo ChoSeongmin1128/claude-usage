@@ -99,6 +99,31 @@ nonisolated enum UsageLimitCatalog {
             })
     }
 
+    static func isBasicID(_ id: String, provider: AppProviderKind) -> Bool {
+        let encoded = id.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard encoded.count == 4 else { return false }
+        let decoded = encoded.compactMap { $0.removingPercentEncoding }
+        guard decoded.count == encoded.count, encodedIdentifier(decoded) == id,
+            decoded[0] == "quota-v1", decoded[1] == provider.rawValue
+        else { return false }
+        switch provider {
+        case .claude:
+            return (decoded[2] == "five_hour" && decoded[3] == "18000")
+                || (decoded[2] == "seven_day" && decoded[3] == "604800")
+        case .codex:
+            guard decoded[2] == "general" else { return false }
+            if ["primary", "secondary"].contains(decoded[3]) { return true }
+            guard let period = Int(decoded[3]), period > 0 else { return false }
+            return String(period) == decoded[3]
+        case .antigravity:
+            return false
+        }
+    }
+
+    private static func encodedIdentifier(_ components: [String]) -> String {
+        components.map { $0.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "" }.joined(separator: "/")
+    }
+
     private static func codexWindows(
         _ limit: CodexRateLimit?, scope: String, title: String?,
         identifiable: Bool, legacy: String?
@@ -130,8 +155,7 @@ nonisolated enum UsageLimitCatalog {
         title: String, shortTitle: String? = nil, used: Double?, reset: Date?, identifiable: Bool = true,
         legacy: String? = nil, slot: String? = nil
     ) -> UsageLimit {
-        let id = ["quota-v1", provider.rawValue, scope, period.map(String.init) ?? unknownPeriodKey]
-            .map { $0.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "" }.joined(separator: "/")
+        let id = encodedIdentifier(["quota-v1", provider.rawValue, scope, period.map(String.init) ?? unknownPeriodKey])
         return UsageLimit(
             id: id, provider: provider, title: title, shortTitle: shortTitle ?? title, scope: scope,
             periodSeconds: period,

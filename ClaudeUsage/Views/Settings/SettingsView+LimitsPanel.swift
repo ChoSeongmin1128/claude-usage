@@ -34,79 +34,25 @@ extension SettingsView {
         }
     }
 
-    func menuBarTextDisplayControls(for provider: AppProviderKind) -> some View {
-        let rows = providerLimitRows(for: provider)
-        let textRows = rows.filter {
-            !$0.controlsResetCreditMenuBar
-                && (quotaNumberBinding($0, provider: provider) != nil
-                    || menuBarResetBinding($0, provider: provider) != nil)
-        }
-        let numbers = textRows.filter { quotaNumberBinding($0, provider: provider)?.wrappedValue == true }.map(\.title)
-        let times = textRows.filter { menuBarResetBinding($0, provider: provider)?.wrappedValue == true }.map(\.title)
-        return VStack(alignment: .leading, spacing: AppDesign.Space.row) {
-            DisclosureGroup(
-                isExpanded: Binding(
-                    get: { expandedMenuBarTextProviders.contains(provider) },
-                    set: { expanded in
-                        if expanded {
-                            expandedMenuBarTextProviders.insert(provider)
-                        } else {
-                            expandedMenuBarTextProviders.remove(provider)
-                        }
-                    })
-            ) {
-                Grid(
-                    alignment: .leading, horizontalSpacing: AppDesign.Space.content,
-                    verticalSpacing: AppDesign.Space.row
+    @ViewBuilder
+    func menuBarResetCreditControls(for provider: AppProviderKind) -> some View {
+        if provider != .antigravity,
+            let row = providerLimitRows(for: provider).first(where: \.controlsResetCreditMenuBar)
+        {
+            HStack(spacing: AppDesign.Space.content) {
+                Text(row.title)
+                Picker(
+                    "메뉴바에 초기화권 표시",
+                    selection: Binding(
+                        get: { settings.resetCreditMenuBarMode(for: provider) },
+                        set: { settings.setResetCreditMenuBarMode($0, for: provider) })
                 ) {
-                    GridRow {
-                        Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                        ForEach(["숫자", "초기화 시간"], id: \.self) { title in
-                            Text(title).font(AppDesign.Typography.caption.weight(.semibold))
-                                .foregroundStyle(.secondary).gridColumnAlignment(.center)
-                        }
-                    }
-                    ForEach(textRows) { row in
-                        GridRow {
-                            Text(row.title).lineLimit(1)
-                            limitsCell(quotaNumberBinding(row, provider: provider), help: "메뉴바에 숫자로 표시", row: row.title)
-                                .disabled(quotaCellUnavailable(row, provider: provider, surface: .percentage))
-                            limitsCell(
-                                menuBarResetBinding(row, provider: provider), help: "메뉴바에 초기화 시간 표시", row: row.title
-                            )
-                            .disabled(quotaCellUnavailable(row, provider: provider, surface: .reset))
-                        }
-                    }
+                    ForEach(ResetCreditMenuBarMode.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
-                .padding(.top, AppDesign.Space.row)
-            } label: {
-                VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
-                    Text("숫자와 초기화 시간")
-                    Text(
-                        "숫자: \(numbers.isEmpty ? "끔" : numbers.joined(separator: ", ")) / 시간: \(times.isEmpty ? "끔" : times.joined(separator: ", "))"
-                    )
-                    .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
-                }
+                .labelsHidden().fixedSize()
             }
-            if let row = rows.first(where: \.controlsResetCreditMenuBar) {
-                HStack(spacing: AppDesign.Space.content) {
-                    Text(row.title)
-                    Picker(
-                        "메뉴바에 초기화권 표시",
-                        selection: Binding(
-                            get: { settings.resetCreditMenuBarMode(for: provider) },
-                            set: { settings.setResetCreditMenuBarMode($0, for: provider) })
-                    ) {
-                        ForEach(ResetCreditMenuBarMode.allCases, id: \.self) { Text($0.title).tag($0) }
-                    }
-                    .labelsHidden().fixedSize()
-                    .help("메뉴바에 초기화권 개수(↺)를 표시할 때")
-                }
-            }
+            .font(AppDesign.Typography.subheadline).controlSize(.small)
         }
-        .font(AppDesign.Typography.subheadline)
-        .controlSize(.small)
-        .disabled(provider == .antigravity && antigravitySettings.state.activity.isBusy)
     }
 
     @ViewBuilder

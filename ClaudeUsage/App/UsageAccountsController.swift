@@ -36,6 +36,7 @@ final class UsageAccountsController: ObservableObject {
     private var discoveryTask: Task<Void, Never>?
     private var needsAnotherDiscovery = false
     private var runtimeAccounts: [PopoverService: UsageAccountCandidate] = [:]
+    private var successfulBindings: [String: UsageAccountFetchBinding] = [:]
     private var askingMenuBarChoice: Set<PopoverService> = []
     /// 마지막으로 본 메뉴바 계정과 앱이 바꾼 메뉴바 계정. 다른 경로로 바뀌면 사용자가 고른 것으로 본다.
     private var lastMenuBarTarget: [PopoverService: String] = [:]
@@ -99,6 +100,7 @@ final class UsageAccountsController: ObservableObject {
             }
         }
         let merged = UsageAccount.merge(candidates + [candidate], service: service)
+        discardConflictingCachedUsage(in: [service: merged])
         carryOverRenamedAccounts(from: accounts, to: [service: merged])
         accounts[service] = merged
         preferences.remember(merged)
@@ -209,14 +211,31 @@ final class UsageAccountsController: ObservableObject {
             let candidates = await Task.detached(priority: .utility) { await provider.candidates(input) }.value
             discovered[service] = UsageAccount.merge(candidates, service: service)
             found[service] = UsageAccount.merge(
-                candidatesWithRuntimeAccount(candidates, service: service), service: service)
+                candidatesWithRuntimeAccount(
+                    candidatesWithObservedOwners(candidates, service: service), service: service),
+                service: service)
         }
+        discardConflictingCachedUsage(in: found)
         carryOverRenamedAccounts(from: accounts, to: found)
         accounts = found
         preferences.remember(found.values.flatMap { $0 })
         detectRevertedSwitch(in: discovered)
         for provider in activeProviders { applyMenuBarDefault(provider) }
         onChange?()
+    }
+
+    private func candidatesWithObservedOwners(
+        _ candidates: [UsageAccountCandidate], service: PopoverService
+    ) -> [UsageAccountCandidate] {
+        candidates.map { candidate in
+            guard candidate.identity.mergeKey == nil,
+                let previous = accounts[service]?.first(where: { $0.sources.contains(candidate.source) }),
+                let binding = successfulBindings[previous.id], binding.account.source == candidate.source,
+                binding.account.identity.mergeKey != nil, binding.matchesOwner(of: candidate.identity)
+            else { return candidate }
+            // Incomplete discovery labels do not erase the last verified payload owner.
+            return binding.account
+        }
     }
 
     /// 웹 로그인의 계정을 확인하면 id가 출처 기준에서 계정 기준으로 바뀐다. 이름, 숨김, 조회 결과를 옮긴다.
@@ -234,15 +253,30 @@ final class UsageAccountsController: ObservableObject {
                             && candidate.sources.contains(where: account.sources.contains)
                     }), updated.aliases[account.id] == nil, states[account.id] == nil
                 else { continue }
+                guard
+                    successfulBindings[old.id]?.matchesOwner(of: account.identity)
+                        ?? UsageAccountFetchBinding.matches(expected: old.identity, observed: account.identity)
+                else { continue }
                 updated.aliases[account.id] = updated.aliases.removeValue(forKey: old.id)
                 if updated.hidden.remove(old.id) != nil { updated.hidden.insert(account.id) }
                 if updated.archived.remove(old.id) != nil { updated.archived.insert(account.id) }
                 if updated[service].pinnedTop == old.id { updated[service].pinnedTop = account.id }
                 updated[service].selected = updated[service].selected.map { $0 == old.id ? account.id : $0 }
                 states[account.id] = states.removeValue(forKey: old.id)
+                successfulBindings[account.id] = successfulBindings.removeValue(forKey: old.id)
             }
         }
         preferences = updated
+    }
+
+    private func discardConflictingCachedUsage(in found: [PopoverService: [UsageAccount]]) {
+        for account in found.values.flatMap({ $0 }) {
+            guard let binding = successfulBindings[account.id], !binding.matchesOwner(of: account.identity) else {
+                continue
+            }
+            states[account.id] = nil
+            successfulBindings[account.id] = nil
+        }
     }
 
     // MARK: - 메뉴바 계정
@@ -360,28 +394,51 @@ final class UsageAccountsController: ObservableObject {
 
     private func refresh(_ queuedAccount: UsageAccount) async {
         defer { queued.remove(queuedAccount.id) }
-        // 예약한 뒤 기본 로그인 전환으로 출처가 바뀌었거나 숨김, 보관했을 수 있어 실행할 때 다시 찾는다.
-        guard let provider = provider(for: queuedAccount.service), isServiceEnabled(queuedAccount.service),
-            preferences[queuedAccount.service].isMultiAccountEnabled,
+        guard let provider = provider(for: queuedAccount.service),
             let account = accounts[queuedAccount.service]?.first(where: { $0.id == queuedAccount.id }),
-            !preferences.hidden.contains(account.id), !preferences.archived.contains(account.id),
-            !provider.isRuntime(account)
+            canRefresh(account, provider: provider)
         else { return }
         let interactive = interactiveOnce.remove(account.id) != nil
         var state = states[account.id] ?? UsageAccountState()
         state.attemptedAt = Date()
-        var learnedNewIdentity = false
         do {
             let result = try await provider.fetchUsage(for: account, interactive: interactive)
+            try Task.checkCancellation()
+            guard account.sources.contains(result.binding.account.source) else {
+                rediscover()
+                return
+            }
+            try await provider.validateFetchBinding(result.binding)
+            try Task.checkCancellation()
+            guard let current = currentAccount(for: account, binding: result.binding),
+                canRefresh(current, provider: provider)
+            else {
+                rediscover()
+                return
+            }
+            guard result.binding.matchesOwner(of: account.identity), result.binding.matchesOwner(of: current.identity)
+            else {
+                rememberLearnedIdentity(result)
+                rediscover()
+                return
+            }
+            let destination =
+                current.identity.mergeKey == nil
+                ? adoptObservedAccount(result.binding.account, replacing: current) : current
+            guard canRefresh(destination, provider: provider) else { return }
             state.usage = result.usage
             state.fetchedAt = Date()
             state.consecutiveFailures = 0
             state.issue = nil
-            if let learned = result.learnedIdentity, preferences.knownIdentities[learned.reference] != learned.identity
-            {
-                preferences.knownIdentities[learned.reference] = learned.identity
-                learnedNewIdentity = true
-            }
+            successfulBindings[destination.id] = result.binding
+            states[destination.id] = state
+            let learned = rememberLearnedIdentity(result)
+            onChange?()
+            if learned { rediscover() }
+            return
+        } catch UsageAccountFetchError.accountChanged {
+            rediscover()
+            return
         } catch UsageAccountFetchError.loginExpired {
             state.issue = .loginExpired
         } catch UsageAccountFetchError.needsPermission {
@@ -395,9 +452,59 @@ final class UsageAccountsController: ObservableObject {
             state.consecutiveFailures += 1
             state.issue = nil
         }
+        guard !Task.isCancelled, let current = accounts[account.service]?.first(where: { $0.id == account.id }),
+            current.identity == account.identity, current.sources == account.sources,
+            canRefresh(current, provider: provider)
+        else { return }
         states[account.id] = state
         onChange?()
-        if learnedNewIdentity { rediscover() }
+    }
+
+    private func canRefresh(_ account: UsageAccount, provider: any UsageAccountProvider) -> Bool {
+        isServiceEnabled(account.service) && preferences[account.service].isMultiAccountEnabled
+            && !preferences.hidden.contains(account.id) && !preferences.archived.contains(account.id)
+            && !provider.isRuntime(account)
+    }
+
+    private func currentAccount(for captured: UsageAccount, binding: UsageAccountFetchBinding) -> UsageAccount? {
+        let current = accounts[captured.service]?.first { $0.sources.contains(binding.account.source) }
+        guard let current else { return nil }
+        if captured.identity.mergeKey != nil, current.id != captured.id { return nil }
+        return current
+    }
+
+    @discardableResult
+    private func rememberLearnedIdentity(_ result: UsageAccountFetchResult) -> Bool {
+        guard let learned = result.learnedIdentity,
+            result.binding.account.source == UsageAccountSource(role: .web, reference: learned.reference),
+            learned.identity == result.binding.account.identity,
+            preferences.knownIdentities[learned.reference] != learned.identity
+        else { return false }
+        preferences.knownIdentities[learned.reference] = learned.identity
+        return true
+    }
+
+    private func adoptObservedAccount(_ candidate: UsageAccountCandidate, replacing account: UsageAccount)
+        -> UsageAccount
+    {
+        let previous = accounts
+        let candidates = (accounts[account.service] ?? []).flatMap { value in
+            value.sources.filter { $0 != candidate.source }.map {
+                UsageAccountCandidate(source: $0, identity: value.identity)
+            }
+        }
+        let merged = UsageAccount.merge(candidates + [candidate], service: account.service)
+        let destination = merged.first { $0.matches(candidate) }!
+        let hadState = states[destination.id] != nil
+        carryOverRenamedAccounts(from: previous, to: [account.service: merged])
+        // A mutable CLI directory's older anonymous values have no proven owner.
+        if candidate.source.role != .web, destination.id != account.id, !hadState {
+            states[destination.id] = nil
+            successfulBindings[destination.id] = nil
+        }
+        accounts[account.service] = merged
+        preferences.remember(merged)
+        return destination
     }
 
     // MARK: - 사용자 동작
@@ -460,6 +567,7 @@ final class UsageAccountsController: ObservableObject {
             guard (try? FileManager.default.trashItem(at: folder, resultingItemURL: nil)) != nil else { return false }
         }
         states[account.id] = nil
+        successfulBindings[account.id] = nil
         if account.sources.allSatisfy({ source in
             folders.contains { source.reference == $0.path || source.reference.hasPrefix($0.path + "/") }
         }) {

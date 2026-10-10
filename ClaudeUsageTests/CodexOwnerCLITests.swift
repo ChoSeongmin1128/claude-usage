@@ -97,3 +97,106 @@ final class CodexOwnerCLITests: XCTestCase {
         XCTAssertEqual(errno, ESRCH)
     }
 }
+
+@MainActor
+extension CodexOwnerCLITests {
+    func testOwnedQuotaChecksSameSessionUserBeforeAndAfterUsage() async throws {
+        let fixture = try ownedFixture(before: "a@example.com", after: "a@example.com")
+        let result = try await fixture.owner.readOwnedRateLimits(
+            sourceURL: fixture.auth, expectedAccountID: "team", budget: CodexRequestBudget(timeout: 2))
+        XCTAssertEqual(result.email, "a@example.com")
+        XCTAssertEqual(result.accountID, "team")
+        XCTAssertEqual(
+            try CodexHomeAccount.usageResponse(fromAppServer: result.quota.value).sessionWindow?.utilization, 42)
+        try assertStopped(fixture.auth)
+    }
+
+    func testOwnedQuotaRejectsUserChangeInsideTheSameWorkspace() async throws {
+        let fixture = try ownedFixture(before: "a@example.com", after: "b@example.com")
+        do {
+            _ = try await fixture.owner.readOwnedRateLimits(
+                sourceURL: fixture.auth, expectedAccountID: "team", budget: CodexRequestBudget(timeout: 2))
+            XCTFail("The workspace alone must not identify a user")
+        } catch { XCTAssertEqual(error as? CodexOwnerError, .accountMismatch) }
+        try assertStopped(fixture.auth)
+    }
+
+    func testOwnedQuotaDoesNotInventAMissingRPCEmail() async throws {
+        let fixture = try ownedFixture(before: nil, after: nil)
+        do {
+            _ = try await fixture.owner.readOwnedRateLimits(
+                sourceURL: fixture.auth, expectedAccountID: "team", budget: CodexRequestBudget(timeout: 2))
+            XCTFail("The RPC user is unknown")
+        } catch { XCTAssertEqual(error as? CodexOwnerError, .invalidResponse) }
+        try assertStopped(fixture.auth)
+    }
+
+    func testLegacyQuotaWrapperDoesNotRequireOrReadEmail() async throws {
+        let fixture = try ownedFixture(before: nil, after: nil, legacyOnly: true)
+        let quota = try await fixture.owner.readRateLimits(
+            sourceURL: fixture.auth, expectedAccountID: "team", budget: CodexRequestBudget(timeout: 2))
+        XCTAssertEqual(try CodexHomeAccount.usageResponse(fromAppServer: quota).sessionWindow?.utilization, 42)
+        try assertStopped(fixture.auth)
+    }
+
+    func testOwnedQuotaDeadlineStillReapsOnlyTheFixtureProcessGroup() async throws {
+        let fixture = try ownedFixture(before: "a@example.com", after: "a@example.com", silent: true)
+        do {
+            _ = try await fixture.owner.readOwnedRateLimits(
+                sourceURL: fixture.auth, expectedAccountID: "team", budget: CodexRequestBudget(timeout: 0.1))
+            XCTFail("A silent helper must exhaust the same request budget")
+        } catch { XCTAssertEqual(error as? CodexOwnerError, .timedOut) }
+        try assertStopped(fixture.auth)
+        XCTAssertEqual(kill(getpid(), 0), 0)
+    }
+
+    private func ownedFixture(
+        before: String?, after: String?, legacyOnly: Bool = false, silent: Bool = false
+    ) throws -> (owner: CodexOwnerCLI, auth: URL) {
+        if silent { return try makeFixture(quota: "{}", sleep: true) }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "CodexOwnedFixture-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        let executable = root.appendingPathComponent("codex")
+        func account(_ email: String?) throws -> String {
+            var value = ["type": "chatgpt"]
+            if let email { value["email"] = email }
+            return try JSONSerialization.data(withJSONObject: ["account": value]).base64EncodedString()
+        }
+        let quota = Data(
+            #"{"accountId":"team","rateLimits":{"primary":{"usedPercent":42,"windowDurationMins":300,"resetsAt":1790000000}}}"#
+                .utf8
+        ).base64EncodedString()
+        let script = """
+            #!/usr/bin/python3
+            import base64, json, os, sys
+            with open(os.path.join(os.environ["CODEX_HOME"], "owner.pid"), "w") as pid_file:
+                pid_file.write(str(os.getpid()))
+            before = json.loads(base64.b64decode("\(try account(before))"))
+            after = json.loads(base64.b64decode("\(try account(after))"))
+            quota = json.loads(base64.b64decode("\(quota)"))
+            for line in sys.stdin:
+                request = json.loads(line)
+                method = request["method"]
+                if method == "initialized":
+                    continue
+                if method == "initialize":
+                    result = {}
+                elif method == "account/read":
+                    if "\(legacyOnly)" == "true":
+                        sys.exit(7)
+                    if request.get("params", {}).get("refreshToken") is not False:
+                        sys.exit(8)
+                    result = before if request["id"] == 2 else after
+                elif method == "account/rateLimits/read":
+                    result = quota
+                else:
+                    sys.exit(9)
+                print(json.dumps({"id": request["id"], "result": result}), flush=True)
+            """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        return (CodexOwnerCLI(executableURL: executable), root.appendingPathComponent("auth.json"))
+    }
+}

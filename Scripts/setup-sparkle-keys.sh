@@ -209,19 +209,26 @@ echo "2. ED25519 키 생성"
 
 extract_public_key() {
     local output="$1"
-    echo "$output" | grep -E '^[A-Za-z0-9+/=]{40,}$' | tail -n1 | tr -d '[:space:]'
+    printf '%s\n' "$output" | sed -n -E \
+        's/^[[:space:]]*(<string>)?([A-Za-z0-9+/=]{40,})(<\/string>)?[[:space:]]*$/\2/p' | tail -n1
 }
 
 PUBLIC_KEY=""
-EXISTING_OUTPUT="$("$GEN_KEYS" -p 2>&1 || true)"
-PUBLIC_KEY="$(extract_public_key "$EXISTING_OUTPUT")"
+if EXISTING_OUTPUT="$("$GEN_KEYS" -p 2>&1)"; then
+    PUBLIC_KEY="$(extract_public_key "$EXISTING_OUTPUT")"
+    if [[ -z "$PUBLIC_KEY" ]]; then
+        echo "기존 공개키 응답을 읽지 못했습니다." >&2
+        exit 1
+    fi
+elif [[ "$EXISTING_OUTPUT" != *"No existing signing key found"* ]]; then
+    echo "기존 공개키 확인 실패:" >&2
+    echo "$EXISTING_OUTPUT" >&2
+    exit 1
+fi
 
 HAS_EXISTING_KEY=0
 if [[ -n "$PUBLIC_KEY" ]]; then
     HAS_EXISTING_KEY=1
-elif [[ -n "$EXISTING_OUTPUT" && "$EXISTING_OUTPUT" != *"No existing signing key found"* ]]; then
-    echo "   기존 공개키 확인 실패:" >&2
-    echo "$EXISTING_OUTPUT" >&2
 fi
 
 if [[ "$HAS_EXISTING_KEY" == "0" ]]; then

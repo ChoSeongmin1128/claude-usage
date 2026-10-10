@@ -10,6 +10,11 @@ final class CodexUsageAccountProvider: UsageAccountProvider {
     let addMethods: [UsageAccountAddMethod] = [.deviceLogin, .folder]
     var managedDirectoryRoot: URL? { AppStoragePaths.codexAccountsDirectory() }
     let menuBar: (any UsageAccountMenuBarPolicy)? = nil
+    private let owner: any CodexOwnedRateLimitsReading
+
+    init(owner: any CodexOwnedRateLimitsReading = CodexOwnerCLI()) {
+        self.owner = owner
+    }
 
     func discoveryInput(directories: [String], knownIdentities: [String: UsageAccountIdentity])
         -> UsageAccountDiscoveryInput
@@ -61,8 +66,26 @@ final class CodexUsageAccountProvider: UsageAccountProvider {
 
     func fetchUsage(for account: UsageAccount, interactive: Bool) async throws -> UsageAccountFetchResult {
         guard let directory = account.source(.directory) else { throw UsageAccountFetchError.unavailable }
-        let usage = try await CodexHomeAccount.fetchUsage(home: URL(fileURLWithPath: directory.reference))
-        return UsageAccountFetchResult(usage: UsageAccountUsage(codex: usage))
+        let result = try await CodexHomeAccount.fetchOwnedUsage(
+            home: URL(fileURLWithPath: directory.reference), expectedIdentity: account.identity, owner: owner)
+        return UsageAccountFetchResult(
+            usage: UsageAccountUsage(codex: result.usage),
+            binding: .init(
+                account: .init(source: directory, identity: result.identity),
+                credentialRevision: result.credentialRevision))
+    }
+
+    func validateFetchBinding(_ binding: UsageAccountFetchBinding) async throws {
+        guard binding.account.source.role == .directory else { throw UsageAccountFetchError.accountChanged }
+        let revision: String
+        do {
+            revision = try await CodexHomeAccount.currentCredentialRevision(
+                home: URL(fileURLWithPath: binding.account.source.reference))
+        } catch is CancellationError { throw CancellationError() } catch {
+            throw UsageAccountFetchError.accountChanged
+        }
+        try Task.checkCancellation()
+        guard revision == binding.credentialRevision else { throw UsageAccountFetchError.accountChanged }
     }
 
     func canSwitch(to account: UsageAccount) -> Bool {

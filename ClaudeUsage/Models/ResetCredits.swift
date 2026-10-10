@@ -5,7 +5,7 @@ nonisolated struct ClaudeResetGrants: Decodable, Sendable, Equatable {
     struct Grant: Decodable, Sendable, Equatable {
         let id: String
         let label: String?
-        let resetsLeft: Int
+        let resetsLeft: Int?
         let startsAt: Date?
         let endsAt: Date?
         let clears: [String]
@@ -19,22 +19,26 @@ nonisolated struct ClaudeResetGrants: Decodable, Sendable, Equatable {
         }
 
         init(
-            id: String, label: String?, resetsLeft: Int, startsAt: Date?, endsAt: Date?, clears: [String], paused: Bool
+            id: String, label: String?, resetsLeft: Int?, startsAt: Date?, endsAt: Date?, clears: [String], paused: Bool
         ) {
             self.id = id
             self.label = label
-            self.resetsLeft = resetsLeft
+            self.resetsLeft = resetsLeft.flatMap { $0 >= 0 ? $0 : nil }
             self.startsAt = startsAt
             self.endsAt = endsAt
             self.clears = clears
             self.paused = paused
         }
 
+        nonisolated func isActive(at now: Date) -> Bool {
+            !paused && (startsAt.map { $0 <= now } ?? true) && (endsAt.map { $0 > now } ?? true)
+        }
+
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             id = try container.decode(String.self, forKey: .id)
             label = (try? container.decodeIfPresent(String.self, forKey: .label)).flatMap { $0 }
-            resetsLeft = max(0, (try? container.decode(Int.self, forKey: .resetsLeft)) ?? 0)
+            resetsLeft = (try? container.decode(Int.self, forKey: .resetsLeft)).flatMap { $0 >= 0 ? $0 : nil }
             func date(_ key: CodingKeys) -> Date? {
                 (try? container.decodeIfPresent(String.self, forKey: key)).flatMap { $0 }.flatMap(
                     TimeFormatter.parseISO8601)
@@ -83,6 +87,19 @@ nonisolated struct ClaudeResetGrants: Decodable, Sendable, Equatable {
             while !array.isAtEnd, (try? array.decode(ResetCreditDecodingSink.self)) != nil { exhausted += 1 }
         }
         exhaustedCount = exhausted
+    }
+
+    func availableCount(at now: Date = Date()) -> Int? {
+        guard eligible, !grants.isEmpty || exhaustedCount > 0 else { return nil }
+        var total = 0
+        for grant in grants {
+            guard grant.isActive(at: now) else { continue }
+            guard let count = grant.resetsLeft else { return nil }
+            let (next, overflow) = total.addingReportingOverflow(count)
+            guard !overflow else { return nil }
+            total = next
+        }
+        return total
     }
 }
 
@@ -152,12 +169,10 @@ nonisolated struct ResetCreditSummary: Equatable, Sendable {
     }
 
     static func claude(_ grants: ClaudeResetGrants?, now: Date = Date()) -> ResetCreditSummary? {
-        guard let grants, grants.eligible else { return nil }
+        guard let grants, let count = grants.availableCount(at: now) else { return nil }
         let usable = grants.grants.filter { grant in
-            !grant.paused && grant.resetsLeft > 0 && (grant.startsAt.map { $0 <= now } ?? true)
-                && (grant.endsAt.map { $0 > now } ?? true)
+            grant.isActive(at: now) && grant.resetsLeft.map({ $0 > 0 }) == true
         }
-        guard !usable.isEmpty || !grants.grants.isEmpty || grants.exhaustedCount > 0 else { return nil }
         let items = usable.map { grant in
             Item(
                 id: grant.id, serverTitle: grant.label?.isEmpty == false ? grant.label : nil,
@@ -165,7 +180,7 @@ nonisolated struct ResetCreditSummary: Equatable, Sendable {
                 expiresAt: grant.endsAt)
         }
         return ResetCreditSummary(
-            items: sorted(items), availableCount: usable.reduce(0) { $0 + $1.resetsLeft }, atLimit: grants.atLimit)
+            items: sorted(items), availableCount: count, atLimit: grants.atLimit)
     }
 
     static func codex(_ usage: CodexUsageResponse?, now: Date = Date()) -> ResetCreditSummary? {

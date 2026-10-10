@@ -137,11 +137,19 @@ nonisolated struct AntigravityDisplaySettings: Codable, Equatable, Sendable {
         var gaugeLaneIDs: [AntigravityQuotaLaneID]? = nil
         var gaugeTitles: [String: String]? = nil
         var showsGaugeLabels: Bool? = nil
+        var arrangement: MenuBarQuotaArrangement? = nil
         var showsSelectedLanePercentage: Bool
         var showsSelectedLaneResetTime: Bool
         var timeFormat: TimeFormat
         var showsGaugePercentage: Bool
         var circularValue: CircularValue
+
+        private enum CodingKeys: String, CodingKey {
+            case isVisible, showsProviderIcon, style, laneSelection, additionalLaneIDs
+            case percentageLaneIDs, resetLaneIDs, gaugeLaneIDs, gaugeTitles, showsGaugeLabels, arrangement
+            case showsSelectedLanePercentage, showsSelectedLaneResetTime, timeFormat, showsGaugePercentage,
+                circularValue
+        }
     }
 
     struct NotificationPresentationIntent: Codable, Equatable, Sendable {
@@ -187,6 +195,7 @@ nonisolated struct AntigravityDisplaySettings: Codable, Equatable, Sendable {
             && standard.isValid
             && compact.isValid
             && menuBar.laneSelection.isValid
+            && (menuBar.arrangement.map(Self.isValidMenuBarArrangement) ?? true)
             && menuBar.effectiveAdditionalLaneIDs.count
                 == Set(menuBar.effectiveAdditionalLaneIDs).count
             && menuBar.effectiveAdditionalLaneIDs.allSatisfy(
@@ -195,6 +204,13 @@ nonisolated struct AntigravityDisplaySettings: Codable, Equatable, Sendable {
             && [menuBar.percentageLaneIDs, menuBar.resetLaneIDs, menuBar.gaugeLaneIDs].compactMap { $0 }.allSatisfy {
                 ids in
                 ids.count == Set(ids).count && ids.allSatisfy(\.hasStableDisplayIdentifierShape)
+            }
+    }
+
+    static func isValidMenuBarArrangement(_ arrangement: MenuBarQuotaArrangement) -> Bool {
+        arrangement.isValid
+            && arrangement.orderedIDs.allSatisfy {
+                AntigravityQuotaLaneID(rawValue: $0).hasStableDisplayIdentifierShape
             }
     }
 
@@ -207,6 +223,28 @@ nonisolated struct AntigravityDisplaySettings: Codable, Equatable, Sendable {
 }
 
 nonisolated extension AntigravityDisplaySettings.MenuBarPresentationIntent {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        isVisible = try container.decode(Bool.self, forKey: .isVisible)
+        showsProviderIcon = try container.decode(Bool.self, forKey: .showsProviderIcon)
+        style = try container.decode(Style.self, forKey: .style)
+        laneSelection = try container.decode(
+            AntigravityDisplaySettings.SingleLaneSelectionPolicy.self, forKey: .laneSelection)
+        additionalLaneIDs = try container.decodeIfPresent([AntigravityQuotaLaneID].self, forKey: .additionalLaneIDs)
+        percentageLaneIDs = try container.decodeIfPresent([AntigravityQuotaLaneID].self, forKey: .percentageLaneIDs)
+        resetLaneIDs = try container.decodeIfPresent([AntigravityQuotaLaneID].self, forKey: .resetLaneIDs)
+        gaugeLaneIDs = try container.decodeIfPresent([AntigravityQuotaLaneID].self, forKey: .gaugeLaneIDs)
+        gaugeTitles = try container.decodeIfPresent([String: String].self, forKey: .gaugeTitles)
+        showsGaugeLabels = try container.decodeIfPresent(Bool.self, forKey: .showsGaugeLabels)
+        let decoded = try? container.decode(MenuBarQuotaArrangement.self, forKey: .arrangement)
+        arrangement = decoded.flatMap { AntigravityDisplaySettings.isValidMenuBarArrangement($0) ? $0 : nil }
+        showsSelectedLanePercentage = try container.decode(Bool.self, forKey: .showsSelectedLanePercentage)
+        showsSelectedLaneResetTime = try container.decode(Bool.self, forKey: .showsSelectedLaneResetTime)
+        timeFormat = try container.decode(TimeFormat.self, forKey: .timeFormat)
+        showsGaugePercentage = try container.decode(Bool.self, forKey: .showsGaugePercentage)
+        circularValue = try container.decode(CircularValue.self, forKey: .circularValue)
+    }
+
     func textLaneIDs(fallback: [AntigravityQuotaLaneID]) -> [AntigravityQuotaLaneID] {
         let numbers = percentageLaneIDs ?? (showsSelectedLanePercentage ? fallback : [])
         let times = resetLaneIDs ?? (showsSelectedLaneResetTime ? fallback : [])

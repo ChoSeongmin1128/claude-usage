@@ -276,8 +276,16 @@ actor AntigravityRuntimeController {
         _ style: AntigravityDisplaySettings
             .MenuBarPresentationIntent.Style
     ) async throws -> AntigravityRuntimeSnapshot {
-        try await mutateDisplay {
-            $0.menuBar.style = style
+        try await mutateDisplay { display in
+            let presentation: AntigravityQuotaPresentation?
+            if case .content(let value) = currentSnapshot.quotaPresentation {
+                presentation = value
+            } else {
+                presentation = nil
+            }
+            let shape: MenuBarStyle = style == .circular ? .circular : style == .none ? .none : .batteryBar
+            display = AntigravityMenuBarQuotaEditorAdapter.settingShape(
+                shape, settings: display, presentation: presentation)
         }
     }
 

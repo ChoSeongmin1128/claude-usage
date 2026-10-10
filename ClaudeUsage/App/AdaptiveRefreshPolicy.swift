@@ -48,6 +48,6 @@ nonisolated enum AdaptiveRefreshPolicy {
     }
 
     static func nextResetFollowUp(resetDates: [Date], now: Date) -> Date? {
-        resetDates.filter { $0 > now }.min().map { $0.addingTimeInterval(resetFollowUpDelay) }
+        resetDates.map { $0.addingTimeInterval(resetFollowUpDelay) }.filter { $0 > now }.min()
     }
 }

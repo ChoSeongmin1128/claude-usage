@@ -80,11 +80,18 @@ struct MenuBarProviderSnapshot {
     let isStale: Bool
     private(set) var renderKey: MenuBarProviderRenderKey
     private(set) var resetCreditBadge: MenuBarResetCreditBadge?
+    private(set) var quotaUnits: [MenuBarQuotaRenderedUnit]? = nil
 
     func withResetCreditBadge(_ badge: MenuBarResetCreditBadge?) -> Self {
         var copy = self
         copy.resetCreditBadge = badge
         copy.renderKey.resetCreditBadge = badge?.key
+        return copy
+    }
+
+    func withQuotaUnits(_ units: [MenuBarQuotaRenderedUnit]?) -> Self {
+        var copy = self
+        copy.quotaUnits = units
         return copy
     }
 
@@ -294,7 +301,11 @@ enum MenuBarStatusComposer {
             accessibilityLabel: renderKey.accessibilityLabel,
             accessibilityValue: renderKey.accessibilityValue,
             renderKey: renderKey
-        )
+        ).withQuotaUnits(
+            storedQuotaUnits(
+                projection: resolvedProjection, config: config, enabled: renderImages && usage != nil && hasCredential,
+                secondaryColor: secondaryColor,
+                appearance: appearance ?? NSAppearance.currentDrawing()))
     }
 
     static func codexSnapshot(
@@ -367,7 +378,11 @@ enum MenuBarStatusComposer {
             accessibilityLabel: renderKey.accessibilityLabel,
             accessibilityValue: renderKey.accessibilityValue,
             renderKey: renderKey
-        )
+        ).withQuotaUnits(
+            storedQuotaUnits(
+                projection: resolvedProjection, config: config,
+                enabled: renderImages && usage != nil && isAuthenticated, secondaryColor: secondaryColor,
+                appearance: appearance ?? NSAppearance.currentDrawing()))
     }
 
     /// Antigravity v2 메뉴바 경로.
@@ -380,7 +395,8 @@ enum MenuBarStatusComposer {
         context: AntigravityQuotaPresentationContext = .init(),
         icon: NSImage?,
         renderImages: Bool = true,
-        appearance: NSAppearance? = nil, design: MenuBarDesign = .modern, colorMode: MenuBarColorMode = .always
+        appearance: NSAppearance? = nil, design: MenuBarDesign = .modern, colorMode: MenuBarColorMode = .always,
+        quotaUnits: [MenuBarQuotaRenderedUnit]? = nil, arrangement: MenuBarQuotaArrangement? = nil
     ) -> MenuBarProviderSnapshot? {
         guard presentation.isVisible else {
             return nil
@@ -433,10 +449,10 @@ enum MenuBarStatusComposer {
             ]
                 + (presentation.gauges ?? []).map {
                     $0.value.id + ":" + $0.value.title + ":" + String(describing: $0.tone)
-                },
+                } + arrangementConfiguration(arrangement) + presentation.selectedVisualConfiguration,
             visualValues:
             (presentation.gaugePercentage.map { [$0] } ?? [])
-                + (presentation.gauges ?? []).map { $0.value.percentage ?? -1 },
+                + (presentation.gauges ?? []).map { $0.value.percentage ?? -1 } + presentation.selectedVisualValues,
             systemStatus: nil,
             accessibilityLabel:
                 presentation.accessibilityLabel,
@@ -488,7 +504,7 @@ enum MenuBarStatusComposer {
             accessibilityValue: accessibilityValue,
             isStale: isStale,
             renderKey: renderKey
-        )
+        ).withQuotaUnits(quotaUnits)
     }
 
     static func singleProviderContent(
@@ -574,12 +590,26 @@ enum MenuBarStatusComposer {
             let renderedIcon = statusBadgedIcon(icon, for: snapshot, appearance: appearance)
             elements.append(.image(renderedIcon))
         }
-        if let text, !text.isEmpty {
-            elements.append(.text(text, attributes: [.font: valueFont, .foregroundColor: snapshot.color]))
+        if let units = snapshot.quotaUnits {
+            elements += units.map { .image(valueFont.pointSize == 12 ? ($0.condensedImage ?? $0.image) : $0.image) }
+        } else {
+            if let text, !text.isEmpty {
+                elements.append(.text(text, attributes: [.font: valueFont, .foregroundColor: snapshot.color]))
+            }
+            if let styleIcon = snapshot.styleIcon {
+                elements.append(.image(styleIcon))
+            }
         }
-        if let styleIcon = snapshot.styleIcon {
-            elements.append(.image(styleIcon))
-        }
+        return elements
+            + suffixElements(
+                for: snapshot, resetFont: resetFont, secondaryColor: secondaryColor,
+                includeResetText: includeResetText && snapshot.quotaUnits == nil)
+    }
+
+    private static func suffixElements(
+        for snapshot: MenuBarProviderSnapshot, resetFont: NSFont, secondaryColor: NSColor, includeResetText: Bool
+    ) -> [MenuBarElement] {
+        var elements: [MenuBarElement] = []
         if snapshot.isStale {
             elements.append(staleDataIndicator())
         }
@@ -599,6 +629,212 @@ enum MenuBarStatusComposer {
             elements.append(statusDot(color: statusBadgeColor(for: status.effectiveIndicator)))
         }
         return elements
+    }
+
+    static func quotaPreviewLayout(
+        snapshot: MenuBarProviderSnapshot, units: [MenuBarQuotaRenderedUnit],
+        secondaryColor: NSColor, appearance: NSAppearance
+    ) -> MenuBarQuotaPreviewLayout {
+        let leading = snapshot.icon.map { statusBadgedIcon($0, for: snapshot, appearance: appearance) }
+        let suffix = suffixElements(
+            for: snapshot, resetFont: .systemFont(ofSize: 11), secondaryColor: secondaryColor,
+            includeResetText: false)
+        return MenuBarQuotaPreviewLayout(
+            leadingImage: leading, units: units,
+            trailingImage: suffix.isEmpty ? nil : composeElements(suffix))
+    }
+
+    private static func storedQuotaUnits(
+        projection: MenuBarQuotaProjection, config: ProviderMenuBarDisplayConfig, enabled: Bool,
+        secondaryColor: NSColor, appearance: NSAppearance
+    ) -> [MenuBarQuotaRenderedUnit]? {
+        guard enabled, let arrangement = projection.selection.arrangement else { return nil }
+        return quotaUnits(
+            projection: projection, arrangement: arrangement, config: config, appearance: appearance,
+            secondaryColor: secondaryColor)
+    }
+
+    static func quotaUnits(
+        projection: MenuBarQuotaProjection, arrangement: MenuBarQuotaArrangement,
+        config: ProviderMenuBarDisplayConfig, highlightedID: String? = nil, appearance: NSAppearance,
+        secondaryColor: NSColor = .secondaryLabelColor
+    ) -> [MenuBarQuotaRenderedUnit] {
+        let items = arrangement.resolved(selection: projection.selection).orderedIDs.map { id in
+            let value = MenuBarGaugeValue(
+                id: id, title: projection.limit(id)?.shortTitle ?? projection.selection.titles[id] ?? "한도",
+                usedPercentage: projection.limit(id)?.usedPercentage, basis: projection.basis)
+            return MenuBarQuotaRenderItem(
+                id: id, title: projection.limit(id)?.title ?? projection.selection.titles[id] ?? "한도",
+                gauge: MenuBarIconRenderer.Gauge(
+                    value: value, color: gaugeColor(for: value.usedPercentage, config: config),
+                    monochrome: usesCutoutBatteryText(used: value.usedPercentage, mode: config.colorMode),
+                    textColor: batteryNumberColor(used: value.usedPercentage, mode: config.colorMode)),
+                percentageText: projection.percentageText(for: id), resetText: projection.resetText(for: id))
+        }
+        return quotaUnits(
+            items: items, selection: projection.selection, arrangement: arrangement, shape: config.style,
+            showGaugePercent: config.showBatteryPercent, showsLabels: config.gaugeSelection?.showsLabels == true,
+            design: config.design, highlightedID: highlightedID, appearance: appearance, secondaryColor: secondaryColor)
+    }
+
+    static func quotaUnits(
+        items: [MenuBarQuotaRenderItem], selection: MenuBarQuotaSelection, arrangement: MenuBarQuotaArrangement,
+        shape: MenuBarStyle, showGaugePercent: Bool, showsLabels: Bool, design: MenuBarDesign,
+        highlightedID: String? = nil, appearance: NSAppearance, secondaryColor: NSColor = .secondaryLabelColor
+    ) -> [MenuBarQuotaRenderedUnit] {
+        func item(_ id: String) -> MenuBarQuotaRenderItem {
+            items.first { $0.id == id }
+                ?? MenuBarQuotaRenderItem(
+                    id: id, title: selection.titles[id] ?? "한도",
+                    gauge: MenuBarIconRenderer.Gauge(
+                        value: MenuBarGaugeValue(
+                            id: id, title: selection.titles[id] ?? "한도", usedPercentage: nil, basis: .used),
+                        color: .secondaryLabelColor),
+                    percentageText: "\(selection.titles[id] ?? "한도") 데이터 없음", resetText: nil)
+        }
+        let units = arrangement.resolved(selection: selection).units(selection: selection)
+        return units.compactMap { unit in
+            if shape.gaugeShape == .none,
+                !unit.quotaIDs.contains(where: {
+                    selection.percentageIDs.contains($0) || selection.resetIDs.contains($0)
+                })
+            {
+                return nil
+            }
+            let gauges = unit.gaugeIDs.map { id in
+                var gauge = item(id).gauge
+                if id == highlightedID {
+                    gauge = MenuBarIconRenderer.Gauge(
+                        value: gauge.value, color: .controlAccentColor,
+                        monochrome: gauge.monochrome, textColor: gauge.textColor)
+                }
+                return gauge
+            }
+            var gauge: NSImage?
+            appearance.performAsCurrentDrawingAppearance {
+                gauge = MenuBarIconRenderer.gaugeListIcon(
+                    gauges, shape: shape.gaugeShape, layout: arrangement.gaugeLayout,
+                    showPercent: showGaugePercent, design: design)
+            }
+            if let original = gauge, let highlightedID, let index = unit.gaugeIDs.firstIndex(of: highlightedID) {
+                gauge = NSImage(size: original.size, flipped: false) { bounds in
+                    original.draw(in: bounds)
+                    NSColor.controlAccentColor.setStroke()
+                    let path: NSBezierPath
+                    if shape.gaugeShape == .circular {
+                        let radius: CGFloat
+                        if unit.gaugeIDs.count == 2 && arrangement.gaugeLayout == .concentric {
+                            radius =
+                                design == .modern
+                                ? (index == 0 ? RingGeometry.outerRadius : RingGeometry.innerRadius)
+                                : (index == 0 ? 7.75 : 4.5)
+                        } else {
+                            radius = design == .modern ? RingGeometry.outerRadius : 6.75
+                        }
+                        path = NSBezierPath(
+                            ovalIn: CGRect(
+                                x: bounds.midX - radius, y: bounds.midY - radius, width: radius * 2, height: radius * 2)
+                        )
+                    } else {
+                        let layout: BatteryGeometry.Layout =
+                            unit.gaugeIDs.count == 2 && arrangement.gaugeLayout == .stacked ? .stacked : .single
+                        let body = layout.body(at: layout == .stacked ? 1 - index : 0, design: design)
+                        path = NSBezierPath(roundedRect: body.insetBy(dx: 0.5, dy: 0.5), xRadius: 3, yRadius: 3)
+                    }
+                    path.lineWidth = 1
+                    path.setLineDash([1, 2], count: 2, phase: 0)
+                    path.stroke()
+                    return true
+                }
+            }
+            @MainActor func render(valueSize: CGFloat, resetSize: CGFloat, condensed: Bool) -> (
+                NSImage, [MenuBarQuotaHitTarget]
+            ) {
+                var elements: [MenuBarElement] = []
+                var targets: [MenuBarQuotaHitTarget] = []
+                var x: CGFloat = 0
+                @MainActor func appendText(_ text: String, id: String, size: CGFloat, color: NSColor) {
+                    let attrs: [NSAttributedString.Key: Any] = [
+                        .font: size == valueSize
+                            ? NSFont.monospacedDigitSystemFont(ofSize: size, weight: .medium)
+                            : NSFont.systemFont(ofSize: size, weight: size == 9 ? .medium : .regular),
+                        .foregroundColor: id == highlightedID ? NSColor.controlAccentColor : color,
+                    ]
+                    if !elements.isEmpty { x += elementSpacing }
+                    let width = (text as NSString).size(withAttributes: attrs).width
+                    targets.append(
+                        .init(id: id, region: .rectangle(CGRect(x: x, y: 0, width: width, height: menuBarHeight))))
+                    x += width
+                    elements.append(.text(text, attributes: attrs))
+                }
+                if showsLabels, selection.gaugeIDs.count >= 3 {
+                    for value in gauges {
+                        appendText(value.value.title, id: value.value.id, size: 9, color: .labelColor)
+                    }
+                }
+                if let gauge {
+                    if !elements.isEmpty { x += elementSpacing }
+                    let bounds = CGRect(
+                        x: x, y: (menuBarHeight - gauge.size.height) / 2,
+                        width: gauge.size.width, height: gauge.size.height)
+                    if unit.gaugeIDs.count == 2, arrangement.gaugeLayout == .concentric,
+                        shape.gaugeShape == .circular
+                    {
+                        let outer = design == .modern ? CGFloat(7) : CGFloat(7.75)
+                        let inner = design == .modern ? CGFloat(3.5) : CGFloat(4.5)
+                        let split = (outer + inner) / 2
+                        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+                        targets += [
+                            .init(
+                                id: unit.gaugeIDs[1], region: .ring(center: center, innerRadius: 0, outerRadius: split)),
+                            .init(
+                                id: unit.gaugeIDs[0],
+                                region: .ring(center: center, innerRadius: split, outerRadius: outer + 3)),
+                        ]
+                    } else if unit.gaugeIDs.count == 2, arrangement.gaugeLayout == .stacked {
+                        targets += unit.gaugeIDs.enumerated().map { index, id in
+                            .init(
+                                id: id,
+                                region: .rectangle(
+                                    CGRect(
+                                        x: bounds.minX,
+                                        y: bounds.minY + CGFloat(index) * bounds.height / 2,
+                                        width: bounds.width, height: bounds.height / 2)))
+                        }
+                    } else if let id = unit.gaugeIDs.first {
+                        targets.append(.init(id: id, region: .rectangle(bounds)))
+                    }
+                    x = bounds.maxX
+                    elements.append(.image(gauge))
+                }
+                for id in unit.quotaIDs {
+                    let value = item(id)
+                    if selection.percentageIDs.contains(id),
+                        let text = condensed
+                            ? value.condensedPercentageText ?? value.percentageText : value.percentageText,
+                        !text.isEmpty
+                    {
+                        appendText(text, id: id, size: valueSize, color: value.gauge.color)
+                    }
+                    if selection.resetIDs.contains(id),
+                        let text = condensed ? value.condensedResetText ?? value.resetText : value.resetText,
+                        !text.isEmpty
+                    {
+                        appendText(text, id: id, size: resetSize, color: secondaryColor)
+                    }
+                }
+                if elements.isEmpty, let id = unit.quotaIDs.first {
+                    appendText("초기화 미확인", id: id, size: resetSize, color: secondaryColor)
+                }
+                return (composeElements(elements), targets)
+            }
+            let regular = render(valueSize: 13, resetSize: 11, condensed: false)
+            let condensed = render(valueSize: 12, resetSize: 10, condensed: true)
+            let title = unit.quotaIDs.map { item($0).title }
+                .joined(separator: " / ")
+            return MenuBarQuotaRenderedUnit(
+                ids: unit.quotaIDs, image: regular.0, condensedImage: condensed.0, title: title, hitTargets: regular.1)
+        }
     }
 
     private static func staleDataIndicator() -> MenuBarElement {
@@ -746,7 +982,16 @@ enum MenuBarStatusComposer {
             config.gaugeSelection?.showsLabels == true ? "gauge.labels" : "gauge.no-labels",
             config.gaugeSelection?.titles.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(
                 separator: ",") ?? "",
-        ]
+        ] + arrangementConfiguration(config.quotaSelection?.arrangement)
+    }
+
+    private static func arrangementConfiguration(_ arrangement: MenuBarQuotaArrangement?) -> [String] {
+        guard let arrangement else { return ["arrangement.legacy"] }
+        return ["arrangement.\(arrangement.gaugeLayout.rawValue)"]
+            + arrangement.orderedIDs.map { "order:\($0)" }
+            + arrangement.gaugeGroups.enumerated().flatMap { index, ids in
+                ["group.\(index).count:\(ids.count)"] + ids.map { "member:\($0)" }
+            }
     }
 
     private static func providerRenderKey(

@@ -546,13 +546,13 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         let textLanes = legacy ? selectedLanes : textIDs.compactMap { id in availableLanes.first { $0.id == id } }
         let ids = legacy ? textLanes.map(\.id) : textIDs
         func components(_ id: AntigravityQuotaLaneID, withLabel: Bool) -> String? {
-            guard let lane = availableLanes.first(where: { $0.id == id }), let percentage = lane.percentageText else {
+            guard let lane = availableLanes.first(where: { $0.id == id }) else {
                 let index = textIDs.firstIndex(of: id) ?? 0
                 return AntigravityDisplaySettings.MenuBarPresentationIntent.missingTextTitle(at: index) + " 데이터 없음"
             }
             var values = withLabel ? [lane.menuLabel] : []
-            if numbers.contains(id) { values.append(percentage) }
-            if times.contains(id), withLabel || !numbers.contains(id) {
+            if numbers.contains(id) { values.append(lane.percentageText ?? summaryText(for: lane.value)) }
+            if times.contains(id), withLabel || !numbers.contains(id) || lane.percentageText == nil {
                 values.append(
                     menuBarResetText(
                         lane, timeFormat: settings.menuBar.timeFormat, now: now, locale: locale, timeZone: timeZone))
@@ -585,6 +585,11 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             return "\(lane.accessibilityLabel), \(lane.accessibilityValue)"
         }
 
+        let visualIDs =
+            settings.menuBar.arrangement == nil
+            ? []
+            : Set(numbers + times + (settings.menuBar.gaugeLaneIDs ?? selectedLanes.map(\.id)))
+                .sorted { $0.rawValue < $1.rawValue }
         return AntigravityMenuBarQuotaPresentation(
             isVisible: settings.menuBar.isVisible,
             showsProviderIcon: settings.menuBar.showsProviderIcon,
@@ -607,7 +612,13 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             accessibilityValue: [
                 descriptions.joined(separator: "; "),
                 identityRail.accessibilityValue,
-            ].joined(separator: ", ")
+            ].joined(separator: ", "),
+            selectedVisualValues: visualIDs.map { id in
+                availableLanes.first { $0.id == id }?.value.usedPercentage ?? -1
+            },
+            selectedVisualConfiguration: visualIDs.map { id in
+                id.rawValue + ":" + (availableLanes.first { $0.id == id }?.tone.rawValue ?? "neutral")
+            }
         )
     }
 
@@ -768,7 +779,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         )
     }
 
-    private static func menuBarResetText(
+    static func menuBarResetText(
         _ lane: AntigravityQuotaLanePresentation,
         timeFormat:
             AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat,

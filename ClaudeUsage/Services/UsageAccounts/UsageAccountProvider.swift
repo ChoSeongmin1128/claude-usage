@@ -25,6 +25,7 @@ protocol UsageAccountProvider: AnyObject, Sendable {
     func isRuntime(_ account: UsageAccount) -> Bool
     func runtimeUsage(from snapshot: RuntimeProviderSnapshot) -> UsageAccountUsage?
     func fetchUsage(for account: UsageAccount, interactive: Bool) async throws -> UsageAccountFetchResult
+    func validateFetchBinding(_ binding: UsageAccountFetchBinding) async throws
 
     func canSwitch(to account: UsageAccount) -> Bool
     func switchPlan(for account: UsageAccount, name: String) -> UsageAccountSwitchPlan
@@ -45,8 +46,31 @@ nonisolated struct UsageAccountWebLogin: Equatable, Sendable {
     let identity: UsageAccountIdentity
 }
 
+nonisolated struct UsageAccountFetchBinding: Sendable {
+    let account: UsageAccountCandidate
+    // In-memory proof of the exact credential/source, never a persisted identifier.
+    let credentialRevision: String?
+
+    func matchesOwner(of identity: UsageAccountIdentity) -> Bool {
+        Self.matches(expected: identity, observed: account.identity)
+    }
+
+    static func matches(expected: UsageAccountIdentity, observed: UsageAccountIdentity) -> Bool {
+        if let organization = expected.organizationID, observed.organizationID != organization { return false }
+        if let account = expected.accountID {
+            // A canonical user ID takes precedence over its mutable display email.
+            return observed.accountID == account
+        }
+        if let email = expected.email {
+            return observed.email?.caseInsensitiveCompare(email) == .orderedSame
+        }
+        return true
+    }
+}
+
 nonisolated struct UsageAccountFetchResult: Sendable {
     let usage: UsageAccountUsage
+    let binding: UsageAccountFetchBinding
     /// 조회하면서 확인한 웹 로그인의 계정. 다음 발견 때 같은 계정끼리 합치는 데 쓴다.
     var learnedIdentity: (reference: String, identity: UsageAccountIdentity)?
 }
@@ -56,6 +80,7 @@ nonisolated enum UsageAccountFetchError: Error, Equatable {
     case needsPermission
     case executableNotFound
     case unavailable
+    case accountChanged
     case server(Int)
 }
 

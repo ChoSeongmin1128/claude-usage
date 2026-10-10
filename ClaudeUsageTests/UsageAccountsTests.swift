@@ -349,6 +349,11 @@ private final class FakeAccountProvider: UsageAccountProvider, UsageAccountMenuB
     var fetchDelay: Duration?
     var beforeFetch: (@MainActor (String) async -> Void)?
     var failure: Error?
+    var returnedIdentities: [String: UsageAccountIdentity] = [:]
+    var learnedIdentities: [String: UsageAccountIdentity] = [:]
+    var validateBinding: (@MainActor (UsageAccountFetchBinding) async throws -> Void)?
+    private(set) var validations = 0
+    private(set) var discoveries = 0
 
     init(service: PopoverService, accounts: [(String, UsageAccountSource.Role)], menuBarTarget: String? = nil) {
         self.service = service
@@ -360,9 +365,12 @@ private final class FakeAccountProvider: UsageAccountProvider, UsageAccountMenuB
     func discoveryInput(directories: [String], knownIdentities: [String: UsageAccountIdentity])
         -> UsageAccountDiscoveryInput
     {
-        UsageAccountDiscoveryInput(
+        discoveries += 1
+        return UsageAccountDiscoveryInput(
             directories: directories,
-            webLogins: accountRoles.map { UsageAccountWebLogin(id: $0.0, identity: identities[$0.0] ?? .init()) })
+            webLogins: accountRoles.map {
+                UsageAccountWebLogin(id: $0.0, identity: identities[$0.0] ?? knownIdentities[$0.0] ?? .init())
+            })
     }
 
     nonisolated func candidates(_ input: UsageAccountDiscoveryInput) -> [UsageAccountCandidate] {
@@ -392,7 +400,17 @@ private final class FakeAccountProvider: UsageAccountProvider, UsageAccountMenuB
         await beforeFetch?(account.sources[0].reference)
         if let fetchDelay { try await Task.sleep(for: fetchDelay) }
         if let failure { throw failure }
-        return UsageAccountFetchResult(usage: UsageAccountUsage(fiveHour: .init(usedPercent: 10, resetsAt: nil)))
+        let source = account.sources[0]
+        let identity = returnedIdentities[source.reference] ?? account.identity
+        return UsageAccountFetchResult(
+            usage: UsageAccountUsage(fiveHour: .init(usedPercent: 10, resetsAt: nil)),
+            binding: .init(account: .init(source: source, identity: identity), credentialRevision: nil),
+            learnedIdentity: learnedIdentities[source.reference].map { (source.reference, $0) })
+    }
+
+    func validateFetchBinding(_ binding: UsageAccountFetchBinding) async throws {
+        validations += 1
+        try await validateBinding?(binding)
     }
 
     func canSwitch(to account: UsageAccount) -> Bool { false }
@@ -674,5 +692,179 @@ extension UsageAccountsControllerTests {
                 .init(
                     source: candidate.source,
                     identity: .init(accountID: "user", organizationID: "other", email: "a@example.com"))))
+    }
+}
+
+extension UsageAccountsControllerTests {
+    private var ownerA: UsageAccountIdentity { .init(accountID: "a", organizationID: "team", email: "a@example.com") }
+    private var ownerB: UsageAccountIdentity { .init(accountID: "b", organizationID: "team", email: "b@example.com") }
+
+    func testChangedDirectoryOwnerIsNeverAppliedToTheCapturedAccount() async throws {
+        let provider = FakeAccountProvider(service: .codex, accounts: [("live", .defaultLogin), ("other", .directory)])
+        provider.identities["other"] = ownerA
+        provider.returnedIdentities["other"] = ownerB
+        let sut = controller([provider])
+        await sut.discoverAndWait()
+        let captured = try XCTUnwrap(sut.accounts[.codex]?.first { !$0.isDefaultLogin })
+        provider.beforeFetch = { _ in provider.identities["other"] = self.ownerB }
+        sut.setMultiAccountEnabled(true, for: .codex)
+        try await waitUntil {
+            provider.discoveries >= 2 && sut.accounts[.codex]?.contains { $0.identity == self.ownerB } == true
+        }
+        XCTAssertNil(sut.states[captured.id]?.usage)
+        XCTAssertNil(sut.states["codex:b|team"]?.usage)
+    }
+
+    func testPartialEmailOwnerCannotAcceptAnotherUsersQuota() async throws {
+        let provider = FakeAccountProvider(
+            service: .claude, accounts: [("live", .defaultLogin), ("other", .directory)])
+        provider.identities["other"] = .init(email: "a@example.com")
+        provider.returnedIdentities["other"] = ownerB
+        let sut = controller([provider])
+        await sut.discoverAndWait()
+        let captured = try XCTUnwrap(sut.accounts[.claude]?.first { !$0.isDefaultLogin })
+        sut.setMultiAccountEnabled(true, for: .claude)
+        try await waitUntil { provider.discoveries >= 2 }
+        XCTAssertNil(sut.states[captured.id]?.usage)
+        XCTAssertNil(sut.states["claude:b|team"]?.usage)
+    }
+
+    func testLateQuotaIsRejectedWhenDiscoveryChangesTheSourceOwner() async throws {
+        let provider = FakeAccountProvider(service: .codex, accounts: [("live", .defaultLogin), ("other", .directory)])
+        provider.identities["other"] = ownerA
+        let gate = UsageAccountFetchGate()
+        provider.beforeFetch = { _ in await gate.wait() }
+        let sut = controller([provider])
+        await sut.discoverAndWait()
+        sut.setMultiAccountEnabled(true, for: .codex)
+        try await waitUntil { provider.fetches.count == 1 }
+        provider.identities["other"] = ownerB
+        await sut.discoverAndWait()
+        await gate.resume()
+        try await waitUntil { provider.validations == 1 }
+        try await waitUntil { provider.discoveries >= 3 }
+        XCTAssertNil(sut.states["codex:a|team"]?.usage)
+        XCTAssertNil(sut.states["codex:b|team"]?.usage)
+    }
+
+    func testSourceOwnerIsCheckedAgainAfterAsynchronousCredentialValidation() async throws {
+        let provider = FakeAccountProvider(service: .codex, accounts: [("live", .defaultLogin), ("other", .directory)])
+        provider.identities["other"] = ownerA
+        let gate = UsageAccountFetchGate()
+        provider.validateBinding = { _ in await gate.wait() }
+        let sut = controller([provider])
+        await sut.discoverAndWait()
+        sut.setMultiAccountEnabled(true, for: .codex)
+        try await waitUntil { provider.validations == 1 }
+        provider.identities["other"] = ownerB
+        await sut.discoverAndWait()
+        await gate.resume()
+        try await waitUntil { provider.discoveries >= 3 }
+        XCTAssertNil(sut.states["codex:a|team"]?.usage)
+        XCTAssertNil(sut.states["codex:b|team"]?.usage)
+    }
+
+    func testUnknownWebOwnerIsLearnedBeforeItsQuotaAndAliasArePublished() async throws {
+        let provider = FakeAccountProvider(
+            service: .claude, accounts: [("cli", .defaultLogin), ("web", .web)], menuBarTarget: "cli")
+        provider.returnedIdentities["web"] = ownerB
+        provider.learnedIdentities["web"] = ownerB
+        let sut = controller([provider])
+        await sut.discoverAndWait()
+        let unknown = try XCTUnwrap(sut.accounts[.claude]?.first { $0.source(.web) != nil })
+        sut.rename(unknown, to: "업무")
+        sut.setMultiAccountEnabled(true, for: .claude)
+        try await waitUntil { sut.states["claude:b|team"]?.usage != nil }
+        let learned = try XCTUnwrap(sut.accounts[.claude]?.first { $0.id == "claude:b|team" })
+        XCTAssertEqual(learned.identity, ownerB)
+        XCTAssertEqual(sut.displayName(for: learned), "업무")
+        XCTAssertEqual(sut.preferences.knownIdentities["web"], ownerB)
+        XCTAssertNil(sut.states[unknown.id])
+        XCTAssertEqual(sut.states[learned.id]?.usage?.fiveHour?.usedPercent, 10)
+    }
+
+    func testFirstLearnedSecondarySourceDoesNotOverwriteSharedRuntimeUsage() async throws {
+        let provider = FakeAccountProvider(
+            service: .claude, accounts: [("cli", .defaultLogin), ("web", .web)], menuBarTarget: "cli")
+        provider.identities["cli"] = ownerB
+        provider.returnedIdentities["web"] = ownerB
+        let sut = controller([provider])
+        await sut.discoverAndWait()
+        sut.setMultiAccountEnabled(true, for: .claude)
+        try await waitUntil { provider.validations == 1 }
+        try await waitUntil { sut.accounts[.claude]?.count == 1 }
+        XCTAssertEqual(sut.accounts[.claude]?.count, 1)
+        XCTAssertTrue(sut.accounts[.claude]?.first.map(sut.isRuntime) == true)
+        XCTAssertNil(sut.states["claude:b|team"]?.usage)
+    }
+
+    func testKnownIdentityAllowsDisplayEmailChangeButKeepsWorkspaceBoundary() {
+        let source = UsageAccountSource(role: .directory, reference: "fixture")
+        let changedEmail = UsageAccountFetchBinding(
+            account: .init(
+                source: source, identity: .init(accountID: "a", organizationID: "team", email: "alias@example.com")),
+            credentialRevision: nil)
+        XCTAssertTrue(changedEmail.matchesOwner(of: ownerA))
+        XCTAssertFalse(
+            changedEmail.matchesOwner(of: .init(accountID: "a", organizationID: "other", email: "alias@example.com")))
+        XCTAssertFalse(changedEmail.matchesOwner(of: .init(email: "b@example.com")))
+        XCTAssertFalse(changedEmail.matchesOwner(of: .init(accountID: "b")))
+        XCTAssertTrue(changedEmail.matchesOwner(of: .init()))
+    }
+}
+
+extension UsageAccountsControllerTests {
+    func testPartialDirectoryOwnerChangeClearsTheSameSourceIDCachedQuota() async throws {
+        let provider = FakeAccountProvider(
+            service: .claude, accounts: [("live", .defaultLogin), ("other", .directory)])
+        provider.identities["other"] = .init(email: "a@example.com")
+        let sut = controller([provider])
+        await sut.discoverAndWait()
+        let original = try XCTUnwrap(sut.accounts[.claude]?.first { !$0.isDefaultLogin })
+        sut.setMultiAccountEnabled(true, for: .claude)
+        try await waitUntil { sut.states[original.id]?.usage != nil }
+        provider.identities["other"] = .init(email: "b@example.com")
+        await sut.discoverAndWait()
+        let changed = try XCTUnwrap(sut.accounts[.claude]?.first { !$0.isDefaultLogin })
+        XCTAssertEqual(changed.id, original.id, "The stored ID format remains source-based for partial owners")
+        XCTAssertEqual(changed.identity.email, "b@example.com")
+        XCTAssertNil(sut.states[changed.id]?.usage)
+    }
+
+    func testCanonicalOwnerDisplayEmailChangePreservesItsCachedQuota() async throws {
+        let provider = FakeAccountProvider(
+            service: .claude, accounts: [("live", .defaultLogin), ("other", .directory)])
+        provider.identities["other"] = ownerA
+        let sut = controller([provider])
+        await sut.discoverAndWait()
+        sut.setMultiAccountEnabled(true, for: .claude)
+        try await waitUntil { sut.states["claude:a|team"]?.usage != nil }
+        provider.identities["other"] = .init(accountID: "a", organizationID: "team", email: "alias@example.com")
+        await sut.discoverAndWait()
+        XCTAssertEqual(sut.states["claude:a|team"]?.usage?.fiveHour?.usedPercent, 10)
+    }
+}
+
+extension UsageAccountsControllerTests {
+    func testUnknownDirectoryFirstLearnKeepsVerifiedOwnerAndQuotaAcrossIncompleteDiscovery() async throws {
+        let provider = FakeAccountProvider(
+            service: .claude, accounts: [("live", .defaultLogin), ("other", .directory)])
+        provider.returnedIdentities["other"] = ownerA
+        let sut = controller([provider])
+        await sut.discoverAndWait()
+        let unknown = try XCTUnwrap(sut.accounts[.claude]?.first { !$0.isDefaultLogin })
+        sut.rename(unknown, to: "업무")
+        sut.setMultiAccountEnabled(true, for: .claude)
+        try await waitUntil { sut.states["claude:a|team"]?.usage != nil }
+        await sut.discoverAndWait()
+        let learned = try XCTUnwrap(sut.accounts[.claude]?.first { !$0.isDefaultLogin })
+        XCTAssertEqual(learned.identity, ownerA)
+        XCTAssertEqual(sut.displayName(for: learned), "업무")
+        XCTAssertEqual(sut.states[learned.id]?.usage?.fiveHour?.usedPercent, 10)
+        provider.identities["other"] = .init(email: "b@example.com")
+        await sut.discoverAndWait()
+        let replaced = try XCTUnwrap(sut.accounts[.claude]?.first { !$0.isDefaultLogin })
+        XCTAssertEqual(replaced.identity.email, "b@example.com")
+        XCTAssertNil(sut.states[replaced.id]?.usage)
     }
 }

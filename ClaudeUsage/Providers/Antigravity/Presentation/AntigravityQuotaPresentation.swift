@@ -210,6 +210,9 @@ nonisolated struct AntigravityMenuBarQuotaPresentation:
     let tone: AntigravityQuotaRiskTone
     let accessibilityLabel: String
     let accessibilityValue: String
+    var selectedVisualValues: [Double] = []
+    var selectedVisualConfiguration: [String] = []
+
 }
 
 nonisolated enum AntigravityQuotaPresentationSurface:

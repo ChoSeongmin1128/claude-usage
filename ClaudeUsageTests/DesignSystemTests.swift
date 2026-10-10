@@ -1095,11 +1095,11 @@ final class DesignSystemTests: XCTestCase {
             let partial =
                 provider == .claude ? UsageLimitCatalog.claude(partialClaude) : UsageLimitCatalog.codex(partialCodex)
             let primary = try XCTUnwrap(partial.first)
-            let row = LimitSettingsRow(
-                id: primary.id, title: primary.title, quotaID: primary.id, notificationLimit: primary)
-            try XCTUnwrap(view.quotaGaugeBinding(row, provider: provider)).wrappedValue = true
+            view.gaugeShapeBinding(provider).wrappedValue = .batteryBar
+            view.applyMenuBarQuotaAction(.add(primary.id), for: provider)
+            view.applyMenuBarQuotaAction(.setSurface(primary.id, .gauge, true), for: provider)
             let config = try XCTUnwrap(AppSettings(defaults: defaults).menuBarDisplayConfig(for: provider))
-            XCTAssertNil(config.quotaSelection)
+            XCTAssertNotNil(config.quotaSelection)
             XCTAssertEqual(config.gaugeSelection?.ids, [primary.id])
             let completeClaude = ClaudeUsageResponse(
                 fiveHour: .init(utilization: 12, resetsAt: nil),
@@ -1119,7 +1119,7 @@ final class DesignSystemTests: XCTestCase {
         }
     }
 
-    func testAntigravityGaugeCheckboxesSaveReloadReorderAndRemoveIndependentlyOfText() async throws {
+    func testAntigravityQuotaEditorSavesReloadsReordersAndRemovesGaugesIndependentlyOfText() async throws {
         let suite = "DesignSystemTests.agy-gauge-storage.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -1134,29 +1134,51 @@ final class DesignSystemTests: XCTestCase {
             claudeOAuthMigrationCoordinator: dependencies.migration)
         let before = try XCTUnwrap(dependencies.antigravity.state.display)
         let lanes = view.antigravityObservedLanes
+        let original = try XCTUnwrap(view.menuBarQuotaEditorModel(for: .antigravity))
         XCTAssertEqual(lanes.count, 2)
-        func waitForIDs(_ ids: [AntigravityQuotaLaneID]) async throws {
+        func settle(until condition: @escaping () -> Bool) async throws {
             let deadline = Date().addingTimeInterval(2)
-            while dependencies.antigravity.state.display?.menuBar.gaugeLaneIDs != ids, Date() < deadline {
+            await Task.yield()
+            while (!condition() || dependencies.antigravity.state.activity.isBusy), Date() < deadline {
                 try await Task.sleep(for: .milliseconds(10))
             }
-            XCTAssertEqual(dependencies.antigravity.state.display?.menuBar.gaugeLaneIDs, ids)
+            XCTAssertTrue(condition())
+            XCTAssertFalse(dependencies.antigravity.state.activity.isBusy)
         }
+        let initialOrder =
+            original.selectedItems.map(\.id)
+            + lanes.map { $0.id.rawValue }.filter { !original.selection.selectedIDs.contains($0) }
         for (index, lane) in lanes.enumerated() {
-            let row = LimitSettingsRow(id: lane.id.rawValue, title: lane.menuLabel, laneID: lane.id.rawValue)
-            try XCTUnwrap(view.quotaGaugeBinding(row, provider: .antigravity)).wrappedValue = true
-            try await waitForIDs(Array(lanes.prefix(index + 1).map(\.id)))
+            view.applyMenuBarQuotaAction(.add(lane.id.rawValue), for: .antigravity)
+            try await settle {
+                view.menuBarQuotaEditorModel(for: .antigravity)?.selection.selectedIDs.contains(lane.id.rawValue)
+                    == true
+            }
+            view.applyMenuBarQuotaAction(.setSurface(lane.id.rawValue, .gauge, true), for: .antigravity)
+            let chosen = Set(lanes.prefix(index + 1).map { $0.id.rawValue })
+            let expected = initialOrder.filter { chosen.contains($0) }
+            try await settle {
+                dependencies.antigravity.state.display?.menuBar.gaugeLaneIDs?.map(\.rawValue) == expected
+            }
+            if !original.selection.percentageIDs.contains(lane.id.rawValue) {
+                view.applyMenuBarQuotaAction(.setSurface(lane.id.rawValue, .percentage, false), for: .antigravity)
+                try await settle {
+                    view.menuBarQuotaEditorModel(for: .antigravity)?.selection.percentageIDs.contains(lane.id.rawValue)
+                        == false
+                }
+            }
         }
-        view.updateAntigravityDisplay { $0.menuBar.gaugeLaneIDs = lanes.reversed().map(\.id) }
-        try await waitForIDs(lanes.reversed().map(\.id))
-        let row = LimitSettingsRow(id: lanes[0].id.rawValue, title: lanes[0].menuLabel, laneID: lanes[0].id.rawValue)
-        try XCTUnwrap(view.quotaGaugeBinding(row, provider: .antigravity)).wrappedValue = false
-        try await waitForIDs([lanes[1].id])
+        let reordered = Array(initialOrder.reversed())
+        view.applyMenuBarQuotaAction(.reorderQuotas(reordered), for: .antigravity)
+        try await settle { dependencies.antigravity.state.display?.menuBar.gaugeLaneIDs?.map(\.rawValue) == reordered }
+        view.applyMenuBarQuotaAction(.setSurface(lanes[0].id.rawValue, .gauge, false), for: .antigravity)
+        try await settle { dependencies.antigravity.state.display?.menuBar.gaugeLaneIDs == [lanes[1].id] }
         await dependencies.antigravity.load()
         XCTAssertEqual(view.gaugeSelection(.antigravity).ids, [lanes[1].id.rawValue])
         let after = try XCTUnwrap(dependencies.antigravity.state.display)
-        XCTAssertEqual(after.menuBar.percentageLaneIDs, before.menuBar.percentageLaneIDs)
-        XCTAssertEqual(after.menuBar.resetLaneIDs, before.menuBar.resetLaneIDs)
+        XCTAssertEqual(
+            Set(after.menuBar.percentageLaneIDs?.map(\.rawValue) ?? []), Set(original.selection.percentageIDs))
+        XCTAssertEqual(Set(after.menuBar.resetLaneIDs?.map(\.rawValue) ?? []), Set(original.selection.resetIDs))
         XCTAssertEqual(after.menuBar.laneSelection, before.menuBar.laneSelection)
         XCTAssertTrue(after.isCurrentAndValid)
     }
@@ -1190,28 +1212,35 @@ final class DesignSystemTests: XCTestCase {
         XCTAssertEqual(settings.menuBarDisplayConfig(for: .claude)?.style, MenuBarStyle.none)
         let limits = UsageLimitCatalog.claude(usage)
         for limit in limits {
-            let row = LimitSettingsRow(id: limit.id, title: limit.title, quotaID: limit.id, notificationLimit: limit)
-            try XCTUnwrap(view.quotaGaugeBinding(row, provider: .claude)).wrappedValue = true
+            if view.menuBarQuotaEditorModel(for: .claude)?.selection.selectedIDs.contains(limit.id) != true {
+                view.applyMenuBarQuotaAction(.add(limit.id), for: .claude)
+            }
+            view.applyMenuBarQuotaAction(.setSurface(limit.id, .gauge, true), for: .claude)
         }
         let selected = try XCTUnwrap(view.effectiveMenuBarSelection(.claude))
         XCTAssertEqual(selected.gaugeIDs, limits.map(\.id))
         XCTAssertEqual(selected.percentageIDs, before.percentageIDs)
         XCTAssertEqual(selected.resetIDs, before.resetIDs)
         XCTAssertEqual(settings.menuBarDisplayConfig(for: .claude)?.style, .batteryBar)
-        XCTAssertEqual(view.orderedMenuBarGaugeRows(for: .claude).compactMap(\.gaugeID), selected.gaugeIDs)
+        XCTAssertEqual(view.menuBarQuotaEditorModel(for: .claude)?.selectedItems.map(\.id), selected.gaugeIDs)
         let model = try XCTUnwrap(limits.first(where: \.isModelScoped))
-        view.moveMenuBarGauge(model.id, by: -1, for: .claude)
         let ordered = [limits[0].id, model.id, limits[1].id]
-        XCTAssertEqual(view.orderedMenuBarGaugeRows(for: .claude).compactMap(\.gaugeID), ordered)
+        view.applyMenuBarQuotaAction(.reorderQuotas(ordered), for: .claude)
+        XCTAssertEqual(view.menuBarQuotaEditorModel(for: .claude)?.selectedItems.map(\.id), ordered)
         let reordered = try XCTUnwrap(view.effectiveMenuBarSelection(.claude))
         XCTAssertEqual(reordered.percentageIDs, before.percentageIDs)
         XCTAssertEqual(reordered.resetIDs, before.resetIDs)
         let fullUsage = usage
         usage = ClaudeUsageResponse(fiveHour: fullUsage.fiveHour, sevenDay: fullUsage.sevenDay)
-        let missing = try XCTUnwrap(view.orderedMenuBarGaugeRows(for: .claude).first { $0.gaugeID == model.id })
-        XCTAssertTrue(missing.title.contains("데이터 없음"))
-        XCTAssertFalse(view.quotaCellUnavailable(missing, provider: .claude, surface: .gauge))
-        XCTAssertEqual(view.orderedMenuBarGaugeRows(for: .claude).compactMap(\.gaugeID), ordered)
+        let missing = try XCTUnwrap(
+            view.menuBarQuotaEditorModel(for: .claude)?.selectedItems.first { $0.id == model.id })
+        XCTAssertTrue(missing.title.contains("Fable"))
+        XCTAssertNil(missing.usedPercentage)
+        XCTAssertFalse(missing.canSelect)
+        let missingBefore = settings.menuBarQuotaPreferences
+        view.applyMenuBarQuotaAction(.setSurface(model.id, .percentage, true), for: .claude)
+        XCTAssertEqual(settings.menuBarQuotaPreferences, missingBefore)
+        XCTAssertEqual(view.menuBarQuotaEditorModel(for: .claude)?.selectedItems.map(\.id), ordered)
         usage = fullUsage
         let size = AppDesign.Window.settingsMinimum
         let image = try await renderSettingsNativeVerified(
@@ -2188,7 +2217,7 @@ private struct PopoverValueBaselineProbe: Layout {
 }
 
 extension DesignSystemTests {
-    func testModelQuotaSettingsBindingsAndNativeTableAtMinimumWidth() async throws {
+    func testModelQuotaEditorAppliesNumericAndResetSelectionAtMinimumWidth() async throws {
         let suite = "DesignSystemTests.modelQuotaSettings.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -2209,9 +2238,9 @@ extension DesignSystemTests {
             claudeOAuthMigrationCoordinator: dependencies.migration, claudeLastUsage: { usage }, initialPanel: .claude,
             initialSection: .limits)
         let model = try XCTUnwrap(UsageLimitCatalog.claude(usage).first(where: \.isModelScoped))
-        let row = LimitSettingsRow(id: model.id, title: model.title, quotaID: model.id, notificationLimit: model)
-        try XCTUnwrap(view.quotaNumberBinding(row, provider: .claude)).wrappedValue = true
-        try XCTUnwrap(view.menuBarResetBinding(row, provider: .claude)).wrappedValue = true
+        view.applyMenuBarQuotaAction(.add(model.id), for: .claude)
+        view.applyMenuBarQuotaAction(.setSurface(model.id, .percentage, true), for: .claude)
+        view.applyMenuBarQuotaAction(.setSurface(model.id, .reset, true), for: .claude)
         XCTAssertTrue(
             settings.menuBarDisplayConfig(for: .claude)?.quotaSelection?.percentageIDs.contains(model.id) == true)
         XCTAssertTrue(settings.menuBarDisplayConfig(for: .claude)?.quotaSelection?.resetIDs.contains(model.id) == true)
@@ -2225,15 +2254,14 @@ extension DesignSystemTests {
             settings: settings, updateRuntimeState: dependencies.updates, claudeAccountStore: dependencies.accountStore,
             sessionKeyLoader: { _ in nil }, codexAuthStatusReader: dependencies.codex.status,
             claudeOAuthMigrationCoordinator: dependencies.migration)
-        let missingBase = LimitSettingsRow(id: "currentSession", title: "5시간", menuBarSlot: .fiveHour)
-        XCTAssertNil(pending.quotaNumberBinding(missingBase, provider: .claude))
-        XCTAssertNil(pending.menuBarResetBinding(missingBase, provider: .claude))
+        let captured = defaults.data(forKey: MenuBarQuotaPreferences.key)
+        let pendingModel = try XCTUnwrap(pending.menuBarQuotaEditorModel(for: .claude))
+        XCTAssertTrue(pendingModel.items.isEmpty)
+        XCTAssertEqual(defaults.data(forKey: MenuBarQuotaPreferences.key), captured)
         settings.menuBarQuotaPreferences = MenuBarQuotaPreferences()
-        try XCTUnwrap(pending.menuBarResetBinding(missingBase, provider: .claude)).wrappedValue = true
-        XCTAssertEqual(settings.menuBarDisplayConfig(for: .claude)?.resetTimeDisplay, .fiveHour)
-        let weekly = LimitSettingsRow(id: "weeklyLimit", title: "주간", menuBarSlot: .weekly)
-        try XCTUnwrap(pending.menuBarResetBinding(weekly, provider: .claude)).wrappedValue = true
-        XCTAssertEqual(settings.menuBarDisplayConfig(for: .claude)?.resetTimeDisplay, .dual)
+        XCTAssertNil(settings.menuBarDisplayConfig(for: .claude)?.quotaSelection)
+        XCTAssertTrue(try XCTUnwrap(pending.menuBarQuotaEditorModel(for: .claude)).items.isEmpty)
+        XCTAssertNil(settings.menuBarDisplayConfig(for: .claude)?.quotaSelection)
         XCTAssertEqual(dependencies.reader.readCountSync, 1, "Only the injected empty reader is used")
         XCTAssertEqual(dependencies.updateEngine.checks, 0)
     }

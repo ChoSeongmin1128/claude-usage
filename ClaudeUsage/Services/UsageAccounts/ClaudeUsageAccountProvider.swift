@@ -12,9 +12,21 @@ final class ClaudeUsageAccountProvider: UsageAccountProvider, UsageAccountMenuBa
     var menuBar: (any UsageAccountMenuBarPolicy)? { self }
 
     private let store: ClaudeAccountStore
+    private let keychain: ClaudeCodeKeychain
+    private let session: URLSession
+    private let cliRefresher: ClaudeCodeCredentialReader.CLIRefresher
 
-    init(store: ClaudeAccountStore = .shared) {
+    init(
+        store: ClaudeAccountStore = .shared, keychain: ClaudeCodeKeychain = .system,
+        session: URLSession = .shared,
+        cliRefresher: @escaping ClaudeCodeCredentialReader.CLIRefresher = {
+            await ClaudeCodeCLI.refreshLogin(configDirectory: $0)
+        }
+    ) {
         self.store = store
+        self.keychain = keychain
+        self.session = session
+        self.cliRefresher = cliRefresher
     }
 
     func discoveryInput(directories: [String], knownIdentities: [String: UsageAccountIdentity])
@@ -120,45 +132,116 @@ final class ClaudeUsageAccountProvider: UsageAccountProvider, UsageAccountMenuBa
             let stored = store.accounts().first { $0.id == web.reference }
             // 메뉴바 계정일 때 고른 조직(직접 고르지 않았으면 마지막으로 쓴 조직)을 그대로 쓴다.
             let organization = stored?.userSelectedPreferredOrganizationID ?? stored?.identity.organizationID
-            let result = try await ClaudeWebUsageFetcher.fetch(sessionKey: sessionKey, organizationID: organization)
+            let result = try await ClaudeWebUsageFetcher.fetch(
+                sessionKey: sessionKey, organizationID: organization, session: session)
+            let binding = UsageAccountFetchBinding(
+                account: .init(source: web, identity: result.identity),
+                credentialRevision: try UsageAccountCredentialRevision.web(
+                    sessionKey: sessionKey, organizationID: organization))
+            try await validateFetchBinding(binding)
             return UsageAccountFetchResult(
-                usage: UsageAccountUsage(claude: result.usage), learnedIdentity: (web.reference, result.identity))
+                usage: UsageAccountUsage(claude: result.usage), binding: binding,
+                learnedIdentity: (web.reference, result.identity))
         }
+        let source: UsageAccountSource
         let slot: ClaudeCodeLoginSlot
         if let directory = account.source(.directory) {
+            source = directory
             slot = .folderSlot(URL(fileURLWithPath: directory.reference))
-        } else if account.isDefaultLogin {
+        } else if let defaultLogin = account.source(.defaultLogin) {
+            source = defaultLogin
             slot = .defaultSlot()
         } else {
             throw UsageAccountFetchError.unavailable
         }
-        // macOS 확인 창을 기다리는 동안 main을 막지 않는다.
-        let usage = try await Task.detached(priority: .utility) {
-            try await Self.fetchClaudeCodeUsage(slot: slot, interactive: interactive)
-        }.value
-        return UsageAccountFetchResult(usage: UsageAccountUsage(claude: usage))
+        let keychain = self.keychain
+        let session = self.session
+        let refresher = cliRefresher
+        let task = Task.detached(priority: .utility) {
+            try await Self.fetchOwnedClaudeCodeUsage(
+                slot: slot, interactive: interactive, expectedIdentity: account.identity,
+                keychain: keychain, session: session, cliRefresher: refresher)
+        }
+        let result = try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        try Task.checkCancellation()
+        return UsageAccountFetchResult(
+            usage: UsageAccountUsage(claude: result.usage),
+            binding: .init(
+                account: .init(source: source, identity: result.identity),
+                credentialRevision: result.credentialRevision))
     }
 
-    /// 토큰이 곧 끝나면 그 로그인의 Claude Code가 갱신하게 한 뒤 다시 읽는다.
-    nonisolated static func fetchClaudeCodeUsage(slot: ClaudeCodeLoginSlot, interactive: Bool) async throws
-        -> ClaudeUsageResponse
-    {
-        var read = await slot.currentCredential(interactive: interactive)
+    func validateFetchBinding(_ binding: UsageAccountFetchBinding) async throws {
+        try Task.checkCancellation()
+        let source = binding.account.source
+        let revision: String
+        if source.role == .web {
+            guard let stored = store.accounts().first(where: { $0.id == source.reference }),
+                let sessionKey = KeychainManager.shared.load(for: source.reference)
+            else { throw UsageAccountFetchError.accountChanged }
+            revision = try UsageAccountCredentialRevision.web(
+                sessionKey: sessionKey,
+                organizationID: stored.userSelectedPreferredOrganizationID ?? stored.identity.organizationID)
+        } else {
+            let slot =
+                source.role == .defaultLogin
+                ? ClaudeCodeLoginSlot.defaultSlot()
+                : .folderSlot(URL(fileURLWithPath: source.reference))
+            let keychain = self.keychain
+            revision = try await Task.detached(priority: .utility) {
+                guard
+                    case .credential(let credential) = await slot.currentCredential(
+                        interactive: false, keychain: keychain)
+                else { throw UsageAccountFetchError.accountChanged }
+                return try UsageAccountCredentialRevision.claude(credential)
+            }.value
+        }
+        try Task.checkCancellation()
+        guard binding.credentialRevision == revision else { throw UsageAccountFetchError.accountChanged }
+    }
+
+    nonisolated struct CredentialUsage: Sendable {
+        let usage: ClaudeUsageResponse
+        let identity: UsageAccountIdentity
+        let credentialRevision: String
+    }
+
+    nonisolated static func fetchOwnedClaudeCodeUsage(
+        slot: ClaudeCodeLoginSlot, interactive: Bool, expectedIdentity: UsageAccountIdentity = .init(),
+        keychain: ClaudeCodeKeychain = .system, session: URLSession = .shared,
+        cliRefresher: ClaudeCodeCredentialReader.CLIRefresher = {
+            await ClaudeCodeCLI.refreshLogin(configDirectory: $0)
+        }
+    ) async throws -> CredentialUsage {
+        var read = await slot.currentCredential(interactive: interactive, keychain: keychain)
+        try Task.checkCancellation()
         if case .credential(let credential) = read, credential.isExpired {
-            switch await ClaudeCodeCLI.refreshLogin(configDirectory: slot.cliConfigDirectory) {
-            case .refreshed: read = await slot.currentCredential(interactive: false)
+            switch await cliRefresher(slot.cliConfigDirectory) {
+            case .refreshed: read = await slot.currentCredential(interactive: false, keychain: keychain)
             case .notLoggedIn: throw UsageAccountFetchError.loginExpired
             case .executableNotFound: throw UsageAccountFetchError.executableNotFound
             case .unavailable: throw UsageAccountFetchError.unavailable
             }
         }
+        let credential: ClaudeCodeOAuthCredential
         switch read {
-        case .credential(let credential):
-            guard !credential.isExpired else { throw UsageAccountFetchError.unavailable }
-            return try await ClaudeWebUsageFetcher.fetchOAuthUsage(accessToken: credential.accessToken)
+        case .credential(let value): credential = value
         case .needsPermission: throw UsageAccountFetchError.needsPermission
         case .missing: throw UsageAccountFetchError.loginExpired
         }
+        guard !credential.isExpired else { throw UsageAccountFetchError.unavailable }
+        let revision = try UsageAccountCredentialRevision.claude(credential)
+        let result = try await ClaudeWebUsageFetcher.fetchOAuthUsageWithOwner(
+            accessToken: credential.accessToken, expectedIdentity: expectedIdentity, session: session)
+        guard case .credential(let current) = await slot.currentCredential(interactive: false, keychain: keychain),
+            try UsageAccountCredentialRevision.claude(current) == revision
+        else { throw UsageAccountFetchError.accountChanged }
+        try Task.checkCancellation()
+        return CredentialUsage(usage: result.usage, identity: result.identity, credentialRevision: revision)
     }
 
     /// 바꾼 뒤 Claude Code로 이메일을 확인하므로 이메일과 Claude Code가 모두 있어야 한다.

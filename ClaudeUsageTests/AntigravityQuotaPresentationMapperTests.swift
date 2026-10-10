@@ -1070,6 +1070,52 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
 
 extension AntigravityQuotaPresentationMapperTests {
 
+    func testPartialMenuBarTimeOnlyPreservesValidResetWithoutNumericQuota() throws {
+        let presentation = try partialMenuBarResetPresentation(percentageLaneIDs: [])
+
+        XCTAssertEqual(presentation.menuBar.regularText, "G·주 월 00:00")
+        XCTAssertEqual(presentation.menuBar.condensedText, "월 00:00")
+        XCTAssertEqual(presentation.menuBar.selectedLaneID, .geminiFiveHour)
+        XCTAssertTrue(presentation.menuBar.accessibilityValue.contains("사용량 알 수 없음"))
+        XCTAssertFalse(presentation.menuBar.regularText?.contains("데이터 없음") == true)
+    }
+
+    func testPartialMenuBarKeepsValidResetBesideUnavailableSelectedPercentage() throws {
+        let presentation = try partialMenuBarResetPresentation(percentageLaneIDs: [.geminiWeekly])
+
+        XCTAssertEqual(presentation.menuBar.regularText, "G·주 사용량 알 수 없음 월 00:00")
+        XCTAssertEqual(presentation.menuBar.condensedText, "사용량 알 수 없음 월 00:00")
+        XCTAssertFalse(presentation.menuBar.regularText?.contains("0%") == true)
+    }
+
+    private func partialMenuBarResetPresentation(
+        percentageLaneIDs: [AntigravityQuotaLaneID]
+    ) throws -> AntigravityQuotaPresentation {
+        let decoded = try AntigravityQuotaSummaryDecoder.decode(
+            Data(
+                #"{"groups":[{"groupId":"gemini","buckets":[{"bucketId":"gemini-weekly","window":"weekly","reset_time":"2030-01-07T00:00:00Z"},{"bucketId":"gemini-5h","window":"5h","remaining_fraction":0.8}]}]}"#
+                    .utf8))
+        XCTAssertEqual(decoded.decodeIssues.map(\.kind), [.missingRemainingFraction])
+        var settings = AntigravityDisplaySettings.default
+        settings.menuBar.percentageLaneIDs = percentageLaneIDs
+        settings.menuBar.resetLaneIDs = [.geminiWeekly]
+        settings.menuBar.timeFormat = .h24
+        let snapshot = makeSnapshot(lanes: decoded.lanes, fetchedAt: now, decodeIssues: decoded.decodeIssues)
+        let result = AntigravityQuotaPresentationMapper.map(
+            state: .partial(snapshot, issues: decoded.decodeIssues), settings: settings, now: now, timeZone: utc)
+        guard case .content(let presentation) = result else {
+            XCTFail("A partial report must preserve valid reset metadata")
+            throw AntigravityQuotaSummaryDecoderError.noIdentifiableQuotaLanes
+        }
+        let weekly = try XCTUnwrap(presentation.allGroups.flatMap(\.lanes).first { $0.id == .geminiWeekly })
+        XCTAssertNil(weekly.percentageText)
+        XCTAssertNotNil(weekly.resetAt)
+        let sibling = try XCTUnwrap(presentation.allGroups.flatMap(\.lanes).first { $0.id == .geminiFiveHour })
+        XCTAssertEqual(try XCTUnwrap(sibling.value.usedPercentage), 20, accuracy: 0.001)
+        XCTAssertEqual(sibling.percentageText, "20%")
+        return presentation
+    }
+
     func testMissingExplicitMenuBarLaneRemainsVisibleAsUnavailable() {
         let missing = AntigravityQuotaLaneID(rawValue: "flash.weekly")
         let pro = makeLane(

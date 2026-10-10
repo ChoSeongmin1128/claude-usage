@@ -265,6 +265,30 @@ final class AntigravityRuntimeControllerTests:
         XCTAssertEqual(displaySaveCount, 2)
     }
 
+    func testContextMenuShapeMutationNormalizesStoredASelectionAndPairRoles() async throws {
+        let fixture = makeFixture()
+        let initial = await fixture.controller.bootstrap(performInitialRefresh: false)
+        let current = try XCTUnwrap(initial.settings?.display)
+        var display = current
+        let ids = [AntigravityQuotaLaneID.geminiFiveHour, .geminiWeekly]
+        display.menuBar.style = .batteryBar
+        display.menuBar.gaugeLaneIDs = ids
+        display.menuBar.percentageLaneIDs = []
+        display.menuBar.resetLaneIDs = []
+        display.menuBar.arrangement = .init(
+            orderedIDs: ids.map(\.rawValue), gaugeGroups: [ids.map(\.rawValue)], gaugeLayout: .stacked)
+        _ = try await fixture.controller.updateDisplay(display, replacing: current)
+        let circular = try await fixture.controller.updateMenuBarStyle(.circular)
+        XCTAssertEqual(circular.settings?.display.menuBar.arrangement?.gaugeLayout, .concentric)
+        XCTAssertEqual(circular.settings?.display.menuBar.gaugeLaneIDs, ids)
+        let hidden = try await fixture.controller.updateMenuBarStyle(.none)
+        XCTAssertEqual(hidden.settings?.display.menuBar.gaugeLaneIDs, [])
+        XCTAssertEqual(hidden.settings?.display.menuBar.percentageLaneIDs, [])
+        XCTAssertEqual(hidden.settings?.display.menuBar.resetLaneIDs, [])
+        XCTAssertEqual(hidden.settings?.display.menuBar.arrangement?.orderedIDs, [])
+        await fixture.controller.shutdown()
+    }
+
     func testDisplayUpdateRejectsSnapshotOlderThanMenuBarStyleMutation()
         async throws
     {

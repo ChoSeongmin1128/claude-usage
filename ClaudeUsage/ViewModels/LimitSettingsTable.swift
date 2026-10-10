@@ -1,22 +1,14 @@
 import Foundation
 
-nonisolated enum LimitMenuBarSlot: Sendable, Equatable {
-    case fiveHour, weekly
-}
-
 nonisolated struct LimitSettingsRow: Identifiable, Equatable, Sendable {
     let id: String
     let title: String
-    var isChild = false
     var quotaID: String?
-    var menuBarSlot: LimitMenuBarSlot?
-    var laneID: String?
     var notificationLimit: UsageLimit?
     /// 조회 전이라 아직 알림 대상이 없지만 조회되면 생기는 줄
     var takesNotification = false
     var controlsResetCreditMenuBar = false
 
-    var gaugeID: String? { laneID ?? quotaID }
 }
 
 nonisolated enum LimitSettingsTable {
@@ -27,27 +19,27 @@ nonisolated enum LimitSettingsTable {
         popoverItems.flatMap { item -> [LimitSettingsRow] in
             let name = displayName(item.id) ?? item.id
             func row(
-                _ title: String = name, slot: LimitMenuBarSlot? = nil, limit: UsageLimit? = nil, takes: Bool = false
+                _ title: String = name, limit: UsageLimit? = nil, takes: Bool = false
             )
                 -> LimitSettingsRow
             {
                 LimitSettingsRow(
-                    id: item.id, title: title, quotaID: limit?.id, menuBarSlot: slot, notificationLimit: limit,
+                    id: item.id, title: title, quotaID: limit?.id, notificationLimit: limit,
                     takesNotification: takes)
             }
             func children(_ matches: (UsageLimit) -> Bool) -> [LimitSettingsRow] {
                 limits.filter(matches).map {
                     LimitSettingsRow(
-                        id: "\(item.id)/\($0.id)", title: $0.title, isChild: true, quotaID: $0.id,
+                        id: "\(item.id)/\($0.id)", title: $0.title, quotaID: $0.id,
                         notificationLimit: $0,
                         takesNotification: true)
                 }
             }
             switch (service, item.id) {
             case (.claude, "currentSession"):
-                return [row(slot: .fiveHour, limit: limits.first { $0.scope == "five_hour" }, takes: true)]
+                return [row(limit: limits.first { $0.scope == "five_hour" }, takes: true)]
             case (.claude, "weeklyLimit"):
-                return [row(slot: .weekly, limit: limits.first { $0.scope == "seven_day" }, takes: true)]
+                return [row(limit: limits.first { $0.scope == "seven_day" }, takes: true)]
             case (.claude, "modelUsage"):
                 return [row()] + children(\.isModelScoped)
             case (.codex, "codexPrimary"), (.codex, "codexSecondary"):
@@ -61,7 +53,7 @@ nonisolated enum LimitSettingsTable {
                     let title = selection.window.adaptiveTitle(
                         expectedSeconds: isPrimary ? 18_000 : 604_800,
                         fallback: isPrimary ? "5시간 한도" : "주간 한도")
-                    return [row(title, slot: isPrimary ? .fiveHour : .weekly, limit: limit, takes: true)]
+                    return [row(title, limit: limit, takes: true)]
                 }
                 let limit = limits.first {
                     $0.scope == "general" && $0.windowSlot == (isPrimary ? "primary" : "secondary")
@@ -69,7 +61,7 @@ nonisolated enum LimitSettingsTable {
                 let fallback = isPrimary ? "기본 한도" : "보조 한도"
                 return [
                     row(
-                        limit.map { "\($0.title) 한도" } ?? fallback, slot: isPrimary ? .fiveHour : .weekly, limit: limit,
+                        limit.map { "\($0.title) 한도" } ?? fallback, limit: limit,
                         takes: true)
                 ]
             case (.codex, "codexModelLimits"):
@@ -90,46 +82,16 @@ nonisolated enum LimitSettingsTable {
     ) -> [LimitSettingsRow] {
         var rows = lanes.map { lane in
             LimitSettingsRow(
-                id: lane.id, title: lane.title, laneID: lane.id,
+                id: lane.id, title: lane.title,
                 notificationLimit: limits.first { $0.scope == lane.id }, takesNotification: true)
         }
         let observed = Set(lanes.map(\.id))
         for (index, id) in selectedIDs.enumerated() where !observed.contains(id.rawValue) {
             let title =
                 titles[id.rawValue] ?? AntigravityDisplaySettings.MenuBarPresentationIntent.missingTextTitle(at: index)
-            rows.append(LimitSettingsRow(id: id.rawValue, title: title + " (데이터 없음)", laneID: id.rawValue))
+            rows.append(LimitSettingsRow(id: id.rawValue, title: title + " (데이터 없음)"))
         }
         return rows
     }
 
-}
-
-extension PercentageDisplay {
-    nonisolated func effectiveCodexSelection(usage: CodexUsageResponse?) -> PercentageDisplay {
-        guard let usage else { return self }
-        switch (usage.hasSessionWindow, usage.weeklyWindow != nil) {
-        case (true, true): return self
-        case (true, false): return contains(.fiveHour) ? .fiveHour : .none
-        case (false, true): return self == .none ? .none : .weekly
-        case (false, false): return .none
-        }
-    }
-
-    nonisolated func contains(_ slot: LimitMenuBarSlot) -> Bool {
-        switch (self, slot) {
-        case (.dual, _), (.fiveHour, .fiveHour), (.weekly, .weekly): return true
-        default: return false
-        }
-    }
-
-    nonisolated func setting(_ slot: LimitMenuBarSlot, to isOn: Bool) -> PercentageDisplay {
-        let fiveHour = slot == .fiveHour ? isOn : contains(.fiveHour)
-        let weekly = slot == .weekly ? isOn : contains(.weekly)
-        switch (fiveHour, weekly) {
-        case (true, true): return .dual
-        case (true, false): return .fiveHour
-        case (false, true): return .weekly
-        case (false, false): return .none
-        }
-    }
 }

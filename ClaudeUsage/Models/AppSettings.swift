@@ -48,7 +48,7 @@ enum MenuBarStyle: String, Codable, CaseIterable, Sendable {
         }
     }
 
-    var gaugeShape: MenuBarStyle {
+    nonisolated var gaugeShape: MenuBarStyle {
         switch self {
         case .dualBattery, .sideBySideBattery: .batteryBar
         case .concentricRings: .circular
@@ -708,7 +708,7 @@ class AppSettings: ObservableObject {
         menuBarActiveServiceSelectionRawValue = snapshot.menuBarActiveServiceRawValue
         for (kind, config) in snapshot.runtimeProviderDisplayConfigs {
             setProviderShowIcon(config.showIcon, for: kind)
-            setMenuBarStyle(config.style, for: kind)
+            setStoredMenuBarStyle(config.style, for: kind)
             setProviderPercentageDisplay(config.percentageDisplay, for: kind)
             setProviderShowBatteryPercent(config.showBatteryPercent, for: kind)
             setProviderResetTimeDisplay(config.resetTimeDisplay, for: kind)
@@ -1042,11 +1042,10 @@ class AppSettings: ObservableObject {
             return
         }
 
-        if menuBarQuotaPreferences.providers[kind.rawValue] != nil {
-            menuBarQuotaPreferences.providers[kind.rawValue] = MenuBarQuotaSelection()
-        }
-        if menuBarQuotaPreferences.gauges?[kind.rawValue] != nil {
-            setMenuBarGaugeSelection(MenuBarGaugeSelection(ids: []), for: kind)
+        if menuBarQuotaPreferences.providers[kind.rawValue] != nil
+            || menuBarQuotaPreferences.gauges?[kind.rawValue] != nil
+        {
+            setMenuBarQuotaSelection(MenuBarQuotaSelection(), for: kind)
         }
         setProviderShowIcon(false, for: kind)
         setProviderPercentageDisplay(.none, for: kind)
@@ -1062,8 +1061,10 @@ class AppSettings: ObservableObject {
     func applyMenuBarDisplayPreset(_ preset: ProviderMenuBarDisplayPreset, for kind: AppProviderKind) {
         guard Self.ownsGenericMenuBarDisplay(kind) else { return }
         if preset != .custom {
-            menuBarQuotaPreferences.providers[kind.rawValue] = nil
-            menuBarQuotaPreferences.gauges?[kind.rawValue] = nil
+            var preferences = menuBarQuotaPreferences
+            preferences.providers[kind.rawValue] = nil
+            preferences.gauges?[kind.rawValue] = nil
+            if preferences != menuBarQuotaPreferences { menuBarQuotaPreferences = preferences }
         }
         switch preset {
         case .basic:
@@ -1193,6 +1194,20 @@ class AppSettings: ObservableObject {
     }
 
     func setMenuBarStyle(_ style: MenuBarStyle, for kind: AppProviderKind) {
+        if let selected = menuBarQuotaPreferences.providers[kind.rawValue], selected.arrangement != nil {
+            setMenuBarQuotaSelection(selected.settingGaugeStyle(style), for: kind)
+        }
+        setStoredMenuBarStyle(style, for: kind)
+
+        // 배터리 스타일은 남은 사용량 표시가 자연스럽고, 스타일을 끄면 기본 사용량 기준으로 되돌립니다.
+        if style.isBatteryStyle {
+            setProviderCircularDisplayMode(.remaining, for: kind)
+        } else if style == .none {
+            setProviderCircularDisplayMode(.usage, for: kind)
+        }
+    }
+
+    private func setStoredMenuBarStyle(_ style: MenuBarStyle, for kind: AppProviderKind) {
         switch kind {
         case .claude:
             menuBarStyle = style
@@ -1201,13 +1216,6 @@ class AppSettings: ObservableObject {
         case .antigravity:
             // typed display 설정이 단독 소유한다. generic 키는 쓰지 않는다.
             break
-        }
-
-        // 배터리 스타일은 남은 사용량 표시가 자연스럽고, 스타일을 끄면 기본 사용량 기준으로 되돌립니다.
-        if style.isBatteryStyle {
-            setProviderCircularDisplayMode(.remaining, for: kind)
-        } else if style == .none {
-            setProviderCircularDisplayMode(.usage, for: kind)
         }
     }
 
@@ -1297,8 +1305,8 @@ class AppSettings: ObservableObject {
             && (config.gaugeSelection?.ids.map { !$0.isEmpty } ?? config.quotaSelection.map { !$0.gaugeIDs.isEmpty }
                 ?? true)
         let numberVisible =
-            config.quotaSelection.map { !$0.percentageIDs.isEmpty } ?? (config.percentageDisplay != .none)
-        let resetVisible = config.quotaSelection.map { !$0.resetIDs.isEmpty } ?? (config.resetTimeDisplay != .none)
+            config.quotaSelection.map(\.hasPercentageIntent) ?? (config.percentageDisplay != .none)
+        let resetVisible = config.quotaSelection.map(\.hasResetIntent) ?? (config.resetTimeDisplay != .none)
         return config.showIcon || gaugeVisible || numberVisible || resetVisible
     }
 

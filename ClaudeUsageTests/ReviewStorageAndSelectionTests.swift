@@ -104,12 +104,12 @@ final class ReviewStorageAndSelectionTests: XCTestCase {
         let rows = LimitSettingsTable.antigravityRows(
             lanes: [(known.rawValue, "Gemini 주간")], limits: [], selectedIDs: selected)
         XCTAssertEqual(rows.count, 2)
-        let row = try XCTUnwrap(rows.first { $0.laneID == missing.rawValue })
+        let row = try XCTUnwrap(rows.first { $0.id == missing.rawValue })
         XCTAssertEqual(row.title, "선택한 한도 2 (데이터 없음)")
         intent.percentageLaneIDs?.removeAll { $0 == missing }
         intent.resetLaneIDs?.removeAll { $0 == missing }
         let after = LimitSettingsTable.antigravityRows(
             lanes: [(known.rawValue, "Gemini 주간")], limits: [], selectedIDs: intent.textLaneIDs(fallback: []))
-        XCTAssertEqual(after.map(\.laneID), [known.rawValue])
+        XCTAssertEqual(after.map(\.id), [known.rawValue])
     }
 }

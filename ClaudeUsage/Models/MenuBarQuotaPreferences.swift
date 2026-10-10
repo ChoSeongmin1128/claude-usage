@@ -5,26 +5,30 @@ nonisolated struct MenuBarQuotaSelection: Codable, Equatable, Sendable {
     var resetIDs: [String] = []
     var gaugeIDs: [String] = []
     var titles: [String: String] = [:]
+    var arrangement: MenuBarQuotaArrangement? = nil
+    var legacyPercentageDisplay: PercentageDisplay? = nil
+    var legacyResetTimeDisplay: ResetTimeDisplay? = nil
 
-    enum Surface { case percentage, reset, gauge }
+    private enum CodingKeys: String, CodingKey {
+        case percentageIDs, resetIDs, gaugeIDs, titles, arrangement
+        case legacyPercentageDisplay, legacyResetTimeDisplay
+    }
 
-    mutating func setSelected(_ selected: Bool, id: String, surface: Surface, limits: [UsageLimit]) {
+    enum Surface: Equatable, Sendable { case percentage, reset, gauge }
+
+    mutating func setSelected(_ selected: Bool, id: String, surface: Surface, title: String? = nil) {
+        guard !id.isEmpty else { return }
+        if selected, let title { titles[id] = title }
+        var values = ids(for: surface)
         if selected {
-            guard let limit = limits.first(where: { $0.id == id }), limit.isIdentifiable,
-                limit.usedPercentage != nil
-            else { return }
-            titles[id] = limit.title
+            if !values.contains(id) { values.append(id) }
+        } else {
+            values.removeAll { $0 == id }
         }
         switch surface {
-        case .percentage:
-            percentageIDs.removeAll { $0 == id }
-            if selected { percentageIDs.append(id) }
-        case .reset:
-            resetIDs.removeAll { $0 == id }
-            if selected { resetIDs.append(id) }
-        case .gauge:
-            gaugeIDs.removeAll { $0 == id }
-            if selected { gaugeIDs.append(id) }
+        case .percentage: percentageIDs = values
+        case .reset: resetIDs = values
+        case .gauge: gaugeIDs = values
         }
     }
 
@@ -37,6 +41,12 @@ nonisolated struct MenuBarQuotaSelection: Codable, Equatable, Sendable {
     }
 
     var selectedIDs: Set<String> { Set(percentageIDs + resetIDs + gaugeIDs) }
+    var hasPercentageIntent: Bool {
+        !percentageIDs.isEmpty || (legacyPercentageDisplay.map { $0 != .none } ?? false)
+    }
+    var hasResetIntent: Bool {
+        !resetIDs.isEmpty || (legacyResetTimeDisplay.map { $0 != .none } ?? false)
+    }
 
     static func legacy(
         config: ProviderMenuBarDisplayConfig, limits: [UsageLimit], codexUsage: CodexUsageResponse? = nil
@@ -60,7 +70,10 @@ nonisolated struct MenuBarQuotaSelection: Codable, Equatable, Sendable {
             weekly = limits.first { $0.scope == "seven_day" }
         }
         let displayPrimary = primary ?? weekly
-        var result = Self(titles: Dictionary(uniqueKeysWithValues: limits.map { ($0.id, $0.title) }))
+        var result = Self(
+            titles: Dictionary(uniqueKeysWithValues: limits.map { ($0.id, $0.title) }),
+            legacyPercentageDisplay: config.percentageDisplay == .none ? nil : config.percentageDisplay,
+            legacyResetTimeDisplay: config.resetTimeDisplay == .none ? nil : config.resetTimeDisplay)
         let percentage =
             config.kind == .codex
             ? config.percentageDisplay.effectiveCodexSelection(usage: codexUsage) : config.percentageDisplay
@@ -92,6 +105,20 @@ nonisolated struct MenuBarQuotaSelection: Codable, Equatable, Sendable {
     }
 }
 
+nonisolated extension MenuBarQuotaSelection {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        percentageIDs = try container.decode([String].self, forKey: .percentageIDs)
+        resetIDs = try container.decode([String].self, forKey: .resetIDs)
+        gaugeIDs = try container.decode([String].self, forKey: .gaugeIDs)
+        titles = try container.decode([String: String].self, forKey: .titles)
+        let decoded = try? container.decode(MenuBarQuotaArrangement.self, forKey: .arrangement)
+        arrangement = decoded.flatMap { $0.isValid ? $0 : nil }
+        legacyPercentageDisplay = try? container.decode(PercentageDisplay.self, forKey: .legacyPercentageDisplay)
+        legacyResetTimeDisplay = try? container.decode(ResetTimeDisplay.self, forKey: .legacyResetTimeDisplay)
+    }
+}
+
 nonisolated struct MenuBarQuotaPreferences: Codable, Equatable, Sendable {
     static let key = AppIdentifiers.defaultsKey("menuBarQuotaSelection.v1")
     var version = 1
@@ -116,11 +143,7 @@ nonisolated struct MenuBarGaugeSelection: Codable, Equatable, Sendable {
     var layout: MenuBarGaugeLayout = .horizontal
     var showsLabels: Bool? = nil
 
-    mutating func move(_ id: String, by offset: Int) {
-        guard var ids, let source = ids.firstIndex(of: id), ids.indices.contains(source + offset) else { return }
-        ids.swapAt(source, source + offset)
-        self.ids = ids
-    }
+
 }
 
 nonisolated enum MenuBarGaugeLayout: String, Codable, Equatable, Sendable {

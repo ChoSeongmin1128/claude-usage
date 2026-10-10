@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// 메뉴바 계정이 아닌 계정의 사용량 조회. 메뉴바 계정 조회(ClaudeAPIService, CodexAPIService)의 상태와
@@ -42,13 +43,42 @@ nonisolated enum ClaudeWebUsageFetcher {
     static func fetchOAuthUsage(accessToken: String, session: URLSession = .shared) async throws
         -> ClaudeUsageResponse
     {
-        var request = URLRequest(url: ClaudeEndpoints.oauthUsageURL, timeoutInterval: ClaudeEndpoints.requestTimeout)
+        var request = URLRequest(
+            url: ClaudeEndpoints.oauthUsageURL, cachePolicy: .reloadIgnoringLocalCacheData,
+            timeoutInterval: ClaudeEndpoints.requestTimeout)
         ClaudeEndpoints.applyOAuthHeaders(to: &request, accessToken: accessToken)
         let data = try await send(request, session)
         guard let usage = try? JSONDecoder().decode(ClaudeUsageResponse.self, from: data) else {
             throw UsageAccountFetchError.unavailable
         }
         return usage
+    }
+
+    static func fetchOAuthUsageWithOwner(
+        accessToken: String, expectedIdentity: UsageAccountIdentity? = nil, session: URLSession = .shared
+    ) async throws -> Result {
+        var request = URLRequest(
+            url: ClaudeEndpoints.oauthProfileURL, cachePolicy: .reloadIgnoringLocalCacheData,
+            timeoutInterval: ClaudeEndpoints.requestTimeout)
+        ClaudeEndpoints.applyOAuthHeaders(to: &request, accessToken: accessToken)
+        let data = try await send(request, session)
+        guard let profile = try? JSONDecoder().decode(ClaudeAPIService.ClaudeOAuthProfileResponse.self, from: data),
+            let accountID = nonEmpty(profile.account?.uuid),
+            let organizationID = nonEmpty(profile.organization?.uuid)
+        else { throw UsageAccountFetchError.unavailable }
+        let identity = UsageAccountIdentity(
+            accountID: accountID, organizationID: organizationID, email: nonEmpty(profile.account?.email),
+            organizationName: nonEmpty(profile.organization?.name))
+        if let expectedIdentity, !UsageAccountFetchBinding.matches(expected: expectedIdentity, observed: identity) {
+            throw UsageAccountFetchError.accountChanged
+        }
+        let usage = try await fetchOAuthUsage(accessToken: accessToken, session: session)
+        return Result(identity: identity, usage: usage)
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        let value = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value?.isEmpty == false ? value : nil
     }
 
     private static func webRequest(_ url: URL, sessionKey: String) -> URLRequest {
@@ -113,6 +143,64 @@ nonisolated enum CodexHomeAccount {
         }
     }
 
+    struct OwnedUsage: Sendable {
+        let usage: CodexUsageResponse
+        let identity: UsageAccountIdentity
+        let credentialRevision: String
+    }
+
+    static func fetchOwnedUsage(
+        home: URL, expectedIdentity: UsageAccountIdentity,
+        owner: any CodexOwnedRateLimitsReading = CodexOwnerCLI()
+    ) async throws -> OwnedUsage {
+        let manager = await Task.detached(priority: .utility) {
+            CodexAuthManager(authJsonPath: authFile(in: home).path)
+        }.value
+        let initial = try await manager.loadSnapshot()
+        let identity = credentialIdentity(from: initial)
+        guard let email = identity.email, !email.isEmpty,
+            let workspace = identity.organizationID, !workspace.isEmpty
+        else { throw UsageAccountFetchError.unavailable }
+        guard UsageAccountFetchBinding.matches(expected: expectedIdentity, observed: identity) else {
+            throw UsageAccountFetchError.accountChanged
+        }
+        let quota: CodexOwnedRateLimits
+        do {
+            quota = try await owner.readOwnedRateLimits(
+                sourceURL: initial.sourceURL, expectedAccountID: workspace,
+                budget: CodexRequestBudget(timeout: fetchTimeout))
+        } catch CodexOwnerError.rejected {
+            throw UsageAccountFetchError.loginExpired
+        } catch CodexOwnerError.unavailable {
+            throw UsageAccountFetchError.unavailable
+        } catch CodexOwnerError.accountMismatch {
+            throw UsageAccountFetchError.accountChanged
+        }
+        let current = try await manager.loadSnapshot()
+        let currentIdentity = credentialIdentity(from: current)
+        guard quota.accountID == workspace, quota.email.caseInsensitiveCompare(email) == .orderedSame,
+            currentIdentity.mergeKey == identity.mergeKey
+        else { throw UsageAccountFetchError.accountChanged }
+        try await manager.validate(current)
+        try Task.checkCancellation()
+        return OwnedUsage(
+            usage: try usageResponse(fromAppServer: quota.quota.value), identity: currentIdentity,
+            credentialRevision: try UsageAccountCredentialRevision.codex(current))
+    }
+
+    static func currentCredentialRevision(home: URL) async throws -> String {
+        let manager = await Task.detached(priority: .utility) {
+            CodexAuthManager(authJsonPath: authFile(in: home).path)
+        }.value
+        let snapshot = try await manager.loadSnapshot()
+        return try UsageAccountCredentialRevision.codex(snapshot)
+    }
+
+    private static func credentialIdentity(from snapshot: CodexCredentialSnapshot) -> UsageAccountIdentity {
+        let email = snapshot.token.idToken.flatMap(JWTClaims.decode)?["email"] as? String
+        return UsageAccountIdentity(accountID: email, organizationID: snapshot.token.accountID, email: email)
+    }
+
     /// app-server 응답을 웹 사용량 응답 모양으로 옮겨 기존 해석을 그대로 쓴다.
     static func usageResponse(fromAppServer quota: [String: Any]) throws -> CodexUsageResponse {
         let limits = CodexOwnerCLI.codexRateLimits(in: quota) ?? [:]
@@ -144,5 +232,40 @@ nonisolated enum CodexHomeAccount {
         var usage = try JSONDecoder().decode(CodexUsageResponse.self, from: data)
         usage.resetCredits = CodexOwnerCLI.resetCredits(from: quota["rateLimitResetCredits"])
         return usage
+    }
+}
+
+nonisolated enum UsageAccountCredentialRevision {
+    static func claude(_ credential: ClaudeCodeOAuthCredential) throws -> String {
+        let source: String
+        switch credential.source {
+        case .file(let url): source = "file:" + url.path
+        case .keychain(let service): source = "keychain:" + service
+        case .appManagedVault: source = "appManagedVault"
+        case .unversionedVaultMirror: source = "unversionedVaultMirror"
+        case .refreshed: source = "refreshed"
+        }
+        return try hash([
+            source, credential.accessToken, credential.refreshToken ?? "",
+            credential.expiresAt.map { String($0.timeIntervalSince1970) } ?? "",
+        ])
+    }
+
+    static func codex(_ credential: CodexCredentialSnapshot) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return digest(try encoder.encode(credential.token) + Data(credential.sourceURL.path.utf8))
+    }
+
+    static func web(sessionKey: String, organizationID: String?) throws -> String {
+        try hash([sessionKey, organizationID ?? ""])
+    }
+
+    private static func hash(_ values: [String]) throws -> String {
+        digest(try JSONEncoder().encode(values))
+    }
+
+    private static func digest(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 }
