@@ -4,12 +4,12 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>ClaudeUsage-stg</title>
         <item>
-            <title>Version 2.9.4-stg.1</title>
-            <pubDate>Sun, 11 Oct 2026 22:33:20 +0900</pubDate>
-            <sparkle:version>20647</sparkle:version>
-            <sparkle:shortVersionString>2.9.4-stg.1</sparkle:shortVersionString>
+            <title>Version 2.9.4-stg.2</title>
+            <pubDate>Mon, 12 Oct 2026 02:08:07 +0900</pubDate>
+            <sparkle:version>20648</sparkle:version>
+            <sparkle:shortVersionString>2.9.4-stg.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.9.4-stg.1/ClaudeUsage.dmg" length="6820380" type="application/octet-stream" sparkle:edSignature="TZLwiKvEK1Lx8CsxhgcHip2v5/VZicW+QCVu+F8NXMGSp3imVec1my7WLNdArNc9n4m/wJXvCwWg3mT27/7PCA=="></enclosure>
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.9.4-stg.2/ClaudeUsage.dmg" length="6876843" type="application/octet-stream" sparkle:edSignature="UeWMI9SF8x7B6H6Iz/UxuNNlbPi00pgcjoCOa1EwbngsM7hC/oATcxiB/GCrm2U9qOJSq8UI1DDpG7lnwJ+TCw=="></enclosure>
             <description sparkle:format="plain-text"># 2.9.4
 
 - 계정을 전환하기 전에 옮길 로그인이 실제로 그 계정의 것인지 확인합니다. 다른 계정의 로그인이거나 확인하지 못하면 전환하지 않습니다.
@@ -19,11 +19,14 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 - 설정 창을 닫을 때 직접 고른 조직이 자동 선택으로 바뀌던 문제를 수정했습니다.
 - 읽지 못한 설정과 계정 저장값을 기본값으로 덮어쓰지 않습니다. 이후 버전에서 2.9.4로 되돌려도 새 버전의 설정이 남습니다.
 - 앱 초기화는 Claude Code 로그인에서 가져온 토큰 사본을 지웁니다. AGY 알림은 지금 AGY CLI에 로그인한 계정을 기준으로 보내고, 앱을 막 켰을 때 AGY 진단을 '설치 안 됨'으로 표시하지 않습니다.
+- 메뉴바 아이콘에 마우스를 올리면 Claude와 Codex의 서비스 상태와 진행 중인 장애를 작은 창으로 보여 줍니다. 앱에서 쓰는 제품의 장애를 먼저 보여 주며, 이 창이 메뉴바 아이콘의 도움말 말풍선을 대신합니다.
+- Codex 서비스 상태를 OpenAI 상태 페이지 전체로 판단합니다. 상태 페이지에서 없어진 구성 요소 이름으로 찾느라 Codex 장애를 놓치던 문제를 수정했고, 다른 OpenAI 제품의 장애에도 Codex 표시가 붙습니다. 상태 페이지를 읽지 못하면 마지막으로 확인한 상태를 유지합니다.
+- 열린 팝오버를 Esc로 닫습니다. 고정한 팝오버는 Esc로 닫지 않습니다.
 </description>
-            <claudeusage:zipSHA256>509b2100a05ecc1149d118601a76c26afe658711ca6d2a3335f1e44c46cf0bce</claudeusage:zipSHA256>
+            <claudeusage:zipSHA256>6ac62209c5447db0134f69ecb315493c2495c9c949e4818803f59b0ad03c5e28</claudeusage:zipSHA256>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: 6ohsaYUK07gVnUIiktPRnU+d52Rmawh9/Oq8glLgUuSct1+agpcGVhFQk5BNfZexeDnfCIob/8ep3ngDudOiCA==
-length: 2630
+edSignature: YTbtZmj/4cZlztsrYKl7NfCGZPZ3CXr7ElHOleKkgWn9KskExrbBLdcudfzFRcFER2iR2dBHr3AEH9SfloCEAg==
+length: 3359
 -->
