@@ -4,22 +4,23 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>ClaudeUsage-stg</title>
         <item>
-            <title>Version 2.9.5-stg.1</title>
-            <pubDate>Mon, 12 Oct 2026 03:17:48 +0900</pubDate>
-            <sparkle:version>20649</sparkle:version>
-            <sparkle:shortVersionString>2.9.5-stg.1</sparkle:shortVersionString>
+            <title>Version 2.9.5-stg.2</title>
+            <pubDate>Mon, 12 Oct 2026 03:28:57 +0900</pubDate>
+            <sparkle:version>20650</sparkle:version>
+            <sparkle:shortVersionString>2.9.5-stg.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.9.5-stg.1/ClaudeUsage.dmg" length="6877903" type="application/octet-stream" sparkle:edSignature="pB51KZeRRwej4ppqwX3y2odyOJrg0r1qu1kE4BreRnOft35gnPPs5QUMfSFVtY/TkfzljFgJe+2HJQoLC7WrDQ=="></enclosure>
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.9.5-stg.2/ClaudeUsage.dmg" length="6878291" type="application/octet-stream" sparkle:edSignature="guQV0iHo8GNgvVBN0/knrWmJHSqb1nErHpcb86qwO2SOuJW+pBODKKUcoy34lv4LIwcJFffpI22SgvTKqARKCg=="></enclosure>
             <description sparkle:format="plain-text"># 2.9.5
 
 - 메뉴바 아이콘 우클릭 메뉴에서 각 서비스의 하위 메뉴에 '사용량 보기'와 '서비스 상태 보기'를 둡니다. 팝오버에서 고른 서비스와 관계없이 Claude와 Codex의 페이지를 모두 열 수 있습니다.
 - 우클릭 메뉴에 '업데이트 확인...'을 추가했습니다. 설정의 업데이트 화면을 열고 바로 새 버전을 확인합니다.
 - 설정의 업데이트 화면을 열 때마다 새 버전을 확인합니다. 결과는 확인 창 없이 업데이트 화면에만 표시하며, 이미 확인 중이면 다시 확인하지 않습니다.
+- 업데이트를 내려받은 뒤 설치 준비가 끝날 때까지 '설치 준비 중'을 계속 보여 주고, 그동안 '지금 확인'을 누를 수 없게 했습니다. 잠깐 '지금 확인'만 남던 문제를 고쳤습니다.
 </description>
-            <claudeusage:zipSHA256>8c1ed872effbfd02f86e4a67154b8dc1831ae77f500beff49d945f0a92bb399b</claudeusage:zipSHA256>
+            <claudeusage:zipSHA256>52334df8685d4d3eb9648bf160e148603d5768b3c4e83c051727b54089dc700d</claudeusage:zipSHA256>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: 8xHKKIAuKJcgDjca/SdSzKvdrxUZ1QB3bipDbDwavakeiKbCMRQoIXf3bo9O2DLdx+h/b0oatHORtdy67aiFCg==
-length: 1984
+edSignature: 6+9nnhTXcbJmh+GShzOs1ZVjFslzaee83SDIQujDjKb2IWZL1PcMd2YNKJuGeC4zrv9yrf8eeuflhyG6VsSfAw==
+length: 2219
 -->
