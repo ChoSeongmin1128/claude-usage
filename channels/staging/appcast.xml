@@ -4,25 +4,26 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>ClaudeUsage-stg</title>
         <item>
-            <title>Version 2.9.3-stg.1</title>
-            <pubDate>Sun, 11 Oct 2026 00:52:29 +0900</pubDate>
-            <sparkle:version>20646</sparkle:version>
-            <sparkle:shortVersionString>2.9.3-stg.1</sparkle:shortVersionString>
+            <title>Version 2.9.4-stg.1</title>
+            <pubDate>Sun, 11 Oct 2026 22:33:20 +0900</pubDate>
+            <sparkle:version>20647</sparkle:version>
+            <sparkle:shortVersionString>2.9.4-stg.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.9.3-stg.1/ClaudeUsage.dmg" length="7148672" type="application/octet-stream" sparkle:edSignature="E1IfqYBrLu6+V+Vv6CNhY599R3ZLbYRwNf7xYBzfq+AjtxxCR18Yru5ZQA4d/LnygHbbmljk+aatlnmjKkKOCw=="></enclosure>
-            <description sparkle:format="plain-text"># 2.9.3
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.9.4-stg.1/ClaudeUsage.dmg" length="6820380" type="application/octet-stream" sparkle:edSignature="TZLwiKvEK1Lx8CsxhgcHip2v5/VZicW+QCVu+F8NXMGSp3imVec1my7WLNdArNc9n4m/wJXvCwWg3mT27/7PCA=="></enclosure>
+            <description sparkle:format="plain-text"># 2.9.4
 
-- 메뉴바 설정을 한도 목록으로 정리했습니다. 각 항목에서 게이지, 숫자와 초기화 시간을 고르고 목록이나 미리보기에서 드래그해 순서를 바꿀 수 있습니다.
-- 동심원과 두 줄 배치는 둘씩 묶어 표시합니다. 동심원의 바깥쪽과 안쪽을 확인하고 순서를 바꿀 수 있으며, 미리보기에서는 묶음 전체를 가로로 옮깁니다.
-- 기존 선택과 이름 숨김은 유지합니다. 사용량이 없는 한도를 다른 한도나 0%로 대신 표시하지 않습니다.
-- 조회 도중 로그인이 바뀌었을 때 다른 계정의 사용량이 섞일 수 있는 경로를 수정했습니다.
-- 초기화권 수량이 확인되지 않는 응답을 0개로 처리하던 문제와 오래된 로그인 잠금이 조회를 끝내지 못하게 하던 문제를 수정했습니다.
-- 부분 사용량 응답 이후 기존 표시가 복원되지 않거나, 모델별 숫자의 색상이 갱신되지 않던 문제를 수정했습니다.
+- 계정을 전환하기 전에 옮길 로그인이 실제로 그 계정의 것인지 확인합니다. 다른 계정의 로그인이거나 확인하지 못하면 전환하지 않습니다.
+- 다른 폴더로 로그인한 Claude Code 계정을 경로 끝의 '/'나 링크 경로로 로그인한 경우에도 찾습니다.
+- 만료된 로그인을 바로 갱신하지 못하거나 네트워크, 서버 오류가 나면 로그인 필요로 바꾸지 않고 마지막 사용량을 유지합니다. 이전 값 표시는 Claude, Codex, AGY 모두 조회가 연속 2번 실패했을 때부터 붙습니다.
+- Codex나 다른 Claude 계정이 요청 제한을 알려 주면 그 시간 동안 다시 요청하지 않습니다.
+- 설정 창을 닫을 때 직접 고른 조직이 자동 선택으로 바뀌던 문제를 수정했습니다.
+- 읽지 못한 설정과 계정 저장값을 기본값으로 덮어쓰지 않습니다. 이후 버전에서 2.9.4로 되돌려도 새 버전의 설정이 남습니다.
+- 앱 초기화는 Claude Code 로그인에서 가져온 토큰 사본을 지웁니다. AGY 알림은 지금 AGY CLI에 로그인한 계정을 기준으로 보내고, 앱을 막 켰을 때 AGY 진단을 '설치 안 됨'으로 표시하지 않습니다.
 </description>
-            <claudeusage:zipSHA256>b315468ae020609257a2df87994bfc7e89a88b803b8a47f82b14a5d0f73b49ee</claudeusage:zipSHA256>
+            <claudeusage:zipSHA256>509b2100a05ecc1149d118601a76c26afe658711ca6d2a3335f1e44c46cf0bce</claudeusage:zipSHA256>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: TgF1ukJ+wlJw6Y+AjflgW7MSIyb3N4R+38IFwbqqaT8hR6xR9j1WayE9DZR5jrSNQ0v/qzd0eCXNaJDDZQquCg==
-length: 2398
+edSignature: 6ohsaYUK07gVnUIiktPRnU+d52Rmawh9/Oq8glLgUuSct1+agpcGVhFQk5BNfZexeDnfCIob/8ep3ngDudOiCA==
+length: 2630
 -->
