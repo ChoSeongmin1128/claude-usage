@@ -12,14 +12,15 @@ extension AppDelegate {
                     lastPopoverOpenedAt: lastPopoverOpenedAt,
                     lastActivityAt: sessionActivityMonitor.lastActivityAt[service],
                     hasLowRemainingLimit: usageLimits(for: service).contains { limit in
-                        guard let used = limit.usedPercentage else { return false }
-                        return 100 - used <= AdaptiveRefreshPolicy.lowRemainingPercent
+                        limit.usedPercentage.map(AdaptiveRefreshPolicy.isLowRemaining) ?? false
                     }))
         }
     }
 
     /// 조회 결과나 화면 상태가 바뀔 때마다 주기와 초기화 직후 조회 예약을 다시 맞춘다.
     func refreshAdaptiveSchedule() {
+        guard !isTerminating else { return }
+        sessionActivityMonitor.watchNewDirectories()
         syncRefreshTimerState()
         scheduleResetFollowUps()
     }

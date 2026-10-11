@@ -152,11 +152,10 @@ final class AntigravitySettingsMigrationCoordinator {
         case local(ProviderAccountIdentity)
         case oauth(String)
 
+        /// 로컬 계정 선택은 이전 뒤 버려지므로 계정 정보가 비어 있어도 이전을 막지 않는다.
         var isValid: Bool {
             switch self {
-            case .awaitingMigration, .unselected, .requiresSelection: true
-            case .local(let identity):
-                AntigravityAccountIdentityMatcher.match(expected: identity, received: identity).isMatch
+            case .awaitingMigration, .unselected, .requiresSelection, .local: true
             case .oauth(let id): !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }
         }

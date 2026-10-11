@@ -201,11 +201,12 @@ select_signing_certificate() {
     local candidates=("$@")
 
     [[ "${#candidates[@]}" -gt 0 ]] || return 1
-    if [[ "${#candidates[@]}" -eq 1 ]]; then
+    # 현재 배포본을 알면 후보가 하나여도 그 인증서여야 한다. 모를 때만 하나뿐인 후보를 쓴다.
+    if [[ -z "$reference_sha" ]]; then
+        [[ "${#candidates[@]}" -eq 1 ]] || return 2
         printf '%s\n' "${candidates[0]}"
         return 0
     fi
-    [[ -n "$reference_sha" ]] || return 2
 
     local candidate
     for candidate in "${candidates[@]}"; do
@@ -290,6 +291,17 @@ read_project_release_build() {
 
 # 이미 배포된 앱의 leaf 서명 인증서 SHA-1. 후보가 여러 개일 때 어느 인증서가
 # "현재 쓰이고 있는 것"인지 판단하는 기준이 된다.
+# 후보 앱이 기준 앱의 지정 요구사항(DR)을 만족하는지. Sparkle은 이 조건이 맞을 때만 기존 앱이
+# 업데이트를 받아들인다.
+app_satisfies_designated_requirement() {
+    local candidate_app="$1"
+    local reference_app="$2"
+    local requirement
+    requirement="$(codesign -d -r- "$reference_app" 2>&1 | sed -n 's/^designated => //p')"
+    [[ -n "$requirement" ]] || return 1
+    codesign --verify --strict -R="$requirement" "$candidate_app" >/dev/null 2>&1
+}
+
 resolve_app_signing_certificate_sha1() {
     local app_path="$1"
     [[ -d "$app_path" ]] || return 1

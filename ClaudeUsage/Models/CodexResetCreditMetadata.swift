@@ -2,7 +2,15 @@ import Foundation
 
 nonisolated struct CodexHTTPFailure: Error, Sendable {
     let status: Int
-    var apiError: APIError { status == 401 || status == 403 ? .invalidSessionKey : .serverError(status) }
+    var retryAfter: Int? = nil
+
+    var apiError: APIError {
+        switch status {
+        case 401, 403: .invalidSessionKey
+        case 429: .rateLimited(retryAfter: retryAfter)
+        default: .serverError(status)
+        }
+    }
 }
 
 nonisolated enum CodexResetCreditFailure: Equatable, Sendable {

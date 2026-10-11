@@ -81,9 +81,7 @@ final class AntigravityQuotaPresentationRenderingTests: XCTestCase {
         let lane = makeLane(id: .geminiWeekly, scope: .gemini, cadence: .weekly, remaining: 0.75, resetAt: reset)
         let snapshot = AntigravityQuotaSnapshot(
             identity: nil, plan: nil, lanes: [lane], decodeIssues: [],
-            provenance: .init(
-                transport: .cliUsageReport, endpointOwner: .managed, accountIdentity: nil,
-                capability: .groupedQuotaSummary, processIdentity: nil), fetchedAt: now)
+            provenance: AntigravityQuotaProvenance(transport: .cliUsageReport, accountIdentity: nil), fetchedAt: now)
         var settings = AntigravityDisplaySettings.default
         settings.menuBar.timeFormat = .remaining
         let presentation = AntigravityQuotaPresentationMapper.map(snapshot: snapshot, settings: settings, now: now)
@@ -126,13 +124,7 @@ final class AntigravityQuotaPresentationRenderingTests: XCTestCase {
                 ),
             ],
             decodeIssues: [],
-            provenance: AntigravityQuotaProvenance(
-                transport: .cliUsageReport,
-                endpointOwner: .managed,
-                accountIdentity: nil,
-                capability: .groupedQuotaSummary,
-                processIdentity: nil
-            ),
+            provenance: AntigravityQuotaProvenance(transport: .cliUsageReport, accountIdentity: nil),
             fetchedAt: now
         )
         let presentation = AntigravityQuotaPresentationMapper.map(
@@ -203,13 +195,7 @@ final class AntigravityQuotaPresentationRenderingTests: XCTestCase {
             plan: "pro",
             lanes: lanes,
             decodeIssues: [],
-            provenance: AntigravityQuotaProvenance(
-                transport: .cliUsageReport,
-                endpointOwner: .managed,
-                accountIdentity: identity,
-                capability: .groupedQuotaSummary,
-                processIdentity: nil
-            ),
+            provenance: AntigravityQuotaProvenance(transport: .cliUsageReport, accountIdentity: identity),
             fetchedAt: now.addingTimeInterval(-90)
         )
         return AntigravityQuotaPresentationMapper.map(

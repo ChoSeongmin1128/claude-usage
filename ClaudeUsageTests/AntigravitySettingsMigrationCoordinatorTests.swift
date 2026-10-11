@@ -22,6 +22,20 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
         XCTAssertEqual(migration.migrate(), .alreadyCurrent)
     }
 
+    func testV3SelectionWithEmptyLocalIdentityStillMigrates() throws {
+        let store = InMemoryAntigravitySettingsMigrationStore()
+        store.set(
+            Data(
+                #"{"schemaVersion":3,"managedSession":{"idleTimeoutSeconds":271},"accountSelection":{"local":{"_0":{}}}}"#
+                    .utf8),
+            forKey: AntigravitySettingsMigrationKeys.connectionSettings)
+        store.set(4, forKey: AntigravitySettingsMigrationKeys.migrationVersion)
+        let migration = AntigravitySettingsMigrationCoordinator(store: store)
+
+        XCTAssertEqual(migration.migrate(), .migrated(pendingNotice: nil))
+        XCTAssertEqual(try connectionSettings(in: store).usageTarget, .unselected)
+    }
+
     func testFailedV3ProductMigrationRestoresOriginalDataAndCanRetry() throws {
         let original = Data(
             #"{"schemaVersion":3,"managedSession":{"idleTimeoutSeconds":271},"accountSelection":{"unselected":{}}}"#

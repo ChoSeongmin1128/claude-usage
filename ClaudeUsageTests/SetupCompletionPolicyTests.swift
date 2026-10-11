@@ -3,59 +3,34 @@ import XCTest
 
 @MainActor
 final class SetupCompletionPolicyTests: XCTestCase {
-    func testResolvePresentationRecommendsBrowserImportFirst() {
-        let presentation = SetupCompletionPolicy.resolvePresentation(
-            hasReadyCredential: false,
-            hasSuccessfulFetch: false,
-            preferredOrganizationID: "",
-            cachedMetadata: nil
-        )
+    func testMissingCredentialStartsAtTheCredentialStage() {
+        let progress = SetupCompletionPolicy.resolveProgress(
+            hasReadyCredential: false, hasSuccessfulFetch: false, preferredOrganizationID: "", cachedMetadata: nil)
 
-        XCTAssertEqual(presentation.progress.stage, .credential)
-        XCTAssertEqual(presentation.credentialStep, .browserImport)
-        XCTAssertEqual(presentation.primaryActionKind, .importFromBrowser)
-        XCTAssertTrue(presentation.shouldShowWizard)
+        XCTAssertEqual(progress.stage, .credential)
     }
 
-    func testResolvePresentationHonorsManualOverride() {
-        let presentation = SetupCompletionPolicy.resolvePresentation(
-            hasReadyCredential: false,
-            hasSuccessfulFetch: false,
-            preferredOrganizationID: "",
-            cachedMetadata: nil,
-            credentialStepOverride: .manualSessionKey
-        )
+    func testCredentialWithoutFetchWaitsForVerification() {
+        let progress = SetupCompletionPolicy.resolveProgress(
+            hasReadyCredential: true, hasSuccessfulFetch: false, preferredOrganizationID: "", cachedMetadata: nil)
 
-        XCTAssertEqual(presentation.credentialStep, .manualSessionKey)
-        XCTAssertEqual(presentation.primaryActionKind, .openAdvancedSettings)
+        XCTAssertEqual(progress.stage, .verification)
     }
 
-    func testResolvePresentationMovesToOrganizationWhenPreferredOrganizationDoesNotMatch() {
-        let metadata = ClaudeProfileMetadata(organizationUUID: "org-live")
+    func testMismatchedPreferredOrganizationStaysAtTheOrganizationStage() {
+        let progress = SetupCompletionPolicy.resolveProgress(
+            hasReadyCredential: true, hasSuccessfulFetch: true, preferredOrganizationID: "org-selected",
+            cachedMetadata: ClaudeProfileMetadata(organizationUUID: "org-live"))
 
-        let presentation = SetupCompletionPolicy.resolvePresentation(
-            hasReadyCredential: true,
-            hasSuccessfulFetch: true,
-            preferredOrganizationID: "org-selected",
-            cachedMetadata: metadata
-        )
-
-        XCTAssertEqual(presentation.progress.stage, .organization)
-        XCTAssertEqual(presentation.primaryActionKind, .openOrganizations)
-        XCTAssertFalse(presentation.progress.isOrganizationReady)
+        XCTAssertEqual(progress.stage, .organization)
+        XCTAssertFalse(progress.isOrganizationReady)
     }
 
-    func testResolvePresentationCompletesForAutomaticOrganizationModeAfterSuccessfulFetch() {
-        let presentation = SetupCompletionPolicy.resolvePresentation(
-            hasReadyCredential: true,
-            hasSuccessfulFetch: true,
-            preferredOrganizationID: "",
-            cachedMetadata: ClaudeProfileMetadata(organizationUUID: "org-auto")
-        )
+    func testAutomaticOrganizationCompletesAfterSuccessfulFetch() {
+        let progress = SetupCompletionPolicy.resolveProgress(
+            hasReadyCredential: true, hasSuccessfulFetch: true, preferredOrganizationID: "",
+            cachedMetadata: ClaudeProfileMetadata(organizationUUID: "org-auto"))
 
-        XCTAssertEqual(presentation.progress.stage, .complete)
-        XCTAssertEqual(presentation.primaryActionKind, .complete)
-        XCTAssertNil(presentation.organizationSummary)
-        XCTAssertFalse(presentation.shouldShowWizard)
+        XCTAssertEqual(progress.stage, .complete)
     }
 }

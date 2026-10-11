@@ -203,12 +203,18 @@ assert_equal "0" "$(release_cleanup_exit_code 0 0 0)" "clean success status"
 assert_equal "1" "$(release_cleanup_exit_code 0 1 0)" "cleanup failure changes success"
 assert_equal "1" "$(release_cleanup_exit_code 0 0 1)" "account restore failure changes success"
 assert_equal "7" "$(release_cleanup_exit_code 7 1 1)" "original failure is preserved"
-# 서명 인증서 선택. 후보가 여러 개일 때 임의로 고르면 기존 사용자 Keychain ACL
-# 연속성이 끊기므로, 현재 배포본과 일치하는 것만 골라야 한다.
+# 서명 인증서 선택. 현재 배포본을 알면 후보 수와 관계없이 그 인증서만 고른다.
 CERT_A="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 CERT_B="BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
 assert_equal "$CERT_A" "$(select_signing_certificate "" "$CERT_A")" \
-    "single certificate needs no reference"
+    "single certificate without a reference is used"
+assert_equal "$CERT_A" "$(select_signing_certificate "$CERT_A" "$CERT_A")" \
+    "single certificate matching the reference is used"
+set +e
+select_signing_certificate "$CERT_B" "$CERT_A" >/dev/null 2>&1
+SINGLE_MISMATCH_RC=$?
+set -e
+assert_equal "3" "$SINGLE_MISMATCH_RC" "single certificate different from the reference is rejected"
 assert_equal "$CERT_B" "$(select_signing_certificate "$CERT_B" "$CERT_A" "$CERT_B")" \
     "reference picks the deployed certificate"
 assert_failure "no candidate" select_signing_certificate ""
@@ -424,6 +430,7 @@ ORCHESTRATION_PAGES_STATE="$ORCHESTRATION_STATE/pages-state-count"
 ORCHESTRATION_HEAD="1111111111111111111111111111111111111111"
 ORCHESTRATION_PAGES_HEAD="2222222222222222222222222222222222222222"
 mkdir -p \
+    "$ORCHESTRATION_ROOT/Applications/ClaudeUsage.app" \
     "$ORCHESTRATION_REPOSITORY/ClaudeUsage.xcodeproj" \
     "$ORCHESTRATION_REPOSITORY/Scripts/tests" \
     "$ORCHESTRATION_BIN" \
@@ -862,6 +869,11 @@ case "${1:-}" in
         fi
         test_bundle="${@: -1}"
         [[ -d "$test_bundle" ]]
+        if [[ "${RELEASE_DRIVER_TEST_LIVE_SKIP:-0}" == "1" ]]; then
+            printf '\t Executed 1 test, with 1 test skipped and 0 failures (0 unexpected) in 0.001 (0.001) seconds\n'
+        else
+            printf '\t Executed 1 test, with 0 failures (0 unexpected) in 0.010 (0.011) seconds\n'
+        fi
         ;;
     *)
         exit 97
@@ -913,6 +925,21 @@ cat > "$ORCHESTRATION_BIN/codesign" <<'SCRIPT'
 set -euo pipefail
 for argument in "$@"; do
     case "$argument" in
+        -r-)
+            printf 'Executable=%s\n' "${*: -1}" >&2
+            printf 'designated => identifier "fixture" and anchor apple generic\n'
+            ;;
+        -R=*)
+            {
+                printf 'codesign-requirement'
+                printf ' <%s>' "$@"
+                printf '\n'
+            } >> "${RELEASE_DRIVER_TEST_TRACE:?}"
+            [[ "${argument#-R=}" == 'identifier "fixture" and anchor apple generic' ]] || exit 1
+            if [[ "${*: -1}" == *"/ClaudeUsage.xcarchive/"* && "${RELEASE_DRIVER_TEST_DR_MISMATCH:-0}" == 1 ]]; then
+                exit 1
+            fi
+            ;;
         --extract-certificates=*)
             certificate="${argument#*=}0"
             if [[ "${*: -1}" == *"/ClaudeUsage.xcarchive/"* && "${RELEASE_DRIVER_TEST_CERT_CHANGED:-0}" == 1 ]]; then
@@ -987,6 +1014,8 @@ run_orchestration_scenario() {
         release_args=(prod 2.4.0 --from-staging v2.4.0-stg.1 --non-interactive --confirm-publish v2.4.0)
     fi
     [[ -z "$previous_key" ]] || release_args+=(--previous-public-key "$previous_key")
+    [[ -z "${RELEASE_DRIVER_TEST_ALLOWED_CERTIFICATE:-}" ]] \
+        || release_args+=(--allow-signing-certificate-change "$RELEASE_DRIVER_TEST_ALLOWED_CERTIFICATE")
 
     rm -rf "$ORCHESTRATION_TMP" "$ORCHESTRATION_DOWNLOADS"
     mkdir -p "$ORCHESTRATION_TMP" "$ORCHESTRATION_DOWNLOADS"
@@ -1021,8 +1050,10 @@ run_orchestration_scenario() {
             "RELEASE_DRIVER_TEST_XCODEBUILD_FAIL=$xcodebuild_fail" \
             "RELEASE_DRIVER_TEST_STATIC_FAIL=${RELEASE_DRIVER_TEST_STATIC_FAIL:-0}" \
             "RELEASE_DRIVER_TEST_CODEX_LIVE_FAIL=${RELEASE_DRIVER_TEST_CODEX_LIVE_FAIL:-0}" \
+            "RELEASE_DRIVER_TEST_LIVE_SKIP=${RELEASE_DRIVER_TEST_LIVE_SKIP:-0}" \
             "RELEASE_DRIVER_TEST_PREVIOUS_VERIFY_FAIL=${RELEASE_DRIVER_TEST_PREVIOUS_VERIFY_FAIL:-0}" \
             "RELEASE_DRIVER_TEST_CERT_CHANGED=$cert_changed" \
+            "RELEASE_DRIVER_TEST_DR_MISMATCH=${RELEASE_DRIVER_TEST_DR_MISMATCH:-0}" \
             "RELEASE_DRIVER_TEST_STALE_TAG_ASSETS=${RELEASE_DRIVER_TEST_STALE_TAG_ASSETS:-0}" \
             "RELEASE_DRIVER_TEST_STAGING_IDENTITY_BOOTSTRAP_VERSION=$bootstrap_version" \
             "RELEASE_DRIVER_TEST_EXPECTED_FEED=$(release_feed_url_for "$environment")" \
@@ -1212,6 +1243,47 @@ assert_contains "$SCENARIO_OUTPUT" "동시에 바꿀 수 없습니다" "simultan
 assert_not_contains "$SCENARIO_TRACE" "publish <v2.4.0-stg.1>" "simultaneous rotation stops before publication"
 assert_orchestration_cleanup "blocked key rotation"
 
+run_orchestration_scenario fresh v2.3.3-staging \
+    $'2.3.3\t20330\tv2.3.3-staging' $'2.4.0\t20400\tv2.4.0-stg.1' \
+    0 built 2.3.0 "" 0
+assert_equal "0" "$SCENARIO_STATUS" "same certificate passes"
+assert_contains "$SCENARIO_TRACE" "codesign-requirement <--verify> <--strict>" "designated requirement is always checked"
+assert_orchestration_cleanup "same certificate"
+
+run_orchestration_scenario fresh v2.3.3-staging \
+    $'2.3.3\t20330\tv2.3.3-staging' $'2.4.0\t20400\tv2.4.0-stg.1' \
+    0 built 2.3.0 "" 1
+[[ "$SCENARIO_STATUS" != 0 ]] || fail "certificate change without explicit approval must fail"
+pass
+assert_contains "$SCENARIO_OUTPUT" "--allow-signing-certificate-change" "certificate change names the explicit option"
+assert_not_contains "$SCENARIO_TRACE" "publish <v2.4.0-stg.1>" "unapproved certificate change stops before publication"
+assert_orchestration_cleanup "unapproved certificate change"
+
+RELEASE_DRIVER_TEST_ALLOWED_CERTIFICATE="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" \
+    run_orchestration_scenario fresh v2.3.3-staging \
+    $'2.3.3\t20330\tv2.3.3-staging' $'2.4.0\t20400\tv2.4.0-stg.1' \
+    0 built 2.3.0 "" 1
+assert_equal "0" "$SCENARIO_STATUS" "explicitly approved certificate change passes"
+assert_orchestration_cleanup "approved certificate change"
+
+RELEASE_DRIVER_TEST_ALLOWED_CERTIFICATE="CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC" \
+    run_orchestration_scenario fresh v2.3.3-staging \
+    $'2.3.3\t20330\tv2.3.3-staging' $'2.4.0\t20400\tv2.4.0-stg.1' \
+    0 built 2.3.0 "" 1
+[[ "$SCENARIO_STATUS" != 0 ]] || fail "approval for another certificate must fail"
+pass
+assert_not_contains "$SCENARIO_TRACE" "publish <v2.4.0-stg.1>" "approval mismatch stops before publication"
+assert_orchestration_cleanup "approval for another certificate"
+
+RELEASE_DRIVER_TEST_DR_MISMATCH=1 run_orchestration_scenario fresh v2.3.3-staging \
+    $'2.3.3\t20330\tv2.3.3-staging' $'2.4.0\t20400\tv2.4.0-stg.1' \
+    0 built 2.3.0
+[[ "$SCENARIO_STATUS" != 0 ]] || fail "candidate outside the previous designated requirement must fail"
+pass
+assert_contains "$SCENARIO_OUTPUT" "지정 요구사항" "designated requirement failure reason"
+assert_not_contains "$SCENARIO_TRACE" "publish <v2.4.0-stg.1>" "designated requirement failure stops before publication"
+assert_orchestration_cleanup "designated requirement mismatch"
+
 run_orchestration_scenario \
     tag_only \
     v2.3.3-staging \
@@ -1373,6 +1445,14 @@ pass
 assert_not_contains "$SCENARIO_TRACE" "build <BUILD_DIR=" "failed native Codex gate blocks archive"
 assert_not_contains "$SCENARIO_TRACE" "publish <v2.4.0-stg.1>" "failed native Codex gate blocks publication"
 assert_orchestration_cleanup "failed native Codex gate"
+
+RELEASE_DRIVER_TEST_LIVE_SKIP=1 run_orchestration_scenario fresh v2.3.3-staging \
+    $'2.3.3\t20330\tv2.3.3-staging' $'2.4.0\t20400\tv2.4.0-stg.1'
+[[ "$SCENARIO_STATUS" -ne 0 ]] || fail "skipped live gate must stop publication"
+pass
+assert_not_contains "$SCENARIO_TRACE" "build <BUILD_DIR=" "skipped live gate blocks archive"
+assert_not_contains "$SCENARIO_TRACE" "publish <v2.4.0-stg.1>" "skipped live gate blocks publication"
+assert_orchestration_cleanup "skipped live gate"
 
 PUBLISH_REPOSITORY="$PUBLISH_FIXTURE_ROOT/ClaudeUsage"
 PUBLISH_BUILD="$PUBLISH_REPOSITORY/build/release"

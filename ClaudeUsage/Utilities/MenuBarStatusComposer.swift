@@ -53,12 +53,6 @@ private struct MenuBarElement {
     }
 }
 
-private struct MenuBarProviderStatus {
-    let text: String
-    let color: NSColor
-    let tooltip: String
-}
-
 struct MenuBarProviderSnapshot {
     let kind: AppProviderKind
     let regularText: String?
@@ -110,6 +104,7 @@ struct MenuBarProviderSnapshot {
         systemStatus: ProviderSystemStatus?,
         accessibilityLabel: String? = nil,
         accessibilityValue: String? = nil,
+        isStale: Bool = false,
         renderKey: MenuBarProviderRenderKey? = nil
     ) {
         self.init(
@@ -124,7 +119,7 @@ struct MenuBarProviderSnapshot {
             systemStatus: systemStatus,
             accessibilityLabel: accessibilityLabel,
             accessibilityValue: accessibilityValue,
-            isStale: false,
+            isStale: isStale,
             renderKey: renderKey
         )
     }
@@ -163,10 +158,7 @@ struct MenuBarProviderSnapshot {
             tooltip: tooltip,
             resetText: resetText,
             showsProviderIcon: icon != nil,
-            visualConfiguration: [
-                styleIcon == nil ? "style.none" : "style.legacy",
-            ],
-            visualValues: [],
+                visual: .plain(hasStyleIcon: styleIcon != nil),
             statusIndicator:
                 systemStatus?.effectiveIndicator,
             systemStatusSummary:
@@ -215,24 +207,9 @@ enum MenuBarStatusComposer {
         ])
     }
 
-    /// 메뉴바 색상 모드(설정)를 반영한 게이지 색.
-    /// HIG 권장인 모노크롬과 현행 임계값 색상 사이에서 사용자가 고른 정책을 적용한다.
-    private static func gaugeColor(for percentage: Double?, config: ProviderMenuBarDisplayConfig) -> NSColor {
-        guard let percentage, percentage.isFinite else { return .secondaryLabelColor }
-        switch config.colorMode {
-        case .always:
-            return ColorProvider.nsStatusColor(for: percentage)
-        case .warningOnly:
-            return percentage >= MenuBarColorMode.warningThreshold
-                ? ColorProvider.nsStatusColor(for: percentage)
-                : .labelColor
-        case .statusNumber, .monochrome:
-            return .labelColor
-        }
-    }
-
     static func claudeSnapshot(
         config: ProviderMenuBarDisplayConfig,
+        isStale: Bool = false,
         usage: ClaudeUsageResponse?,
         error: APIError?,
         hasAuthError: Bool,
@@ -247,13 +224,14 @@ enum MenuBarStatusComposer {
             config: config, limits: usage.map(UsageLimitCatalog.claude) ?? [])
         let projection: MenuBarQuotaProjection? =
             config.quotaSelection != nil || config.gaugeSelection != nil ? resolvedProjection : nil
-        let status = claudeStatus(
+        let status = MenuBarProviderStatusPolicy.claude(
             config: config,
             projection: resolvedProjection,
             usage: usage,
             error: error,
             hasAuthError: hasAuthError,
             hasCredential: hasCredential,
+            isStale: isStale,
             secondaryColor: secondaryColor
         )
         let tooltip = [status.tooltip, usage == nil ? projection?.tooltip : nil]
@@ -266,19 +244,19 @@ enum MenuBarStatusComposer {
             tooltip: tooltip,
             resetText: reset,
             showsProviderIcon: config.showIcon,
-            visualConfiguration:
-                providerVisualConfiguration(config),
-            visualValues: (usage.map {
-                [
-                    $0.gaugePercentage ?? 0,
-                    $0.weeklyPercentage ?? 0,
-                    $0.hasSessionWindow ? 1 : 0,
-                ]
-            } ?? []) + (projection?.visualValues ?? []),
+            visual: .usage(
+                config,
+                values: (usage.map {
+                    [
+                        $0.gaugePercentage ?? 0,
+                        $0.weeklyPercentage ?? 0,
+                        $0.hasSessionWindow ? 1 : 0,
+                    ]
+                } ?? []) + (projection?.visualValues ?? [])),
             systemStatus: systemStatus,
             accessibilityLabel: "\(config.kind.displayName) 사용량",
             accessibilityValue: [tooltip, reset].compactMap { $0 }.joined(separator: ", "),
-            isStale: false
+            isStale: isStale
         )
         return MenuBarProviderSnapshot(
             kind: .claude,
@@ -300,6 +278,7 @@ enum MenuBarStatusComposer {
             systemStatus: systemStatus,
             accessibilityLabel: renderKey.accessibilityLabel,
             accessibilityValue: renderKey.accessibilityValue,
+            isStale: isStale,
             renderKey: renderKey
         ).withQuotaUnits(
             storedQuotaUnits(
@@ -310,6 +289,7 @@ enum MenuBarStatusComposer {
 
     static func codexSnapshot(
         config: ProviderMenuBarDisplayConfig,
+        isStale: Bool = false,
         usage: CodexUsageResponse?,
         error: APIError?,
         hasAuthError: Bool,
@@ -324,13 +304,14 @@ enum MenuBarStatusComposer {
             config: config, limits: usage.map(UsageLimitCatalog.codex) ?? [], codexUsage: usage)
         let projection: MenuBarQuotaProjection? =
             config.quotaSelection != nil || config.gaugeSelection != nil ? resolvedProjection : nil
-        let status = codexStatus(
+        let status = MenuBarProviderStatusPolicy.codex(
             config: config,
             projection: resolvedProjection,
             usage: usage,
             error: error,
             hasAuthError: hasAuthError,
             isAuthenticated: isAuthenticated,
+            isStale: isStale,
             secondaryColor: secondaryColor
         )
         let tooltip = [status.tooltip, usage == nil ? projection?.tooltip : nil]
@@ -343,19 +324,19 @@ enum MenuBarStatusComposer {
             tooltip: tooltip,
             resetText: reset,
             showsProviderIcon: config.showIcon,
-            visualConfiguration:
-                providerVisualConfiguration(config),
-            visualValues: (usage.map {
-                [
-                    $0.gaugePercentage ?? 0,
-                    $0.weeklyPercentage,
-                    $0.hasSessionWindow ? 1 : 0,
-                ]
-            } ?? []) + (projection?.visualValues ?? []),
+            visual: .usage(
+                config,
+                values: (usage.map {
+                    [
+                        $0.gaugePercentage ?? 0,
+                        $0.weeklyPercentage,
+                        $0.hasSessionWindow ? 1 : 0,
+                    ]
+                } ?? []) + (projection?.visualValues ?? [])),
             systemStatus: systemStatus,
             accessibilityLabel: "\(config.kind.displayName) 사용량",
             accessibilityValue: [tooltip, reset].compactMap { $0 }.joined(separator: ", "),
-            isStale: false
+            isStale: isStale
         )
         return MenuBarProviderSnapshot(
             kind: .codex,
@@ -377,6 +358,7 @@ enum MenuBarStatusComposer {
             systemStatus: systemStatus,
             accessibilityLabel: renderKey.accessibilityLabel,
             accessibilityValue: renderKey.accessibilityValue,
+            isStale: isStale,
             renderKey: renderKey
         ).withQuotaUnits(
             storedQuotaUnits(
@@ -437,22 +419,7 @@ enum MenuBarStatusComposer {
             resetText: nil,
             showsProviderIcon:
                 presentation.showsProviderIcon,
-            visualConfiguration: [
-                presentation.style.rawValue, design.rawValue, colorMode.rawValue,
-                presentation.selectedLaneID?.rawValue
-                    ?? "lane.none",
-                presentation.showsGaugePercentage
-                    ? "gauge.percent"
-                    : "gauge.no-percent",
-                String(describing: presentation.tone),
-                presentation.showsGaugeLabels ? "gauge.labels" : "gauge.no-labels",
-            ]
-                + (presentation.gauges ?? []).map {
-                    $0.value.id + ":" + $0.value.title + ":" + String(describing: $0.tone)
-                } + arrangementConfiguration(arrangement) + presentation.selectedVisualConfiguration,
-            visualValues:
-            (presentation.gaugePercentage.map { [$0] } ?? [])
-                + (presentation.gauges ?? []).map { $0.value.percentage ?? -1 } + presentation.selectedVisualValues,
+            visual: .antigravity(presentation, design: design, colorMode: colorMode, arrangement: arrangement),
             systemStatus: nil,
             accessibilityLabel:
                 presentation.accessibilityLabel,
@@ -666,7 +633,8 @@ enum MenuBarStatusComposer {
             return MenuBarQuotaRenderItem(
                 id: id, title: projection.limit(id)?.title ?? projection.selection.titles[id] ?? "한도",
                 gauge: MenuBarIconRenderer.Gauge(
-                    value: value, color: gaugeColor(for: value.usedPercentage, config: config),
+                    value: value,
+                    color: MenuBarProviderStatusPolicy.gaugeColor(for: value.usedPercentage, config: config),
                     monochrome: usesCutoutBatteryText(used: value.usedPercentage, mode: config.colorMode),
                     textColor: batteryNumberColor(used: value.usedPercentage, mode: config.colorMode)),
                 percentageText: projection.percentageText(for: id), resetText: projection.resetText(for: id))
@@ -923,24 +891,6 @@ enum MenuBarStatusComposer {
     }
 
     /// 마지막 성공 데이터를 표시 중인데 최근 갱신이 실패한 경우 tooltip에 붙는 안내.
-    /// 인증 실패는 별도 경고 배지로 처리하므로 여기서는 제외한다.
-    /// 경고류는 항상 "⚠ " 접두 + 별도 줄 — tooltip 줄넘김 규칙(1줄 = 수치 요약, 이후 줄 = 경고)의 일부.
-    private static func staleNote(error: APIError?, hasAuthError: Bool) -> String {
-        guard let error, !hasAuthError else { return "" }
-        if case .claudeCodeExecutableNotFound = error {
-            return "\n\(ClaudeCodeCredentialIssue.executableNotFoundExplanation)\n마지막 성공 데이터 표시 중"
-        }
-        let label: String
-        if error.isTemporaryFailure {
-            label = "일시 오류"
-        } else if error.isPermissionDenied {
-            label = "권한 없음"
-        } else {
-            label = "조회 실패"
-        }
-        return "\n⚠ 갱신 지연(\(label)) — 마지막 성공 데이터 표시 중"
-    }
-
     /// 멀티 프로바이더 tooltip 블록: 첫 줄은 "이름: 수치 요약", 경고 줄들은 들여쓰기로 소속을 표시.
     /// 예)
     ///   Claude: 현재 85% · 주간 52%
@@ -956,44 +906,6 @@ enum MenuBarStatusComposer {
         return block
     }
 
-    private static func providerVisualConfiguration(
-        _ config: ProviderMenuBarDisplayConfig
-    ) -> [String] {
-        [
-            config.showIcon ? "icon.visible" : "icon.hidden",
-            config.style.rawValue,
-            config.percentageDisplay.rawValue,
-            config.showBatteryPercent
-                ? "battery.percent"
-                : "battery.no-percent",
-            config.resetTimeDisplay.rawValue,
-            config.timeFormat.rawValue,
-            config.circularDisplayMode.rawValue,
-            config.basisOverride?.rawValue ?? "legacy",
-            config.iconMetric.rawValue,
-            config.colorMode.rawValue, config.design.rawValue,
-            config.quotaSelection == nil ? "legacy-quota" : "selected-quota",
-            config.quotaSelection?.percentageIDs.joined(separator: ",") ?? "",
-            config.quotaSelection?.resetIDs.joined(separator: ",") ?? "",
-            config.quotaSelection?.gaugeIDs.joined(separator: ",") ?? "",
-            config.gaugeSelection == nil ? "legacy-gauge" : "selected-gauge",
-            config.gaugeSelection?.ids?.joined(separator: ",") ?? "legacy.ids",
-            config.gaugeSelection?.layout.rawValue ?? "legacy.layout",
-            config.gaugeSelection?.showsLabels == true ? "gauge.labels" : "gauge.no-labels",
-            config.gaugeSelection?.titles.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(
-                separator: ",") ?? "",
-        ] + arrangementConfiguration(config.quotaSelection?.arrangement)
-    }
-
-    private static func arrangementConfiguration(_ arrangement: MenuBarQuotaArrangement?) -> [String] {
-        guard let arrangement else { return ["arrangement.legacy"] }
-        return ["arrangement.\(arrangement.gaugeLayout.rawValue)"]
-            + arrangement.orderedIDs.map { "order:\($0)" }
-            + arrangement.gaugeGroups.enumerated().flatMap { index, ids in
-                ["group.\(index).count:\(ids.count)"] + ids.map { "member:\($0)" }
-            }
-    }
-
     private static func providerRenderKey(
         kind: AppProviderKind,
         regularText: String?,
@@ -1001,8 +913,7 @@ enum MenuBarStatusComposer {
         tooltip: String,
         resetText: String?,
         showsProviderIcon: Bool,
-        visualConfiguration: [String],
-        visualValues: [Double],
+        visual: MenuBarProviderRenderKey.Visual,
         systemStatus: ProviderSystemStatus?,
         accessibilityLabel: String?,
         accessibilityValue: String?,
@@ -1015,8 +926,7 @@ enum MenuBarStatusComposer {
             tooltip: tooltip,
             resetText: resetText,
             showsProviderIcon: showsProviderIcon,
-            visualConfiguration: visualConfiguration,
-            visualValues: visualValues,
+            visual: visual,
             statusIndicator:
                 systemStatus?.effectiveIndicator,
             systemStatusSummary:
@@ -1029,110 +939,6 @@ enum MenuBarStatusComposer {
         )
     }
 
-    private static func claudeStatus(
-        config: ProviderMenuBarDisplayConfig,
-        projection: MenuBarQuotaProjection,
-        usage: ClaudeUsageResponse?,
-        error: APIError?,
-        hasAuthError: Bool,
-        hasCredential: Bool,
-        secondaryColor: NSColor
-    ) -> MenuBarProviderStatus {
-        let executableMissing: Bool
-        if case .claudeCodeExecutableNotFound? = error {
-            executableMissing = true
-        } else {
-            executableMissing = false
-        }
-        if !hasCredential, !executableMissing {
-            return MenuBarProviderStatus(text: "로그인", color: .systemOrange, tooltip: "로그인 필요")
-        }
-        if let error, usage == nil {
-            return MenuBarProviderStatus(
-                text: hasAuthError ? "인증" : "오류",
-                color: .systemOrange,
-                tooltip: error.errorDescription ?? "조회 오류"
-            )
-        }
-        guard let usage else {
-            return MenuBarProviderStatus(text: "…", color: secondaryColor, tooltip: "로딩 중")
-        }
-
-        if config.quotaSelection != nil {
-            return MenuBarProviderStatus(
-                text: projection.percentageText,
-                color: gaugeColor(for: projection.primary?.usedPercentage, config: config),
-                tooltip: projection.tooltip + staleNote(error: error, hasAuthError: hasAuthError))
-        }
-
-        let hasPrimary = usage.hasSessionWindow
-        let fiveHour = usage.fiveHourPercentage
-        let weekly = usage.weeklyPercentage
-        let text = MenuBarQuotaProjection.legacyPercentageText(
-            session: fiveHour, weekly: weekly, hasSession: hasPrimary,
-            display: config.percentageDisplay, basis: config.usageValueBasis)
-
-        return MenuBarProviderStatus(
-            text: text,
-            color: gaugeColor(for: usage.gaugePercentage, config: config),
-            tooltip: (config.gaugeSelection != nil
-                ? projection.tooltip
-                : MenuBarQuotaProjection.legacyTooltip(
-                    session: fiveHour, weekly: weekly, basis: config.usageValueBasis))
-                + staleNote(error: error, hasAuthError: hasAuthError)
-        )
-    }
-
-    private static func codexStatus(
-        config: ProviderMenuBarDisplayConfig,
-        projection: MenuBarQuotaProjection,
-        usage: CodexUsageResponse?,
-        error: APIError?,
-        hasAuthError: Bool,
-        isAuthenticated: Bool,
-        secondaryColor: NSColor
-    ) -> MenuBarProviderStatus {
-        if !isAuthenticated {
-            return MenuBarProviderStatus(text: "로그인", color: .systemOrange, tooltip: "로그인 필요")
-        }
-        guard let usage else {
-            if let error {
-                return MenuBarProviderStatus(
-                    text: hasAuthError ? "인증" : "오류",
-                    color: .systemOrange,
-                    tooltip: error.errorDescription ?? "조회 오류"
-                )
-            }
-            return MenuBarProviderStatus(text: "…", color: secondaryColor, tooltip: "로딩 중")
-        }
-
-        if config.quotaSelection != nil {
-            return MenuBarProviderStatus(
-                text: projection.percentageText,
-                color: gaugeColor(for: projection.primary?.usedPercentage, config: config),
-                tooltip: projection.tooltip + (usage.workspaceLimitNotice.map { "\n\($0)" } ?? "")
-                    + staleNote(error: error, hasAuthError: hasAuthError))
-        }
-
-        let hasPrimary = usage.hasSessionWindow
-        let primary = usage.sessionPercentage
-        let weekly = usage.weeklyWindow?.utilization
-        let text = MenuBarQuotaProjection.legacyPercentageText(
-            session: primary, weekly: weekly, hasSession: hasPrimary,
-            display: config.percentageDisplay, basis: config.usageValueBasis)
-
-        return MenuBarProviderStatus(
-            text: text,
-            color: gaugeColor(for: usage.gaugePercentage, config: config),
-            tooltip: (config.gaugeSelection != nil
-                ? projection.tooltip
-                : MenuBarQuotaProjection.legacyTooltip(
-                    session: hasPrimary ? primary : nil, weekly: weekly, basis: config.usageValueBasis))
-                + (usage.workspaceLimitNotice.map { " · \($0)" } ?? "")
-                + staleNote(error: error, hasAuthError: hasAuthError)
-        )
-    }
-
     private static func styleIcon(projection: MenuBarQuotaProjection, config: ProviderMenuBarDisplayConfig) -> NSImage?
     {
         guard !projection.selection.gaugeIDs.isEmpty else { return nil }
@@ -1140,7 +946,8 @@ enum MenuBarStatusComposer {
         if let layout = config.gaugeSelection?.layout {
             let gauges = projection.gauges.map { value in
                 MenuBarIconRenderer.Gauge(
-                    value: value, color: gaugeColor(for: value.usedPercentage, config: config),
+                    value: value,
+                    color: MenuBarProviderStatusPolicy.gaugeColor(for: value.usedPercentage, config: config),
                     monochrome: usesCutoutBatteryText(used: value.usedPercentage, mode: config.colorMode),
                     textColor: batteryNumberColor(used: value.usedPercentage, mode: config.colorMode))
             }
@@ -1156,7 +963,7 @@ enum MenuBarStatusComposer {
         }
         return styleIcon(
             primary: primary, secondary: projection.secondary?.usedPercentage, config: config,
-            metric: (primary, gaugeColor(for: primary, config: config)))
+            metric: (primary, MenuBarProviderStatusPolicy.gaugeColor(for: primary, config: config)))
     }
 
     private static func styleIcon(usage: ClaudeUsageResponse?, config: ProviderMenuBarDisplayConfig) -> NSImage? {
@@ -1193,7 +1000,7 @@ enum MenuBarStatusComposer {
     // 5시간 창이 없는 응답은 주간 게이지 하나로 그린다(0% 오인 방지).
     private static func weeklyOnlyStyleIcon(weekly: Double?, config: ProviderMenuBarDisplayConfig) -> NSImage? {
         let value = config.usageValueBasis.percentage(fromUsed: weekly)
-        let color = gaugeColor(for: weekly, config: config)
+        let color = MenuBarProviderStatusPolicy.gaugeColor(for: weekly, config: config)
         switch config.style {
         case .none:
             return nil
@@ -1268,8 +1075,8 @@ enum MenuBarStatusComposer {
         config: ProviderMenuBarDisplayConfig,
         metric: (percentage: Double?, color: NSColor)
     ) -> NSImage? {
-        let primaryColor = gaugeColor(for: primary, config: config)
-        let secondaryColor = gaugeColor(for: secondary, config: config)
+        let primaryColor = MenuBarProviderStatusPolicy.gaugeColor(for: primary, config: config)
+        let secondaryColor = MenuBarProviderStatusPolicy.gaugeColor(for: secondary, config: config)
         let circularValue = config.usageValueBasis.percentage(fromUsed: metric.percentage)
         let outer = config.usageValueBasis.percentage(fromUsed: primary)
         let inner = config.usageValueBasis.percentage(fromUsed: secondary)
@@ -1324,9 +1131,9 @@ enum MenuBarStatusComposer {
     ) -> (percentage: Double?, color: NSColor) {
         switch config.iconMetric {
         case .fiveHour:
-            return (primary, gaugeColor(for: primary, config: config))
+            return (primary, MenuBarProviderStatusPolicy.gaugeColor(for: primary, config: config))
         case .weekly:
-            return (secondary, gaugeColor(for: secondary, config: config))
+            return (secondary, MenuBarProviderStatusPolicy.gaugeColor(for: secondary, config: config))
         }
     }
 

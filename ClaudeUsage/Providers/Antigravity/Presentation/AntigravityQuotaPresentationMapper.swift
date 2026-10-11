@@ -95,6 +95,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
     static func map(
         state: AntigravityPresentationState,
         settings: AntigravityDisplaySettings,
+        marksStale: Bool = true,
         basisOverride: UsageValueBasis? = nil,
         now: Date = Date(),
         locale: Locale = Locale(identifier: "ko_KR"),
@@ -129,15 +130,11 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         case let .stale(staleSnapshot, failure):
             snapshot = staleSnapshot
             context = AntigravityQuotaPresentationContext(
-                phase: .stale(failure),
+                phase: marksStale ? .stale(failure) : .current,
                 decodeIssueCount: staleSnapshot.decodeIssues.count
             )
         case .disabled,
-             .setupRequired,
              .refreshing(previous: nil),
-             .accountMismatch,
-             .limited,
-             .identityOnly,
              .failed:
             return .unavailable(state)
         }
@@ -638,10 +635,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
     ) -> ProviderIdentityRailProjection {
         let identity = snapshot.identity
             ?? snapshot.provenance.accountIdentity
-        let accountLabel =
-            identity == nil && snapshot.provenance.transport == .cliUsageReport
-            ? cliReportAccountLabel
-            : maskedAccountLabel(identity)
+        let accountLabel = identity.map(maskedAccountLabel) ?? cliReportAccountLabel
         let sourceLabel = sourceLabel(snapshot.provenance.transport)
         let freshnessLabel = relativeFreshness(
             fetchedAt: snapshot.fetchedAt,
@@ -856,11 +850,8 @@ nonisolated enum AntigravityQuotaPresentationMapper {
     static let cliReportAccountLabel = "AGY CLI 로그인 계정"
 
     private static func maskedAccountLabel(
-        _ identity: ProviderAccountIdentity?
+        _ identity: ProviderAccountIdentity
     ) -> String {
-        guard let identity else {
-            return "계정 미확인"
-        }
         if let email = nonEmpty(identity.email) {
             let localPart = email.split(
                 separator: "@",
@@ -885,12 +876,8 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         _ transport: AntigravityQuotaProvenance.Transport
     ) -> String {
         switch transport {
-        case .localAppRPC:
-            "Antigravity 앱"
         case .cliUsageReport:
             "AGY CLI"
-        case .googleOAuth:
-            "Google 계정"
         }
     }
 

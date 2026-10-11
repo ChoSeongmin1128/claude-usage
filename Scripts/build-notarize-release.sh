@@ -418,8 +418,8 @@ if [[ -z "$CERT_HASH" ]]; then
         3)
             echo "현재 배포본이 쓴 인증서($SIGNING_REFERENCE_SHA)가 keychain 후보에 없습니다:" >&2
             security find-identity -v -p codesigning | grep "Developer ID Application" >&2
-            echo "서명 인증서가 바뀌면 기존 사용자에게 Keychain prompt가 발생하므로 자동 선택을 거부합니다." >&2
-            echo "의도한 교체라면 CERT_HASH로 명시하세요." >&2
+            echo "현재 배포본과 다른 인증서는 자동으로 고르지 않습니다." >&2
+            echo "의도한 교체라면 CERT_HASH로 명시하고 release.sh에 --allow-signing-certificate-change를 주세요." >&2
             exit 1
             ;;
     esac

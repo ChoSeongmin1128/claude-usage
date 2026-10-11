@@ -104,6 +104,8 @@ nonisolated struct ClaudeUsageFetchOutcome: Sendable {
     let provenance: ClaudeFetchProvenance
     var identity: UsageAccountIdentity? = nil
     var credentialGeneration: Int? = nil
+    /// 캐시에서 돌려준 결과면 실제로 받아 온 시각이다.
+    var fetchedAt = Date()
 }
 
 nonisolated struct ClaudeSourceCandidate: Equatable, Sendable {
@@ -248,7 +250,7 @@ nonisolated enum ClaudeCodeCredentialIssue: Sendable, Equatable {
     case executableNotFound
 
     static let executableNotFoundMessage = "Claude Code를 찾지 못해 로그인을 갱신하지 못했습니다."
-    static let executableNotFoundGuidance = "터미널에서 `claude`가 실행되는지 확인한 뒤 앱을 다시 여세요."
+    static let executableNotFoundGuidance = "터미널에서 claude가 실행되는지 확인한 뒤 앱을 다시 여세요."
     static var executableNotFoundExplanation: String {
         "\(executableNotFoundMessage) \(executableNotFoundGuidance)"
     }

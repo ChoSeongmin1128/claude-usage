@@ -50,6 +50,7 @@ CANDIDATE=""
 FROM_STAGING=""
 NOTES_FILE=""
 PREVIOUS_PUBLIC_KEY=""
+ALLOWED_SIGNING_CERTIFICATE=""
 NON_INTERACTIVE=0
 DRY_RUN=0
 CONFIRM_PUBLISH=""
@@ -91,6 +92,8 @@ usage() {
   --from-staging TAG         운영으로 승격할 staging 후보 (필수)
   --notes-file PATH
   --previous-public-key BASE64 (키 교체 때 이전 자산 검증에만 사용)
+  --allow-signing-certificate-change SHA1
+                             이전 배포본과 다른 Apple 인증서로 서명할 때 새 인증서 SHA-1
   --non-interactive
   --confirm-publish vX.Y.Z[-stg.N]
   --dry-run
@@ -163,6 +166,13 @@ while [[ $# -gt 0 ]]; do
         --previous-public-key)
             [[ $# -ge 2 && -n "$2" && -z "$PREVIOUS_PUBLIC_KEY" ]] || die "이전 공개키를 한 번 지정해 주세요."
             PREVIOUS_PUBLIC_KEY="$2"; shift 2 ;;
+        --allow-signing-certificate-change)
+            [[ $# -ge 2 && -z "$ALLOWED_SIGNING_CERTIFICATE" ]] \
+                || die "--allow-signing-certificate-change를 한 번 지정해 주세요."
+            ALLOWED_SIGNING_CERTIFICATE="$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')"
+            [[ "$ALLOWED_SIGNING_CERTIFICATE" =~ ^[0-9A-F]{40}$ ]] \
+                || die "--allow-signing-certificate-change 값은 40자리 SHA-1이어야 합니다."
+            shift 2 ;;
         --notes-file)
             [[ $# -ge 2 && -n "$2" ]] || die "--notes-file 값이 필요합니다."
             [[ -z "$NOTES_FILE" ]] || die "--notes-file이 중복 지정됐습니다."
@@ -260,7 +270,7 @@ read_channel_feed_state() {
     fi
 
     feed_url="$(release_feed_url_for "$channel")"
-    curl -fsSL "$feed_url" | python3 "$SCRIPT_ROOT/Scripts/lib/release_metadata.py" \
+    curl -fsSL --max-time 30 "$feed_url" | python3 "$SCRIPT_ROOT/Scripts/lib/release_metadata.py" \
         channel-feed-state --appcast - --channel "$channel"
 }
 
@@ -1044,6 +1054,18 @@ LIVE_AGY_TEST_BUNDLE="$TEST_DERIVED_DATA/Build/Products/Debug/ClaudeUsageSetting
 [[ -d "$LIVE_AGY_TEST_BUNDLE" ]] \
     || die "실제 AGY smoke test bundle을 찾지 못했습니다: $LIVE_AGY_TEST_BUNDLE"
 echo
+# xctest는 건너뛴 시험과 0건 실행에도 0으로 끝난다. 시험 하나가 실제로 실행돼 통과한 출력만 근거로 쓴다.
+run_live_xctest() {
+    local opt_in="$1" test_name="$2" output
+    if ! output="$(env "$opt_in=1" xcrun xctest -XCTest "$test_name" "$LIVE_AGY_TEST_BUNDLE" 2>&1)"; then
+        printf '%s\n' "$output"
+        die "실연동 시험 실패: $test_name"
+    fi
+    printf '%s\n' "$output"
+    grep -Eq 'Executed 1 test, with 0 failures' <<<"$output" \
+        || die "실연동 시험이 실행되지 않았거나 건너뛰었습니다: $test_name"
+}
+
 echo "실제 AGY 자동 조회 smoke 실행"
 # Release gates must read a real numeric usage report from the signed-in
 # official AGY CLI and leave no AGY process behind.
@@ -1051,17 +1073,12 @@ for LIVE_AGY_TEST in \
     AntigravityLiveAGYIntegrationTests/testProductionCLIReportReturnsRealGroupedQuota \
     AntigravityLiveAGYIntegrationTests/testRuntimeEnvironmentRecoversAfterOfficialBinaryReplacement \
     AntigravityLiveLocalSelectionTests/testOfficialCLITargetPersistsWithoutOAuthAndLeavesNoLedger; do
-    CLAUDEUSAGE_RUN_LIVE_AGY_TESTS=1 xcrun xctest \
-        -XCTest \
-        "$LIVE_AGY_TEST" \
-        "$LIVE_AGY_TEST_BUNDLE"
+    run_live_xctest CLAUDEUSAGE_RUN_LIVE_AGY_TESTS "$LIVE_AGY_TEST"
 done
 
 echo "실제 Codex owner CLI 인증 갱신과 계정별 quota 검증"
-CLAUDEUSAGE_RUN_LIVE_CODEX_TESTS=1 xcrun xctest \
-    -XCTest \
-    CodexLiveNativeIntegrationTests/testCurrentNativeAccountReturnsAuthenticatedQuota \
-    "$LIVE_AGY_TEST_BUNDLE"
+run_live_xctest CLAUDEUSAGE_RUN_LIVE_CODEX_TESTS \
+    CodexLiveNativeIntegrationTests/testCurrentNativeAccountReturnsAuthenticatedQuota
 
 rm -rf "$TEST_DERIVED_DATA" "$TEST_RESULT_BUNDLE"
 rm -rf "$RUN_ROOT/test"
@@ -1148,13 +1165,22 @@ LOCAL_FEED="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$LOCAL_INFO")"
 LOCAL_BUNDLE_IDENTIFIER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$LOCAL_INFO")"
 [[ "$LOCAL_BUNDLE_IDENTIFIER" == "$APP_BUNDLE_IDENTIFIER" ]] \
     || die "release app bundle identifier가 다릅니다: $LOCAL_BUNDLE_IDENTIFIER"
-if [[ -n "$PREVIOUS_PUBLIC_KEY" ]]; then
-    PREVIOUS_CERT_SHA="$(resolve_app_signing_certificate_sha1 "$SIGNING_REFERENCE_APP_PATH")" \
-        || die "키 교체 기준 앱의 서명 인증서를 확인하지 못했습니다."
-    CANDIDATE_CERT_SHA="$(resolve_app_signing_certificate_sha1 "$LOCAL_APP")" \
-        || die "키 교체 후보 앱의 서명 인증서를 확인하지 못했습니다."
-    [[ "$PREVIOUS_CERT_SHA" == "$CANDIDATE_CERT_SHA" ]] \
-        || die "EdDSA 키와 Apple 서명 인증서를 동시에 바꿀 수 없습니다."
+# 이전 배포본과 같은 Apple 인증서로 서명했는지 매번 확인한다. 인증서를 일부러 바꿀 때만
+# --allow-signing-certificate-change에 새 인증서 SHA-1을 적는다. EdDSA 키와 함께 바꿀 수는 없다.
+PREVIOUS_CERT_SHA="$(resolve_app_signing_certificate_sha1 "$SIGNING_REFERENCE_APP_PATH")" \
+    || die "서명 기준 앱의 인증서를 확인하지 못했습니다: $SIGNING_REFERENCE_APP_PATH"
+CANDIDATE_CERT_SHA="$(resolve_app_signing_certificate_sha1 "$LOCAL_APP")" \
+    || die "후보 앱의 서명 인증서를 확인하지 못했습니다."
+if [[ "$PREVIOUS_CERT_SHA" != "$CANDIDATE_CERT_SHA" ]]; then
+    [[ -z "$PREVIOUS_PUBLIC_KEY" ]] || die "EdDSA 키와 Apple 서명 인증서를 동시에 바꿀 수 없습니다."
+    [[ "$ALLOWED_SIGNING_CERTIFICATE" == "$CANDIDATE_CERT_SHA" ]] \
+        || die "이전 배포본($PREVIOUS_CERT_SHA)과 다른 Apple 인증서($CANDIDATE_CERT_SHA)로 서명했습니다. 의도한 교체라면 --allow-signing-certificate-change에 새 인증서 SHA-1을 적으세요."
+fi
+# 인증서를 바꿔도 기존 앱이 업데이트를 받으려면 새 앱이 이전 앱의 지정 요구사항을 만족해야 한다.
+# staging 식별자 전환 첫 배포는 기준 앱이 운영 앱이라 식별자가 달라 이 검사를 하지 않는다.
+if [[ "$STAGING_IDENTITY_BOOTSTRAP" != "1" ]]; then
+    app_satisfies_designated_requirement "$LOCAL_APP" "$SIGNING_REFERENCE_APP_PATH" \
+        || die "후보 앱이 이전 배포본의 지정 요구사항(DR)을 만족하지 않아 기존 앱이 업데이트를 받지 못합니다."
 fi
 
 SPARKLE_TOOLS_DIR="$ARCHIVE_DERIVED_DATA/SourcePackages/artifacts/sparkle/Sparkle/bin"

@@ -27,6 +27,7 @@ LOCAL_UPDATE_TEMP=""
 TRACKED_UPDATE_TEMP=""
 
 OVERWRITE_CONFIG=0
+ALLOW_NEW_KEY=0
 DEFAULT_FEED_URL=""
 DEFAULT_NOTARY_PROFILE="ClaudeUsageNotary"
 CHANNEL="prod"
@@ -64,6 +65,10 @@ while [[ $# -gt 0 ]]; do
             OVERWRITE_CONFIG=1
             shift
             ;;
+        --new-key)
+            ALLOW_NEW_KEY=1
+            shift
+            ;;
         --feed-url)
             DEFAULT_FEED_URL="$2"
             shift 2
@@ -79,10 +84,11 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             cat <<USAGE
 사용법:
-    $0 [--force] [--feed-url URL] [--channel prod|staging] [--notary-profile NAME]
+    $0 [--force] [--new-key] [--feed-url URL] [--channel prod|staging] [--notary-profile NAME]
 
 옵션:
     --force            local xcconfig를 다시 작성 (기존 signing key는 재사용)
+    --new-key          Keychain에 키가 없을 때 새 키를 만들고 커밋된 공개키를 바꿈
     --feed-url URL     SUFeedURL 기본값 (기본: GitHub Pages 채널 URL)
     --channel NAME     기본 feed 채널 (prod 또는 staging, 기본: $CHANNEL)
     --notary-profile N NOTARY_PROFILE 기본값 (기본: $DEFAULT_NOTARY_PROFILE)
@@ -229,6 +235,17 @@ fi
 HAS_EXISTING_KEY=0
 if [[ -n "$PUBLIC_KEY" ]]; then
     HAS_EXISTING_KEY=1
+fi
+
+TRACKED_PUBLIC_KEY=""
+if [[ -f "${TRACKED_XCCONFIG:-}" ]]; then
+    TRACKED_PUBLIC_KEY="$(sed -n -E 's/^[[:space:]]*SUPublicEDKey[[:space:]]*=[[:space:]]*([A-Za-z0-9+/=]{40,})[[:space:]]*$/\1/p' "$TRACKED_XCCONFIG" | tail -n1)"
+fi
+if [[ "$HAS_EXISTING_KEY" == "0" && -n "$TRACKED_PUBLIC_KEY" && "${ALLOW_NEW_KEY:-0}" != "1" ]]; then
+    # 배포된 앱은 커밋된 공개키만 믿는다. 새 기기에서는 기존 개인키를 가져와야 한다.
+    echo "Keychain에 Sparkle 서명 키가 없습니다. 커밋된 공개키($TRACKED_PUBLIC_KEY)의 개인키를 Keychain에 가져온 뒤 다시 실행하세요." >&2
+    echo "키를 바꾸려는 경우에만 --new-key를 붙이세요. 바꾼 뒤에는 이전 키로 서명한 feed와 함께 교체 절차를 따라야 합니다." >&2
+    exit 1
 fi
 
 if [[ "$HAS_EXISTING_KEY" == "0" ]]; then

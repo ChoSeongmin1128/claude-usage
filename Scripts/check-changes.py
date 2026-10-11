@@ -13,7 +13,7 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parent.parent
-SHELLCHECK_VERSION = "0.11.0"
+MINIMUM_SHELLCHECK_VERSION = (0, 11, 0)
 
 
 def git(*arguments):
@@ -65,9 +65,11 @@ def check(base, fix=False):
                                                  formatted.decode().splitlines(True),
                                                  fromfile=path, tofile=path + " (formatted)")))
     if shell_files:
-        version = subprocess.check_output(["shellcheck", "--version"]).decode()
-        if not re.search(r"^version: " + re.escape(SHELLCHECK_VERSION) + r"$", version, re.M):
-            raise ValueError("ShellCheck " + SHELLCHECK_VERSION + "이 필요합니다")
+        output = subprocess.check_output(["shellcheck", "--version"]).decode()
+        match = re.search(r"^version: (\d+)\.(\d+)\.(\d+)$", output, re.M)
+        # 새 판이 나와도 검사를 막지 않는다. 경고가 늘면 바뀐 파일에서 고친다.
+        if not match or tuple(map(int, match.groups())) < MINIMUM_SHELLCHECK_VERSION:
+            raise ValueError("ShellCheck " + ".".join(map(str, MINIMUM_SHELLCHECK_VERSION)) + " 이상이 필요합니다")
         result = subprocess.run(["shellcheck", "--external-sources", *shell_files], cwd=ROOT)
         failures += result.returncode != 0
     print(f"변경 코드 검사: Swift {len(swift_files)}개, shell {len(shell_files)}개, 실패 {failures}개")

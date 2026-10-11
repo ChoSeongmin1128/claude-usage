@@ -50,17 +50,24 @@ nonisolated enum OwnedSubprocessPipe {
 nonisolated struct OwnedSpawnedSubprocess: Sendable {
     let processID: pid_t
     let standardOutputFileDescriptor: Int32
+    /// 표준 오류를 버리거나 표준 출력에 합치면 -1이다.
     let standardErrorFileDescriptor: Int32
+    /// 표준 입력을 파이프로 연 경우의 쓰기 끝. 아니면 -1이다.
+    let standardInputFileDescriptor: Int32
 }
 
-// stdin is /dev/null and stdout/stderr are pipes whose read ends the caller
-// owns; every other descriptor is closed in the child.
+/// 앱이 실행하는 모든 외부 프로세스의 생성 지점. 호출자가 파이프 읽기 끝을 소유하고, 자식에는 다른 파일 서술자를 넘기지 않는다.
 nonisolated enum OwnedSubprocessSpawn {
+    enum StandardInput { case devNull, pipe }
+    enum StandardError { case pipe, devNull, mergeWithOutput }
+
     struct Options {
         var workingDirectoryPath: String?
         var ownProcessGroup = false
         var startSuspended = false
         var qosClass: qos_class_t?
+        var standardInput: StandardInput = .devNull
+        var standardError: StandardError = .pipe
     }
 
     static func spawn(
@@ -72,16 +79,18 @@ nonisolated enum OwnedSubprocessSpawn {
     ) -> OwnedSpawnedSubprocess? {
         var standardOutputPipe = [Int32](repeating: -1, count: 2)
         var standardErrorPipe = [Int32](repeating: -1, count: 2)
-        guard OwnedSubprocessPipe.make(&standardOutputPipe),
-            OwnedSubprocessPipe.make(&standardErrorPipe)
-        else {
-            OwnedSubprocessPipe.close(standardOutputPipe)
-            OwnedSubprocessPipe.close(standardErrorPipe)
-            return nil
-        }
+        var standardInputPipe = [Int32](repeating: -1, count: 2)
         func closePipes() {
             OwnedSubprocessPipe.close(standardOutputPipe)
             OwnedSubprocessPipe.close(standardErrorPipe)
+            OwnedSubprocessPipe.close(standardInputPipe)
+        }
+        guard OwnedSubprocessPipe.make(&standardOutputPipe),
+            options.standardError != .pipe || OwnedSubprocessPipe.make(&standardErrorPipe),
+            options.standardInput != .pipe || OwnedSubprocessPipe.make(&standardInputPipe)
+        else {
+            closePipes()
+            return nil
         }
 
         var fileActions: posix_spawn_file_actions_t?
@@ -91,21 +100,26 @@ nonisolated enum OwnedSubprocessSpawn {
         }
         defer { posix_spawn_file_actions_destroy(&fileActions) }
 
-        var actionResults = [
-            posix_spawn_file_actions_addopen(
-                &fileActions, STDIN_FILENO, "/dev/null", O_RDONLY, 0
-            ),
-            posix_spawn_file_actions_adddup2(
-                &fileActions, standardOutputPipe[1], STDOUT_FILENO
-            ),
-            posix_spawn_file_actions_adddup2(
-                &fileActions, standardErrorPipe[1], STDERR_FILENO
-            ),
-            posix_spawn_file_actions_addclose(&fileActions, standardOutputPipe[0]),
-            posix_spawn_file_actions_addclose(&fileActions, standardOutputPipe[1]),
-            posix_spawn_file_actions_addclose(&fileActions, standardErrorPipe[0]),
-            posix_spawn_file_actions_addclose(&fileActions, standardErrorPipe[1]),
-        ]
+        var actionResults: [Int32] = []
+        switch options.standardInput {
+        case .devNull:
+            actionResults.append(posix_spawn_file_actions_addopen(&fileActions, STDIN_FILENO, "/dev/null", O_RDONLY, 0))
+        case .pipe:
+            actionResults.append(posix_spawn_file_actions_adddup2(&fileActions, standardInputPipe[0], STDIN_FILENO))
+        }
+        actionResults.append(posix_spawn_file_actions_adddup2(&fileActions, standardOutputPipe[1], STDOUT_FILENO))
+        switch options.standardError {
+        case .pipe:
+            actionResults.append(posix_spawn_file_actions_adddup2(&fileActions, standardErrorPipe[1], STDERR_FILENO))
+        case .devNull:
+            actionResults.append(
+                posix_spawn_file_actions_addopen(&fileActions, STDERR_FILENO, "/dev/null", O_WRONLY, 0))
+        case .mergeWithOutput:
+            actionResults.append(posix_spawn_file_actions_adddup2(&fileActions, standardOutputPipe[1], STDERR_FILENO))
+        }
+        for descriptor in standardOutputPipe + standardErrorPipe + standardInputPipe where descriptor >= 0 {
+            actionResults.append(posix_spawn_file_actions_addclose(&fileActions, descriptor))
+        }
         if let workingDirectoryPath = options.workingDirectoryPath {
             actionResults.append(
                 workingDirectoryPath.withCString {
@@ -172,11 +186,13 @@ nonisolated enum OwnedSubprocessSpawn {
         }
 
         Darwin.close(standardOutputPipe[1])
-        Darwin.close(standardErrorPipe[1])
+        if standardErrorPipe[1] >= 0 { Darwin.close(standardErrorPipe[1]) }
+        if standardInputPipe[0] >= 0 { Darwin.close(standardInputPipe[0]) }
         return OwnedSpawnedSubprocess(
             processID: processID,
             standardOutputFileDescriptor: standardOutputPipe[0],
-            standardErrorFileDescriptor: standardErrorPipe[0]
+            standardErrorFileDescriptor: standardErrorPipe[0],
+            standardInputFileDescriptor: standardInputPipe[1]
         )
     }
 

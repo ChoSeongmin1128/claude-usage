@@ -47,16 +47,24 @@ nonisolated enum ClaudeWebUsageFetcher {
             url: ClaudeEndpoints.oauthUsageURL, cachePolicy: .reloadIgnoringLocalCacheData,
             timeoutInterval: ClaudeEndpoints.requestTimeout)
         ClaudeEndpoints.applyOAuthHeaders(to: &request, accessToken: accessToken)
-        let data = try await send(request, session)
+        var (data, response) = try await session.data(for: request)
+        if let status = (response as? HTTPURLResponse)?.statusCode,
+            ClaudeEndpoints.rejectsOptionalUsageQuery(status: status, data: data)
+        {
+            request.url = ClaudeEndpoints.oauthUsageURLWithoutResetCredits
+            (data, response) = try await session.data(for: request)
+        }
+        try check(data, response)
         guard let usage = try? JSONDecoder().decode(ClaudeUsageResponse.self, from: data) else {
             throw UsageAccountFetchError.unavailable
         }
         return usage
     }
 
-    static func fetchOAuthUsageWithOwner(
-        accessToken: String, expectedIdentity: UsageAccountIdentity? = nil, session: URLSession = .shared
-    ) async throws -> Result {
+    /// 토큰 주인. 서버가 계정 UUID와 조직 UUID를 주지 않으면 확인하지 못한 것으로 본다.
+    static func fetchOAuthOwner(accessToken: String, session: URLSession = .shared) async throws
+        -> UsageAccountIdentity
+    {
         var request = URLRequest(
             url: ClaudeEndpoints.oauthProfileURL, cachePolicy: .reloadIgnoringLocalCacheData,
             timeoutInterval: ClaudeEndpoints.requestTimeout)
@@ -66,9 +74,24 @@ nonisolated enum ClaudeWebUsageFetcher {
             let accountID = nonEmpty(profile.account?.uuid),
             let organizationID = nonEmpty(profile.organization?.uuid)
         else { throw UsageAccountFetchError.unavailable }
-        let identity = UsageAccountIdentity(
+        return UsageAccountIdentity(
             accountID: accountID, organizationID: organizationID, email: nonEmpty(profile.account?.email),
             organizationName: nonEmpty(profile.organization?.name))
+    }
+
+    /// 캐시를 거치는 토큰 주인 조회. 확인하지 못하면 nil이다.
+    static func cachedOAuthOwner(session: URLSession = .shared) -> ClaudeCodeFolderKeychain.TokenOwner {
+        { accessToken in
+            await ClaudeCodeTokenOwnerCache.shared.owner(of: accessToken) {
+                try? await fetchOAuthOwner(accessToken: $0, session: session)
+            }
+        }
+    }
+
+    static func fetchOAuthUsageWithOwner(
+        accessToken: String, expectedIdentity: UsageAccountIdentity? = nil, session: URLSession = .shared
+    ) async throws -> Result {
+        let identity = try await fetchOAuthOwner(accessToken: accessToken, session: session)
         if let expectedIdentity, !UsageAccountFetchBinding.matches(expected: expectedIdentity, observed: identity) {
             throw UsageAccountFetchError.accountChanged
         }
@@ -89,10 +112,18 @@ nonisolated enum ClaudeWebUsageFetcher {
 
     private static func send(_ request: URLRequest, _ session: URLSession) async throws -> Data {
         let (data, response) = try await session.data(for: request)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        try check(data, response)
+        return data
+    }
+
+    private static func check(_ data: Data, _ response: URLResponse) throws {
+        let http = response as? HTTPURLResponse
+        let status = http?.statusCode ?? 0
+        if status == 429 || (status == 403 && HTTPResponseClassification.isCloudflareChallenge(data)) {
+            throw UsageAccountFetchError.rateLimited(retryAfter: HTTPResponseClassification.retryAfterSeconds(http))
+        }
         if status == 401 || status == 403 { throw UsageAccountFetchError.loginExpired }
         guard (200...299).contains(status) else { throw UsageAccountFetchError.server(status) }
-        return data
     }
 }
 

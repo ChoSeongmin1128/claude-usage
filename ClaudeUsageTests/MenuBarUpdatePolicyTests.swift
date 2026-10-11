@@ -173,7 +173,7 @@ final class MenuBarUpdatePolicyTests: XCTestCase {
         let changedDisplay = providerKey(
             kind: .claude,
             percentage: 20,
-            visualConfiguration: ["battery"]
+            visual: .plain(hasStyleIcon: false)
         )
 
         XCTAssertNotEqual(initial, authError)
@@ -248,7 +248,7 @@ final class MenuBarUpdatePolicyTests: XCTestCase {
         regularText: String? = nil,
         statusIndicator: StatusIndicator? = nil,
         isStale: Bool = false,
-        visualConfiguration: [String] = ["circular"]
+        visual: MenuBarProviderRenderKey.Visual = .plain(hasStyleIcon: true)
     ) -> MenuBarProviderRenderKey {
         let text = regularText
             ?? "\(Int(percentage))%"
@@ -260,8 +260,7 @@ final class MenuBarUpdatePolicyTests: XCTestCase {
                 ?? "현재 \(Int(percentage))%",
             resetText: nil,
             showsProviderIcon: true,
-            visualConfiguration: visualConfiguration,
-            visualValues: [percentage],
+            visual: visual,
             statusIndicator: statusIndicator,
             systemStatusSummary: nil,
             accessibilityLabel: kind.displayName,

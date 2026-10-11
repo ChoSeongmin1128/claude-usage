@@ -24,21 +24,16 @@ nonisolated struct CodexOwnerCLI: CodexOwnerRefreshing, CodexOwnedRateLimitsRead
     }
 
     func refresh(sourceURL: URL, expectedAccountID: String, budget: CodexRequestBudget) async throws {
-        let cancelled = OSAllocatedUnfairLock(initialState: false)
-        try await withTaskCancellationHandler {
-            try await Task.detached(priority: .utility) {
+        // 토큰을 회전해 auth.json에 쓰는 중에 끊으면 서버가 이미 소비한 refresh token만 남는다.
+        // 호출자가 취소해도 끝까지 두고 시간 예산으로만 끝낸다.
+        let neverCancelled = OSAllocatedUnfairLock(initialState: false)
+        try await BlockingWork.run {
                 let session = try CodexOwnerSession(
                     executableURL: try self.resolvedExecutable(), sourceURL: sourceURL,
-                    budget: budget, cancelled: cancelled
+                budget: budget, cancelled: neverCancelled
                 )
                 defer { session.close() }
-                _ = try session.request(
-                    1, "initialize",
-                    params: [
-                        "clientInfo": ["name": "claudeusage", "version": "1"],
-                        "capabilities": ["experimentalApi": false],
-                    ])
-                try session.send(["method": "initialized"])
+            try session.initialize()
                 let account = try session.request(2, "account/read", params: ["refreshToken": true])
                 guard (account["account"] as? [String: Any])?["type"] as? String == "chatgpt" else {
                     throw CodexOwnerError.rejected
@@ -58,11 +53,8 @@ nonisolated struct CodexOwnerCLI: CodexOwnerRefreshing, CodexOwnedRateLimitsRead
                         return true
                     })
                 else { throw CodexOwnerError.invalidResponse }
-            }.value
-            try Task.checkCancellation()
-        } onCancel: {
-            cancelled.withLock { $0 = true }
         }
+        try Task.checkCancellation()
     }
 
     /// `account/rateLimits/read` 응답에서 Codex 한도. 한도별 묶음이 있으면 codex 묶음을, 없으면 전체 값을 쓴다.
@@ -77,24 +69,18 @@ nonisolated struct CodexOwnerCLI: CodexOwnerRefreshing, CodexOwnedRateLimitsRead
     {
         let cancelled = OSAllocatedUnfairLock(initialState: false)
         let box: CodexOwnerResultBox = try await withTaskCancellationHandler {
-            try await Task.detached(priority: .utility) {
+            try await BlockingWork.run {
                 let session = try CodexOwnerSession(
                     executableURL: try self.resolvedExecutable(), sourceURL: sourceURL,
                     budget: budget, cancelled: cancelled)
                 defer { session.close() }
-                _ = try session.request(
-                    1, "initialize",
-                    params: [
-                        "clientInfo": ["name": "claudeusage", "version": "1"],
-                        "capabilities": ["experimentalApi": false],
-                    ])
-                try session.send(["method": "initialized"])
+                try session.initialize()
                 let quota = try session.request(2, "account/rateLimits/read")
                 guard quota["accountId"] as? String == expectedAccountID else {
                     throw CodexOwnerError.accountMismatch
                 }
                 return CodexOwnerResultBox(value: quota)
-            }.value
+            }
         } onCancel: {
             cancelled.withLock { $0 = true }
         }
@@ -106,18 +92,12 @@ nonisolated struct CodexOwnerCLI: CodexOwnerRefreshing, CodexOwnedRateLimitsRead
     {
         let cancelled = OSAllocatedUnfairLock(initialState: false)
         let result = try await withTaskCancellationHandler {
-            try await Task.detached(priority: .utility) {
+            try await BlockingWork.run {
                 let session = try CodexOwnerSession(
                     executableURL: try self.resolvedExecutable(), sourceURL: sourceURL,
                     budget: budget, cancelled: cancelled)
                 defer { session.close() }
-                _ = try session.request(
-                    1, "initialize",
-                    params: [
-                        "clientInfo": ["name": "claudeusage", "version": "1"],
-                        "capabilities": ["experimentalApi": false],
-                    ])
-                try session.send(["method": "initialized"])
+                try session.initialize()
                 let before = try Self.accountEmail(
                     session.request(2, "account/read", params: ["refreshToken": false]))
                 let quota = try session.request(3, "account/rateLimits/read")
@@ -131,7 +111,7 @@ nonisolated struct CodexOwnerCLI: CodexOwnerRefreshing, CodexOwnedRateLimitsRead
                 }
                 return CodexOwnedRateLimits(
                     email: after, accountID: expectedAccountID, quota: CodexOwnerResultBox(value: quota))
-            }.value
+            }
         } onCancel: {
             cancelled.withLock { $0 = true }
         }
@@ -224,58 +204,37 @@ private nonisolated final class CodexOwnerSession {
         self.budget = budget
         self.cancelled = cancelled
         try check()
-        var stdinPipe = [Int32](repeating: -1, count: 2)
-        var stdoutPipe = [Int32](repeating: -1, count: 2)
-        defer {
-            for fd in stdinPipe + stdoutPipe where fd >= 0 { Darwin.close(fd) }
-        }
-        guard pipe(&stdinPipe) == 0, pipe(&stdoutPipe) == 0 else { throw CodexOwnerError.launchFailed }
-        var actions: posix_spawn_file_actions_t?
-        var attributes: posix_spawnattr_t?
-        guard posix_spawn_file_actions_init(&actions) == 0 else { throw CodexOwnerError.launchFailed }
-        defer { posix_spawn_file_actions_destroy(&actions) }
-        guard posix_spawnattr_init(&attributes) == 0 else { throw CodexOwnerError.launchFailed }
-        defer { posix_spawnattr_destroy(&attributes) }
-        let results = [
-            posix_spawn_file_actions_adddup2(&actions, stdinPipe[0], STDIN_FILENO),
-            posix_spawn_file_actions_adddup2(&actions, stdoutPipe[1], STDOUT_FILENO),
-            posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0),
-            posix_spawn_file_actions_addchdir_np(&actions, "/"),
-            posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT)),
-            posix_spawnattr_setpgroup(&attributes, 0),
-        ]
-        guard results.allSatisfy({ $0 == 0 }) else { throw CodexOwnerError.launchFailed }
         let home = getpwuid(getuid()).map { String(cString: $0.pointee.pw_dir) } ?? NSHomeDirectory()
-        var argv: [UnsafeMutablePointer<CChar>?] = []
-        for value in [executableURL.path, "app-server"] { argv.append(strdup(value)) }
-        var env: [UnsafeMutablePointer<CChar>?] = []
-        for value in [
-            "HOME=\(home)", "CODEX_HOME=\(sourceURL.deletingLastPathComponent().path)",
-            "PATH=\(CodexOwnerCLI.searchPath)", "LANG=en_US.UTF-8",
-        ] { env.append(strdup(value)) }
-        defer { (argv + env).forEach { free($0) } }
-        guard (argv + env).allSatisfy({ $0 != nil }) else { throw CodexOwnerError.launchFailed }
-        let spawnResult = (argv + [nil]).withUnsafeBufferPointer { args in
-            (env + [nil]).withUnsafeBufferPointer { environment in
-                posix_spawn(
-                    &pid, executableURL.path, &actions, &attributes,
-                    UnsafeMutablePointer(mutating: args.baseAddress),
-                    UnsafeMutablePointer(mutating: environment.baseAddress))
-            }
-        }
-        guard spawnResult == 0 else { throw CodexOwnerError.launchFailed }
-        input = stdinPipe[1]; stdinPipe[1] = -1
-        output = stdoutPipe[0]; stdoutPipe[0] = -1
+        guard
+            let child = OwnedSubprocessSpawn.spawn(
+                executablePath: executableURL.path, arguments: ["app-server"],
+                environment: [
+                    "HOME": home, "CODEX_HOME": sourceURL.deletingLastPathComponent().path,
+                    "PATH": CodexOwnerCLI.searchPath, "LANG": "en_US.UTF-8",
+                ],
+                options: .init(
+                    workingDirectoryPath: "/", ownProcessGroup: true, standardInput: .pipe, standardError: .devNull))
+        else { throw CodexOwnerError.launchFailed }
+        pid = child.processID
+        input = child.standardInputFileDescriptor
+        output = child.standardOutputFileDescriptor
         // Poll and short cancellation checks bound both directions of the pipe.
-        guard fcntl(input, F_SETFL, O_NONBLOCK) == 0, fcntl(output, F_SETFL, O_NONBLOCK) == 0 else {
+        guard fcntl(input, F_SETFL, O_NONBLOCK) == 0, fcntl(output, F_SETFL, O_NONBLOCK) == 0,
+            fcntl(input, F_SETNOSIGPIPE, 1) == 0
+        else {
             close()
             throw CodexOwnerError.launchFailed
         }
-        let noSignal: Int32 = 1
-        guard fcntl(input, F_SETNOSIGPIPE, noSignal) == 0 else {
-            close()
-            throw CodexOwnerError.launchFailed
-        }
+    }
+
+    func initialize() throws {
+        _ = try request(
+            1, "initialize",
+            params: [
+                "clientInfo": ["name": AppIdentifiers.userAgentProduct.lowercased(), "version": "1"],
+                "capabilities": ["experimentalApi": false],
+            ])
+        try send(["method": "initialized"])
     }
 
     func send(_ message: [String: Any]) throws {
@@ -349,25 +308,8 @@ private nonisolated final class CodexOwnerSession {
     func close() {
         if input >= 0 { Darwin.close(input); input = -1 }
         if output >= 0 { Darwin.close(output); output = -1 }
-        guard pid > 0 else { return }
-        kill(-pid, SIGTERM)
-        // Keep the parent unreaped during the grace period. Descendants that
-        // ignore TERM must still receive KILL before its group ID can be reused.
-        usleep(200_000)
-        var status: Int32 = 0
-        kill(-pid, SIGKILL)
-        let reapDeadline = ContinuousClock.now.advanced(by: .seconds(1))
-        while ContinuousClock.now < reapDeadline {
-            let result = waitpid(pid, &status, WNOHANG)
-            if result == pid || (result < 0 && errno == ECHILD) { pid = 0; return }
-            usleep(10_000)
-        }
-        let ownedPID = pid
-        // No further signals are sent. A delayed kernel exit only needs reaping.
-        Task.detached(priority: .utility) {
-            var status: Int32 = 0
-            while waitpid(ownedPID, &status, 0) < 0 && errno == EINTR {}
-        }
+        // 그룹 전체에 TERM과 KILL을 보낸 뒤에 회수해 PID와 그룹 ID가 재사용되지 않게 한다.
+        OwnedProcessGroup.terminate(processID: pid, grace: 0.2)
         pid = 0
     }
 }

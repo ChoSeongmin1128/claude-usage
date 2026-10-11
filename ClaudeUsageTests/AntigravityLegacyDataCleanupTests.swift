@@ -3,14 +3,14 @@ import Security
 import XCTest
 @testable import ClaudeUsage
 
-final class AntigravityLegacyAccountCleanupTests: XCTestCase {
+final class AntigravityLegacyDataCleanupTests: XCTestCase {
     private static let bundleIdentifier = "com.example.ClaudeUsage.cleanup-test"
 
     private var home: URL!
 
     override func setUpWithError() throws {
         home = FileManager.default.temporaryDirectory
-            .appendingPathComponent("AntigravityLegacyAccountCleanupTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("AntigravityLegacyDataCleanupTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
     }
 
@@ -53,12 +53,12 @@ final class AntigravityLegacyAccountCleanupTests: XCTestCase {
     }
 
     func testProductionOwnsTheSharedLegacyServiceOnlyInTheProductionChannel() {
-        let production = AntigravityLegacyAccountCleanup.production(
+        let production = AntigravityLegacyDataCleanup.production(
             homeDirectoryURL: home,
             distribution: .resolve(
                 releaseChannelValue: "prod", bundleIdentifier: AppIdentifiers.productionBundleIdentifier),
             bundleIdentifierService: AppIdentifiers.productionBundleIdentifier)
-        let staging = AntigravityLegacyAccountCleanup.production(
+        let staging = AntigravityLegacyDataCleanup.production(
             homeDirectoryURL: home,
             distribution: .resolve(
                 releaseChannelValue: "staging", bundleIdentifier: AppIdentifiers.stagingBundleIdentifier),
@@ -83,6 +83,10 @@ final class AntigravityLegacyAccountCleanupTests: XCTestCase {
         XCTAssertEqual(
             staging.migrationsDirectory.path,
             support.appendingPathComponent("ClaudeUsage-stg/Migrations").path)
+        XCTAssertEqual(
+            production.sharedLaunchLockDirectory?.path,
+            support.appendingPathComponent("ClaudeUsageShared/Antigravity").path)
+        XCTAssertNil(staging.sharedLaunchLockDirectory)
         for target in production.fileTargets + staging.fileTargets {
             XCTAssertTrue(target.path.hasPrefix(support.path + "/"), target.path)
         }
@@ -160,24 +164,60 @@ final class AntigravityLegacyAccountCleanupTests: XCTestCase {
         }
     }
 
-    func testAntigravityFolderCLIReportAndManagedLedgerAreKept() throws {
+    func testManagedSessionFilesAreRemovedWhileTheAntigravityFolderAndCLIReportAreKept() throws {
         let cleanup = makeCleanup(
             keychain: KeychainCleanerStub(recorder: CleanupRecorder(), listing: .accounts([])),
             files: SystemAntigravityLegacyAccountFileCleaner(trustedBaseDirectory: home))
         let stateDirectory = cleanup.stateDirectory
         let cliReport = stateDirectory.appendingPathComponent("cli-report", isDirectory: true)
-        let ledger = stateDirectory.appendingPathComponent(AntigravityManagedProcessRecordFileStore.fileName)
+        let managedFiles = AntigravityLegacyDataCleanup.managedSessionFileNames.map {
+            stateDirectory.appendingPathComponent($0)
+        }
         try FileManager.default.createDirectory(at: cliReport, withIntermediateDirectories: true)
         FileManager.default.createFile(atPath: cliReport.appendingPathComponent("report.json").path, contents: Data())
-        FileManager.default.createFile(atPath: ledger.path, contents: Data())
         try createFiles(cleanup.fileTargets)
 
         XCTAssertEqual(cleanup.run(), .cleaned)
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: stateDirectory.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: cliReport.appendingPathComponent("report.json").path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: ledger.path))
+        for file in managedFiles {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: file.path), file.path)
+        }
         XCTAssertFalse(FileManager.default.fileExists(atPath: cleanup.migrationsDirectory.path))
+    }
+
+    func testSharedLaunchLockAndItsEmptyFoldersAreRemoved() throws {
+        let shared = home.appendingPathComponent(
+            "Library/Application Support/ClaudeUsageShared/Antigravity", isDirectory: true)
+        let cleanup = makeCleanup(
+            keychain: KeychainCleanerStub(recorder: CleanupRecorder(), listing: .accounts([])),
+            files: SystemAntigravityLegacyAccountFileCleaner(trustedBaseDirectory: home),
+            sharedLaunchLockDirectory: shared)
+        try createFiles(cleanup.fileTargets)
+
+        XCTAssertEqual(cleanup.run(), .cleaned)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: shared.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: shared.deletingLastPathComponent().path))
+    }
+
+    func testSharedFolderWithUnknownFilesIsKept() throws {
+        let shared = home.appendingPathComponent(
+            "Library/Application Support/ClaudeUsageShared/Antigravity", isDirectory: true)
+        let cleanup = makeCleanup(
+            keychain: KeychainCleanerStub(recorder: CleanupRecorder(), listing: .accounts([])),
+            files: SystemAntigravityLegacyAccountFileCleaner(trustedBaseDirectory: home),
+            sharedLaunchLockDirectory: shared)
+        try createFiles(cleanup.fileTargets)
+        let unknown = shared.appendingPathComponent("unknown.json")
+        FileManager.default.createFile(atPath: unknown.path, contents: Data())
+
+        XCTAssertEqual(cleanup.run(), .cleaned)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: unknown.path))
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: shared.appendingPathComponent("managed-agy-launch.lock").path))
     }
 
     func testMigrationsFolderWithOtherRecordsIsKept() throws {
@@ -194,7 +234,7 @@ final class AntigravityLegacyAccountCleanupTests: XCTestCase {
         XCTAssertFalse(
             FileManager.default.fileExists(
                 atPath: cleanup.migrationsDirectory
-                    .appendingPathComponent(AntigravityLegacyAccountCleanup.migrationMarkerFileName).path))
+                    .appendingPathComponent(AntigravityLegacyDataCleanup.migrationMarkerFileName).path))
     }
 
     func testLinkedCredentialFileIsRemovedWithoutTouchingItsTarget() throws {
@@ -287,18 +327,20 @@ final class AntigravityLegacyAccountCleanupTests: XCTestCase {
     private func makeCleanup(
         keychain: any AntigravityLegacyAccountKeychainCleaning,
         files: any AntigravityLegacyAccountFileCleaning,
-        baseDirectory: URL? = nil
-    ) -> AntigravityLegacyAccountCleanup {
+        baseDirectory: URL? = nil,
+        sharedLaunchLockDirectory: URL? = nil
+    ) -> AntigravityLegacyDataCleanup {
         let base = baseDirectory ?? home!
         let support = base.appendingPathComponent(
             "Library/Application Support/ClaudeUsage-cleanup-test", isDirectory: true)
         let antigravity = support.appendingPathComponent("Antigravity", isDirectory: true)
-        return AntigravityLegacyAccountCleanup(
+        return AntigravityLegacyDataCleanup(
             vaultService: Self.bundleIdentifier,
             legacyKeychainServices: [Self.bundleIdentifier, AppIdentifiers.legacyKeychainService],
             legacyCredentialDirectory: antigravity,
             stateDirectory: antigravity,
             migrationsDirectory: support.appendingPathComponent("Migrations", isDirectory: true),
+            sharedLaunchLockDirectory: sharedLaunchLockDirectory,
             keychain: keychain,
             files: files
         )

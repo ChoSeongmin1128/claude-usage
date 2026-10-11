@@ -142,8 +142,17 @@ nonisolated struct MenuBarGaugeSelection: Codable, Equatable, Sendable {
     var titles: [String: String] = [:]
     var layout: MenuBarGaugeLayout = .horizontal
     var showsLabels: Bool? = nil
+}
 
-
+nonisolated extension MenuBarGaugeSelection {
+    // 모르는 배치 값 하나 때문에 메뉴바 한도 선택 전체가 기본값으로 돌아가지 않게 항목별로 읽는다.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ids = try? container.decodeIfPresent([String].self, forKey: .ids)
+        titles = (try? container.decodeIfPresent([String: String].self, forKey: .titles)) ?? [:]
+        layout = (try? container.decodeIfPresent(MenuBarGaugeLayout.self, forKey: .layout)) ?? .horizontal
+        showsLabels = try? container.decodeIfPresent(Bool.self, forKey: .showsLabels)
+    }
 }
 
 nonisolated enum MenuBarGaugeLayout: String, Codable, Equatable, Sendable {

@@ -57,7 +57,10 @@ final class AppDataResetTests: XCTestCase {
     }
 
     func testLaterCheckCanOnlyKeepTheTokenCopy() async {
-        let rotated = VaultStub(payload: #"{"claudeAiOauth":{"accessToken":"a","refreshToken":"only-copy"}}"#)
+        let rotated = VaultStub(
+            payload: ClaudeOAuthCredentialVaultPayload.encode(
+                credentialPayload: #"{"claudeAiOauth":{"accessToken":"a","refreshToken":"only-copy"}}"#,
+                ownership: .appManaged)!)
         let withoutCredentialFile = ClaudeCodeCredentialReader(homeDirectory: library, appCredentialVault: rotated)
 
         let discard = await AppDataResetPlan(keepsClaudeCodeTokenCopy: false).rechecked(reader: withoutCredentialFile)

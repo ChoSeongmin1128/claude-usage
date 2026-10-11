@@ -12,13 +12,15 @@ final class CodexDeviceLogin: ObservableObject {
     }
 
     @Published private(set) var phase: Phase = .idle
-    private var process: Process?
+    private var task: Task<Void, Never>?
     private var folder: URL?
     private var output = ""
     /// 이전 실행의 종료 처리가 새 실행의 상태를 바꾸지 않게 실행마다 번호를 붙인다.
     private var run = 0
+    /// 기기 코드는 15분 뒤 만료된다. 그 뒤까지 기다리지 않는다.
+    private static let loginTimeout: TimeInterval = 20 * 60
 
-    var isRunning: Bool { process?.isRunning == true }
+    var isRunning: Bool { task != nil }
 
     func start(onSuccess: @escaping @MainActor (URL) -> Void) {
         guard !isRunning else { return }
@@ -39,55 +41,46 @@ final class CodexDeviceLogin: ObservableObject {
         self.folder = folder
         output = ""
 
-        let process = Process()
-        process.executableURL = codex
-        process.arguments = ["login", "--device-auth"]
-        process.environment = [
-            "HOME": FileManager.default.realHomeDirectory.path, "CODEX_HOME": folder.path,
-            "PATH": ExternalCommand.searchPath(), "LANG": "en_US.UTF-8",
-        ]
-        process.currentDirectoryURL = folder
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        process.standardInput = FileHandle.nullDevice
-        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let text = String(decoding: handle.availableData, as: UTF8.self)
+        var request = OwnedProcessRun.Request(
+            executable: codex, arguments: ["login", "--device-auth"],
+            environment: [
+                "HOME": FileManager.default.realHomeDirectory.path, "CODEX_HOME": folder.path,
+                "PATH": ExternalCommand.searchPath(), "LANG": "en_US.UTF-8",
+            ],
+            currentDirectory: folder, timeout: Self.loginTimeout)
+        request.mergesStandardError = true
+        request.onOutput = { [weak self] data in
+            let text = String(decoding: data, as: UTF8.self)
             Task { @MainActor in
                 guard let self, self.run == current else { return }
                 self.consume(text)
             }
         }
-        process.terminationHandler = { [weak self] finished in
-            let status = finished.terminationStatus
-            Task { @MainActor in
-                pipe.fileHandleForReading.readabilityHandler = nil
-                guard let self, self.run == current else { return }
-                self.process = nil
-                if status == 0, FileManager.default.fileExists(atPath: CodexHomeAccount.authFile(in: folder).path) {
-                    self.phase = .succeeded
-                    self.folder = nil
-                    onSuccess(folder)
-                } else if self.phase != .idle {
-                    self.phase = .failed("로그인을 마치지 못했습니다. 다시 시도하세요.")
-                    self.discardFolder()
-                }
-            }
-        }
         phase = .starting
-        do {
-            try process.run()
-            self.process = process
-        } catch {
-            phase = .failed("Codex 로그인을 시작하지 못했습니다.")
-            discardFolder()
+        task = Task { [weak self] in
+            let result = await ExternalCommand.run(request)
+            guard let self, self.run == current else { return }
+            self.task = nil
+            if result?.succeeded == true,
+                FileManager.default.fileExists(atPath: CodexHomeAccount.authFile(in: folder).path)
+            {
+                self.phase = .succeeded
+                self.folder = nil
+                onSuccess(folder)
+            } else if self.phase != .idle {
+                self.phase = .failed("로그인을 마치지 못했습니다. 다시 시도하세요.")
+                self.discardFolder()
+            }
         }
     }
 
+    /// 실행 중인 로그인 프로세스 그룹을 끝낸다.
     func cancel() {
-        guard let process, process.isRunning else { return }
+        guard let task else { return }
         phase = .idle
-        process.terminate()
+        run += 1
+        task.cancel()
+        self.task = nil
         discardFolder()
     }
 

@@ -94,7 +94,7 @@ extension AppDelegate {
         }
         popoverViewModel.update(
             snapshots: runtimeProviderSnapshots(),
-            setupPresentation: claudeSetupPresentation
+            claudeHasReadyCredential: hasReadyClaudeCredential
         )
         popoverViewModel.systemStatus = systemStatus
         popoverViewModel.nextUsageRetryAt = nextUsageRefreshAllowedAt

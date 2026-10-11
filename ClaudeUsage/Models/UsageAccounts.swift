@@ -41,6 +41,13 @@ nonisolated struct UsageAccountIdentity: Hashable, Codable, Sendable {
         guard let email, let otherEmail = other.email else { return false }
         return email.caseInsensitiveCompare(otherEmail) == .orderedSame
     }
+
+    /// 확인한 값으로 다르다고 말할 수 있을 때만 참이다. 한쪽을 확인하지 못했으면 다르다고 보지 않는다.
+    func isKnownDifferent(from other: Self) -> Bool {
+        if let key = mergeKey, let otherKey = other.mergeKey { return key != otherKey }
+        guard let email, let otherEmail = other.email else { return false }
+        return email.caseInsensitiveCompare(otherEmail) != .orderedSame
+    }
 }
 
 nonisolated struct UsageAccountCandidate: Equatable, Sendable {
@@ -241,9 +248,6 @@ nonisolated struct UsageAccountState: Equatable, Sendable {
         case loginExpired, needsPermission, executableNotFound
     }
 
-    /// 실패가 이만큼 이어져야 이전 값으로 표시한다. 로그인 만료는 바로 표시한다.
-    static let staleAfterFailures = 2
-
     var usage: UsageAccountUsage?
     /// 마지막으로 성공한 시각
     var fetchedAt: Date?
@@ -261,6 +265,6 @@ nonisolated struct UsageAccountState: Equatable, Sendable {
         case nil: break
         }
         guard usage != nil else { return consecutiveFailures > 0 ? .failed : .checking }
-        return consecutiveFailures >= Self.staleAfterFailures ? .stale : .current
+        return StaleDataPolicy.showsPreviousValue(afterConsecutiveFailures: consecutiveFailures) ? .stale : .current
     }
 }

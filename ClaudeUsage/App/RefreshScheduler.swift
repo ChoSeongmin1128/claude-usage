@@ -21,7 +21,7 @@ final class RefreshScheduler {
     init(
         now: @escaping () -> ContinuousClock.Instant = { ContinuousClock.now },
         makeTimer: @escaping (TimeInterval, @escaping @MainActor @Sendable () -> Void) -> Timer = { interval, tick in
-            Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { _ in
+            Timer.scheduledOnMainRunLoop(interval: interval, repeats: false) { _ in
                 MainActor.assumeIsolated { tick() }
             }
         }

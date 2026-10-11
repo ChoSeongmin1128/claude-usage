@@ -5,10 +5,8 @@ private nonisolated struct AntigravityRefreshFlightKey:
     Equatable
 {
     let connection: AntigravityConnectionSettings
-    let forcesDiscovery: Bool
 
     init(_ request: AntigravityRefreshRequest) {
-        forcesDiscovery = request.forcesDiscovery
         connection = request.connection
     }
 }
@@ -16,32 +14,8 @@ private nonisolated struct AntigravityRefreshFlightKey:
 private nonisolated enum AntigravityRefreshOutput:
     Sendable
 {
-    case setupRequired(AntigravitySetupReason)
     case snapshot(AntigravityQuotaSnapshot)
-    case limited(AntigravityLimitedQuotaCapability)
-    case identityOnly(AntigravityIdentityOnlyUsage)
-    case accountMismatch(
-        expected: ProviderAccountIdentity,
-        received: ProviderAccountIdentity?
-    )
     case failure(AntigravityFailure)
-}
-
-private nonisolated struct AntigravityRefreshExecutionResult:
-    Sendable
-{
-    let output: AntigravityRefreshOutput
-    var observedIdentity: ProviderAccountIdentity? = nil
-
-    static func failure(
-        _ failure: AntigravityFailure,
-        observedIdentity: ProviderAccountIdentity? = nil
-    ) -> Self {
-        Self(
-            output: .failure(failure),
-            observedIdentity: observedIdentity
-        )
-    }
 }
 
 actor AntigravityRefreshCoordinator:
@@ -165,7 +139,6 @@ actor AntigravityRefreshCoordinator:
             let result = await Self.executeWithEnvironment(
                 runtimeEnvironment: runtimeEnvironment,
                 generation: operationGeneration,
-                request: request,
                 sources: sources,
                 deadline: deadline
             )
@@ -216,7 +189,7 @@ actor AntigravityRefreshCoordinator:
     private func finishFlight(
         operationID: UUID,
         generation operationGeneration: UInt64,
-        result: AntigravityRefreshExecutionResult
+        result: AntigravityRefreshOutput
     ) async {
         guard generation == operationGeneration,
             let operation = inFlight,
@@ -245,24 +218,14 @@ actor AntigravityRefreshCoordinator:
     }
 
     private func apply(
-        _ result: AntigravityRefreshExecutionResult,
+        _ output: AntigravityRefreshOutput,
         operation: InFlight
     ) -> AntigravityPresentationState {
         guard isCurrent(operation) else {
             return state
         }
-
-        if let observed = result.observedIdentity, let previous = lastGoodSnapshot,
-            !AntigravityAccountIdentityMatcher.match(
-                expected: previous.identity ?? previous.provenance.accountIdentity ?? ProviderAccountIdentity(),
-                received: observed
-            ).isMatch
-        {
-            lastGoodSnapshot = nil
-        }
-
         return presentation(
-            for: result.output,
+            for: output,
             operation: operation
         )
     }
@@ -275,10 +238,6 @@ actor AntigravityRefreshCoordinator:
             return state
         }
         switch output {
-        case .setupRequired(let reason):
-            lastGoodSnapshot = nil
-            return .setupRequired(reason)
-
         case .snapshot(let snapshot):
             lastGoodSnapshot = snapshot
             if snapshot.decodeIssues.isEmpty {
@@ -287,20 +246,6 @@ actor AntigravityRefreshCoordinator:
             return .partial(
                 snapshot,
                 issues: snapshot.decodeIssues
-            )
-
-        case .limited(let capability):
-            lastGoodSnapshot = nil
-            return .limited(capability)
-
-        case .identityOnly(let observation):
-            lastGoodSnapshot = nil
-            return .identityOnly(observation)
-
-        case .accountMismatch(let expected, let received):
-            return .accountMismatch(
-                expected: expected,
-                received: received
             )
 
         case .failure(let failure):
@@ -367,25 +312,18 @@ actor AntigravityRefreshCoordinator:
     private nonisolated static func executeWithEnvironment(
         runtimeEnvironment: AntigravityRuntimeEnvironment?,
         generation: UInt64,
-        request: AntigravityRefreshRequest,
         sources: [AntigravityUsageSourceID: any AntigravityUsageSource],
         deadline: AntigravityRPCDeadline
-    ) async -> AntigravityRefreshExecutionResult {
-        guard request.target != .unselected else {
-            return .init(output: .setupRequired(.usageTargetSelection))
-        }
+    ) async -> AntigravityRefreshOutput {
         guard let runtimeEnvironment else {
-            return await execute(generation: generation, request: request, sources: sources, deadline: deadline)
+            return await execute(generation: generation, sources: sources, deadline: deadline)
         }
         do {
-            return try await runtimeEnvironment.withSources(
-                forceDiscovery: request.forcesDiscovery, deadline: deadline
-            ) { localSources in
+            return try await runtimeEnvironment.withSources(deadline: deadline) { localSources in
                 var registry = sources
                 for source in localSources { registry[source.id] = source }
                 return await execute(
-                    generation: generation, request: request, sources: registry,
-                    deadline: deadline.beginningDiscoveryNow())
+                    generation: generation, sources: registry, deadline: deadline.beginningDiscoveryNow())
             }
         } catch is CancellationError {
             return .failure(.cancelled)
@@ -394,247 +332,45 @@ actor AntigravityRefreshCoordinator:
         }
     }
 
+    /// 보고는 계정 정보 없이 한 번에 답하므로 묶음 한도가 있는 응답만 받는다.
     private nonisolated static func execute(
         generation: UInt64,
-        request: AntigravityRefreshRequest,
         sources: [AntigravityUsageSourceID: any AntigravityUsageSource],
         deadline: AntigravityRPCDeadline
-    ) async -> AntigravityRefreshExecutionResult {
-        guard request.target != .unselected else {
-            return .init(output: .setupRequired(.usageTargetSelection))
+    ) async -> AntigravityRefreshOutput {
+        guard let source = sources[.cliReport] else {
+            return .failure(.sourceUnavailable(.cliReport))
         }
+        guard source.id == .cliReport else {
+            return .failure(.sourceContractViolation(.cliReport))
+        }
+        let response: AntigravityUsageSourceResponse
         do {
             try Task.checkCancellation()
-            var lastFailure: AntigravityFailure = .noEligibleSource
-            var actionableFailure: AntigravityFailure?
-            var observedIdentity: ProviderAccountIdentity?
-            for sourceID in AntigravitySourcePlanner.plannedSources(for: request) {
-                try Task.checkCancellation()
-                guard let source = sources[sourceID] else {
-                    lastFailure = .sourceUnavailable(sourceID)
-                    continue
-                }
-                guard source.id == sourceID else {
-                    return .failure(.sourceContractViolation(sourceID))
-                }
-                let sourceRequest = AntigravityUsageSourceRequest(
-                    generation: generation, deadline: deadline,
-                    refreshAuthentication: request.forcesDiscovery)
-                let inspection: AntigravityUsageSourceInspection
-                do {
-                    inspection = try await source.inspectAccounts(sourceRequest)
-                    try Task.checkCancellation()
-                } catch is CancellationError {
-                    return .failure(.cancelled)
-                } catch {
-                    let sourceError = error as? AntigravityUsageSourceError ?? .transportFailure
-                    if sourceError == .cancelled { return .failure(.cancelled) }
-                    if case .verifiedAccountFailure(let identity, _) = sourceError {
-                        guard AntigravityAccountIdentityMatcher.match(expected: identity, received: identity).isMatch
-                        else {
-                            return .failure(.sourceContractViolation(sourceID))
-                        }
-                        if let observedIdentity,
-                            !AntigravityAccountIdentityMatcher.match(expected: observedIdentity, received: identity)
-                                .isMatch
-                        {
-                            return .failure(.accountChanged)
-                        }
-                        observedIdentity = identity
-                    }
-                    lastFailure = failure(sourceError, source: sourceID)
-                    if sourceError != .unavailable {
-                        actionableFailure = lastFailure
-                    }
-                    continue
-                }
-                if !sourceID.reportsAccountIdentity {
-                    guard inspection.responses.count == 1,
-                        case .grouped(let snapshot) = inspection.responses[0].payload,
-                        snapshot.identity == nil,
-                        !snapshot.lanes.isEmpty,
-                        snapshot.provenance.capability == .groupedQuotaSummary,
-                        provenanceMatchesSource(snapshot.provenance, sourceID: sourceID)
-                    else {
-                        return .failure(.sourceContractViolation(sourceID))
-                    }
-                    return .init(output: .snapshot(snapshot))
-                }
-                var evidence = AntigravityLocalAccountInventory()
-                for response in inspection.responses {
-                    guard let identity = validObservedIdentity(in: response, from: sourceID) else {
-                        return .failure(.sourceContractViolation(sourceID))
-                    }
-                    evidence.observe(identity, source: sourceID)
-                }
-                if inspection.hasUnverifiedCandidates { evidence.markUnverified(sourceID) }
-                guard !inspection.responses.isEmpty else {
-                    lastFailure = .sourceUnavailable(sourceID)
-                    continue
-                }
-                // Never resolve multiple live logins by process order, and never
-                // combine a quota payload from one account with another identity.
-                guard let account = evidence.uniqueVerifiedAccount else {
-                    return .init(output: .setupRequired(.ambiguousLocalSessions))
-                }
-                if let observedIdentity,
-                    !AntigravityAccountIdentityMatcher.match(expected: observedIdentity, received: account.identity)
-                        .isMatch
-                {
-                    return .failure(.accountChanged)
-                }
-                for response in inspection.responses {
-                    if case .grouped(let snapshot) = response.payload {
-                        return .init(output: .snapshot(snapshot))
-                    }
-                }
-                for response in inspection.responses {
-                    if case .limited(let capability) = response.payload {
-                        return .init(output: .limited(capability))
-                    }
-                }
-                if case .identityOnly(let observation) = inspection.responses[0].payload {
-                    return .init(output: .identityOnly(observation))
-                }
-            }
-            if let actionableFailure {
-                return .failure(actionableFailure, observedIdentity: observedIdentity)
-            }
-            return .failure(lastFailure)
-        } catch {
+            response = try await source.fetch(.init(generation: generation, deadline: deadline))
+            try Task.checkCancellation()
+        } catch is CancellationError {
             return .failure(.cancelled)
+        } catch {
+            return .failure(failure(error as? AntigravityUsageSourceError ?? .transportFailure))
         }
+        let snapshot = response.snapshot
+        guard snapshot.identity == nil, !snapshot.lanes.isEmpty,
+            snapshot.provenance.accountIdentity == nil
+        else {
+            return .failure(.sourceContractViolation(.cliReport))
+        }
+        return .snapshot(snapshot)
     }
 
-    private nonisolated static func failure(
-        _ error: AntigravityUsageSourceError, source: AntigravityUsageSourceID
-    ) -> AntigravityFailure {
+    private nonisolated static func failure(_ error: AntigravityUsageSourceError) -> AntigravityFailure {
         switch error {
-        case .accountChanged: .accountChanged
-        case .verifiedAccountFailure(_, let cause): failure(cause, source: source)
-        case .unavailable: .sourceUnavailable(source)
-        case .localAuthentication(let problem): .localAuthentication(source, problem)
-        case .authenticationRequired: .authenticationRequired(source)
-        case .interactionRequired: .interactionRequired(source)
-        case .deadlineExceeded: .deadlineExceeded(source)
-        case .malformedResponse: .schemaChanged(source)
+        case .deadlineExceeded: .deadlineExceeded(.cliReport)
+        case .malformedResponse: .schemaChanged(.cliReport)
         case .runtimeUnavailable(let reason): .runtimeUnavailable(reason)
-        case .transportFailure: .transportUnavailable(source)
+        case .transportFailure: .transportUnavailable(.cliReport)
         case .reportFailed: .cliReportFailed
         case .cancelled: .cancelled
-        }
-    }
-
-    private nonisolated static func validObservedIdentity(
-        in response: AntigravityUsageSourceResponse,
-        from sourceID: AntigravityUsageSourceID
-    ) -> ProviderAccountIdentity? {
-        let provenance: AntigravityQuotaProvenance
-        let payloadIdentity: ProviderAccountIdentity?
-        switch response.payload {
-        case .grouped(let snapshot):
-            guard !snapshot.lanes.isEmpty,
-                  snapshot.provenance.capability
-                    == .groupedQuotaSummary
-            else {
-                return nil
-            }
-            provenance = snapshot.provenance
-            payloadIdentity = snapshot.identity
-
-        case .limited(let limited):
-            guard limited.provenance.capability
-                    == .limitedQuota,
-                  limitedEvidence(
-                      limited,
-                      matches: sourceID
-                  )
-            else {
-                return nil
-            }
-            provenance = limited.provenance
-            payloadIdentity = limited.evidence.identity
-
-        case .identityOnly(let observation):
-            provenance = observation.provenance
-            payloadIdentity = observation.identity
-        }
-
-        guard provenanceMatchesSource(
-            provenance,
-            sourceID: sourceID
-        ) else {
-            return nil
-        }
-
-        let provenanceIdentity =
-            provenance.accountIdentity
-        if let provenanceIdentity, let payloadIdentity {
-            guard AntigravityAccountIdentityMatcher
-                .match(
-                    expected: provenanceIdentity,
-                    received: payloadIdentity
-                ).isMatch
-            else {
-                return nil
-            }
-        }
-        let identity = provenanceIdentity
-            ?? payloadIdentity
-        guard let identity,
-              AntigravityAccountIdentityMatcher
-                .match(
-                    expected: identity,
-                    received: identity
-                ).isMatch
-        else {
-            return nil
-        }
-        return identity
-    }
-
-    private nonisolated static func limitedEvidence(
-        _ capability: AntigravityLimitedQuotaCapability,
-        matches sourceID: AntigravityUsageSourceID
-    ) -> Bool {
-        switch (
-            sourceID,
-            capability.evidence,
-            capability.reason
-        ) {
-        case (
-            .googleOAuth,
-            .googleOAuth,
-            .googleOAuth
-        ):
-            true
-        case (
-            .localApp,
-            .localLegacy,
-            .localLegacy
-        ):
-            true
-        default:
-            false
-        }
-    }
-
-    private nonisolated static func provenanceMatchesSource(
-        _ provenance: AntigravityQuotaProvenance,
-        sourceID: AntigravityUsageSourceID
-    ) -> Bool {
-        switch sourceID {
-        case .localApp:
-            provenance.transport == .localAppRPC
-                && provenance.endpointOwner == .external
-                && provenance.processIdentity != nil
-        case .cliReport:
-            provenance.transport == .cliUsageReport
-                && provenance.endpointOwner == .managed
-                && provenance.processIdentity == nil
-                && provenance.accountIdentity == nil
-        case .googleOAuth:
-            false
         }
     }
 
@@ -643,22 +379,16 @@ actor AntigravityRefreshCoordinator:
     ) -> Bool {
         switch failure {
         case .appShuttingDown,
-            .accountChanged,
-            .authenticationRequired,
-            .interactionRequired,
-             .invalidRefreshContext,
-             .generationExhausted,
+            .invalidRefreshContext,
+            .generationExhausted,
             .cliReportFailed:
             true
         case .cancelled,
-             .localAuthentication,
-             .noEligibleSource,
-             .sourceUnavailable,
-             .deadlineExceeded,
-             .schemaChanged,
-             .transportUnavailable,
-             .sourceContractViolation,
-             .numericQuotaUnavailable,
+            .sourceUnavailable,
+            .deadlineExceeded,
+            .schemaChanged,
+            .transportUnavailable,
+            .sourceContractViolation,
             .runtimeUnavailable:
             false
         }

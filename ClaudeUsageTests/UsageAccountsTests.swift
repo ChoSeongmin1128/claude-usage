@@ -85,7 +85,7 @@ final class UsageAccountsTests: XCTestCase {
         XCTAssertEqual(state.status(isArchived: false), .failed, "값을 한 번도 못 읽은 실패는 방금 확인한 것으로 보이면 안 됩니다")
         state.usage = UsageAccountUsage(fiveHour: .init(usedPercent: 20, resetsAt: nil))
         XCTAssertEqual(state.status(isArchived: false), .current)
-        state.consecutiveFailures = UsageAccountState.staleAfterFailures
+        state.consecutiveFailures = StaleDataPolicy.consecutiveFailures
         XCTAssertEqual(state.status(isArchived: false), .stale)
         state.issue = .loginExpired
         XCTAssertEqual(state.status(isArchived: false), .loginExpired)
@@ -110,6 +110,15 @@ final class UsageAccountsTests: XCTestCase {
         XCTAssertTrue(a.isSameAccount(as: .init(accountID: "1", organizationID: "o")))
         XCTAssertFalse(a.isSameAccount(as: .init(accountID: "1", organizationID: "other", email: "a@example.com")))
         XCTAssertTrue(UsageAccountIdentity(email: "A@example.com").isSameAccount(as: .init(email: "a@example.com")))
+    }
+
+    func testUnconfirmedIdentityIsNeverKnownToDiffer() {
+        let expected = UsageAccountIdentity(accountID: "1", organizationID: "o", email: "a@example.com")
+        XCTAssertFalse(expected.isKnownDifferent(from: .init()))
+        XCTAssertFalse(expected.isKnownDifferent(from: .init(accountID: "1")))
+        XCTAssertFalse(expected.isKnownDifferent(from: .init(email: "A@example.com")))
+        XCTAssertTrue(expected.isKnownDifferent(from: .init(email: "b@example.com")))
+        XCTAssertTrue(expected.isKnownDifferent(from: .init(accountID: "2", organizationID: "o")))
     }
 
     func testUsageNormalizesClaudeAndCodexWindows() throws {
@@ -242,6 +251,20 @@ final class UsageAccountsControllerTests: XCTestCase {
         try await waitUntil { sut.states.values.contains { $0.fetchedAt != nil } }
         sut.refreshIfNeeded()
         try await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertEqual(codex.fetches.count, 1)
+    }
+
+    func testAccountMismatchWaitsForTheNextIntervalBeforeFetchingAgain() async throws {
+        let codex = FakeAccountProvider(service: .codex, accounts: [("live", .defaultLogin), ("other", .directory)])
+        codex.failure = UsageAccountFetchError.accountChanged
+        let sut = controller([codex])
+        await sut.discoverAndWait()
+        sut.setMultiAccountEnabled(true, for: .codex)
+        try await waitUntil { codex.fetches.count == 1 }
+        await sut.discoverAndWait()
+        sut.refreshIfNeeded()
+        try await Task.sleep(for: .milliseconds(100))
 
         XCTAssertEqual(codex.fetches.count, 1)
     }
@@ -471,7 +494,7 @@ final class UsageAccountSourceTests: XCTestCase {
 
         XCTAssertEqual(slot.identity()?.mergeKey, "a|o")
         XCTAssertEqual(slot.keychainService, ClaudeCodeCredentialReader.defaultKeychainService)
-        XCTAssertNil(slot.cliConfigDirectory, "기본 로그인에 CLAUDE_CONFIG_DIR을 주면 Keychain 이름이 달라집니다")
+        XCTAssertNil(slot.cliConfigDirectoryValue, "기본 로그인에 CLAUDE_CONFIG_DIR을 주면 Keychain 이름이 달라집니다")
         XCTAssertNotEqual(
             ClaudeCodeLoginSlot.folderSlot(home.appendingPathComponent(".claude-x"), home: home).keychainService,
             ClaudeCodeCredentialReader.defaultKeychainService)
@@ -515,11 +538,12 @@ final class UsageAccountSourceTests: XCTestCase {
 
     func testClaudeCLIEnvironmentCarriesUserSoClaudeCodeFindsItsKeychainLogin() {
         let folder = URL(fileURLWithPath: "/tmp/.claude-work")
-        let scoped = ClaudeCodeCLI.environment(configDirectory: folder, home: home)
-        let main = ClaudeCodeCLI.environment(configDirectory: nil, home: home)
+        let scoped = ClaudeCodeCLI.environment(configDirectoryValue: folder.path + "/", home: home)
+        let main = ClaudeCodeCLI.environment(configDirectoryValue: nil, home: home)
 
         XCTAssertEqual(scoped["USER"], NSUserName())
-        XCTAssertEqual(scoped["CLAUDE_CONFIG_DIR"], folder.path)
+        XCTAssertEqual(
+            scoped["CLAUDE_CONFIG_DIR"], folder.path + "/", "Keychain 이름이 원문으로 정해지므로 끝 '/'를 지키지 않으면 다른 항목을 봅니다")
         XCTAssertEqual(main["USER"], NSUserName())
         XCTAssertNil(main["CLAUDE_CONFIG_DIR"])
         XCTAssertTrue(main["PATH"]?.contains("/opt/homebrew/bin") == true, "npm으로 설치한 CLI가 node를 찾아야 합니다")

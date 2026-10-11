@@ -38,29 +38,6 @@ final class AntigravityFailurePresentationTests: XCTestCase {
         XCTAssertEqual(summary.action, .retry)
     }
 
-    func testCSRFProblemsHaveConsistentSafeDiagnosticsAndGuidance() {
-        for problem in [AntigravityCSRFProblem.required, .rejected, .unavailable] {
-            let failure = AntigravityFailure.localAuthentication(.localApp, problem)
-            let summary = AntigravityPopoverPresentationAdapter.failureSummary(failure)
-            let notice = AntigravitySettingsNoticePresenter.refreshOutcomeNotice(.failed(failure))
-            XCTAssertEqual(notice?.title, summary.title)
-            XCTAssertEqual(notice?.message, summary.message)
-            XCTAssertEqual(failure.diagnosticCode, "localApp.csrf." + problem.rawValue)
-            XCTAssertFalse(summary.message?.contains("Google") ?? false)
-            XCTAssertFalse(summary.message?.contains("CSRF") ?? false)
-            XCTAssertFalse(summary.message?.isEmpty ?? true)
-        }
-    }
-
-    func testLoginGuidanceUsesTheFailingSource() {
-        let local = AntigravityPopoverPresentationAdapter.failureSummary(.authenticationRequired(.localApp))
-        let oauth = AntigravityPopoverPresentationAdapter.failureSummary(.authenticationRequired(.googleOAuth))
-        XCTAssertTrue(local.message?.contains("Antigravity 앱") == true)
-        XCTAssertTrue(oauth.message?.contains("조회 대상") == true)
-        XCTAssertFalse(oauth.message?.contains("Google 계정을 다시 연결") ?? false)
-        XCTAssertNotEqual(local.title, oauth.title)
-    }
-
     func testSettingsNoticeShowsTheRefreshOutcomeWithoutAccountState() {
         let failed = AntigravitySettingsNoticePresenter.notice(
             for: snapshot(readiness: .ready, presentation: .failed(.cliReportFailed)))
@@ -99,8 +76,6 @@ final class AntigravityFailurePresentationTests: XCTestCase {
 
     private static let report = AntigravityQuotaSnapshot(
         identity: nil, plan: nil, lanes: [], decodeIssues: [],
-        provenance: AntigravityQuotaProvenance(
-            transport: .cliUsageReport, endpointOwner: .managed, accountIdentity: nil,
-            capability: .groupedQuotaSummary, processIdentity: nil),
+        provenance: AntigravityQuotaProvenance(transport: .cliUsageReport, accountIdentity: nil),
         fetchedAt: Date(timeIntervalSince1970: 1_900_000_000))
 }

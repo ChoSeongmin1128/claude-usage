@@ -24,8 +24,10 @@ nonisolated enum ClaudeCodeCLI {
         return ClaudeCodeExecutableSelection.known(home: home)?.executableURL
     }
 
+    /// configDirectoryValue는 CLAUDE_CONFIG_DIR 원문이다. Claude Code는 이 문자열로 Keychain 이름을 정하므로
+    /// 경로로 다시 만들지 않고 그대로 넘긴다(끝 '/'도 이름을 바꾼다).
     static func environment(
-        configDirectory: URL?, home: URL = FileManager.default.realHomeDirectory,
+        configDirectoryValue: String?, home: URL = FileManager.default.realHomeDirectory,
         additionalSearchDirectories: [String] = []
     ) -> [String: String] {
         var seen: Set<String> = []
@@ -35,30 +37,32 @@ nonisolated enum ClaudeCodeCLI {
             "HOME": home.path, "USER": NSUserName(), "LOGNAME": NSUserName(),
             "PATH": directories.joined(separator: ":"), "LANG": "en_US.UTF-8",
         ]
-        if let configDirectory { environment["CLAUDE_CONFIG_DIR"] = configDirectory.path }
+        if let configDirectoryValue { environment["CLAUDE_CONFIG_DIR"] = configDirectoryValue }
         return environment
     }
 
-    static func authStatus(configDirectory: URL?) async -> AuthStatus? {
+    static func authStatus(configDirectoryValue: String?) async -> AuthStatus? {
         guard AppRuntimeEnvironment.mayRunInstalledClaudeCode,
             let selection = executableResolver.cachedSelection()
         else { return nil }
-        return await authStatus(selection: selection, configDirectory: configDirectory)
+        return await authStatus(selection: selection, configDirectoryValue: configDirectoryValue)
     }
 
-    static func refreshLogin(configDirectory: URL?) async -> RefreshOutcome {
+    static func refreshLogin(configDirectoryValue: String?) async -> RefreshOutcome {
         guard AppRuntimeEnvironment.mayRunInstalledClaudeCode else { return .unavailable }
         let selection = await executableResolver.resolve()
         guard !Task.isCancelled else { return .unavailable }
         guard let selection else { return .executableNotFound }
-        guard refreshThrottle.begin(configDirectory?.standardizedFileURL.path ?? "") else { return .unavailable }
-        guard let status = await authStatus(selection: selection, configDirectory: configDirectory) else {
+        guard let status = await authStatus(selection: selection, configDirectoryValue: configDirectoryValue) else {
             return .unavailable
         }
         guard status.loggedIn else { return .notLoggedIn }
-        let output = await run(
-            selection: selection, arguments: refreshArguments,
-            configDirectory: configDirectory)
+        let throttleKey = configDirectoryValue.map { URL(fileURLWithPath: $0).standardizedFileURL.path } ?? ""
+        guard refreshThrottle.begin(throttleKey) else { return .unavailable }
+        // 토큰을 회전해 저장하는 중에 끊으면 서버가 이미 소비한 refresh token만 남는다. 호출자가 취소해도 끝까지 기다린다.
+        let output = await Task.detached(priority: .utility) {
+            await run(selection: selection, arguments: refreshArguments, configDirectoryValue: configDirectoryValue)
+        }.value
         return output?.succeeded == true ? .refreshed : .unavailable
     }
 
@@ -75,11 +79,12 @@ nonisolated enum ClaudeCodeCLI {
     private static let refreshThrottle = RefreshThrottle(interval: refreshInterval)
 
     private static func authStatus(
-        selection: ClaudeCodeExecutableSelection, configDirectory: URL?
+        selection: ClaudeCodeExecutableSelection, configDirectoryValue: String?
     ) async -> AuthStatus? {
         guard
             let output = await run(
-                selection: selection, arguments: ["auth", "status", "--json"], configDirectory: configDirectory),
+                selection: selection, arguments: ["auth", "status", "--json"],
+                configDirectoryValue: configDirectoryValue),
             let object = try? JSONSerialization.jsonObject(with: output.data) as? [String: Any],
             let loggedIn = object["loggedIn"] as? Bool
         else { return nil }
@@ -87,7 +92,7 @@ nonisolated enum ClaudeCodeCLI {
     }
 
     private static func run(
-        selection: ClaudeCodeExecutableSelection, arguments: [String], configDirectory: URL?
+        selection: ClaudeCodeExecutableSelection, arguments: [String], configDirectoryValue: String?
     ) async -> ExternalCommand.Output? {
         guard AppRuntimeEnvironment.mayRunInstalledClaudeCode, selection.isCurrent else { return nil }
         let work = AppStoragePaths.claudeCLIWorkDirectory()
@@ -95,7 +100,7 @@ nonisolated enum ClaudeCodeCLI {
         return await ExternalCommand.run(
             selection.executableURL, arguments: arguments,
             environment: environment(
-                configDirectory: configDirectory, additionalSearchDirectories: selection.searchDirectories),
+                configDirectoryValue: configDirectoryValue, additionalSearchDirectories: selection.searchDirectories),
             currentDirectory: work, timeout: commandTimeout)
     }
 }

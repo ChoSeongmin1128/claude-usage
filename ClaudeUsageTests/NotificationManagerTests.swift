@@ -156,9 +156,7 @@ final class NotificationManagerTests: XCTestCase {
 
     func testAntigravityAggregatesAllCrossingsIntoOneNotification() {
         manager.checkAntigravityThresholds(
-            snapshot: makeAntigravitySnapshot(
-                accountID: "account-a",
-                lanes: [
+            snapshot: makeAntigravitySnapshot(lanes: [
                     makeAntigravityLane(
                         id: .geminiFiveHour,
                         scope: .gemini,
@@ -175,9 +173,7 @@ final class NotificationManagerTests: XCTestCase {
             )
         )
         manager.checkAntigravityThresholds(
-            snapshot: makeAntigravitySnapshot(
-                accountID: "account-a",
-                lanes: [
+            snapshot: makeAntigravitySnapshot(lanes: [
                     makeAntigravityLane(
                         id: .geminiFiveHour,
                         scope: .gemini,
@@ -213,9 +209,7 @@ final class NotificationManagerTests: XCTestCase {
             rawValue: "workspace.experimental"
         )
         manager.checkAntigravityThresholds(
-            snapshot: makeAntigravitySnapshot(
-                accountID: "account-a",
-                lanes: [
+            snapshot: makeAntigravitySnapshot(lanes: [
                     makeAntigravityLane(
                         id: dynamicLaneID,
                         scope: .unknown(
@@ -235,9 +229,7 @@ final class NotificationManagerTests: XCTestCase {
             )
         )
         manager.checkAntigravityThresholds(
-            snapshot: makeAntigravitySnapshot(
-                accountID: "account-a",
-                lanes: [
+            snapshot: makeAntigravitySnapshot(lanes: [
                     makeAntigravityLane(
                         id: .geminiWeekly,
                         scope: .gemini,
@@ -269,158 +261,31 @@ final class NotificationManagerTests: XCTestCase {
         )
     }
 
-    func testAntigravityAccountBoundaryResetsEveryLaneTracker() {
-        manager.checkAntigravityThresholds(
-            snapshot: makeAntigravitySnapshot(
-                accountID: "account-a",
-                lanes: [
-                    makeAntigravityLane(
-                        id: .geminiFiveHour,
-                        scope: .gemini,
-                        cadence: .fiveHour,
-                        usedPercentage: 89
-                    )
-                ]
-            )
-        )
-        manager.checkAntigravityThresholds(
-            snapshot: makeAntigravitySnapshot(
-                accountID: "account-a",
-                lanes: [
-                    makeAntigravityLane(
-                        id: .geminiFiveHour,
-                        scope: .gemini,
-                        cadence: .fiveHour,
-                        usedPercentage: 96
-                    )
-                ]
-            )
-        )
-
-        manager.checkAntigravityThresholds(
-            snapshot: makeAntigravitySnapshot(
-                accountID: "account-b",
-                lanes: [
-                    makeAntigravityLane(
-                        id: .geminiFiveHour,
-                        scope: .gemini,
-                        cadence: .fiveHour,
-                        usedPercentage: 96
-                    )
-                ]
-            )
-        )
-
+    func testAntigravityCLILoginOwnsAlertsAndFailureRestartsHistory() {
+        func check(_ used: Double) {
+            manager.checkAntigravityThresholds(
+                snapshot: makeAntigravitySnapshot(lanes: [
+                    makeAntigravityLane(id: .geminiFiveHour, scope: .gemini, cadence: .fiveHour, usedPercentage: used)
+                ]))
+        }
+        check(89)
+        XCTAssertTrue(manager.hasIdentifiedAccount(for: .antigravity))
+        check(96)
         XCTAssertEqual(deliverer.delivered.count, 1)
 
         manager.checkAntigravityThresholds(
-            snapshot: makeAntigravitySnapshot(
-                accountID: "account-b",
-                lanes: [
-                    makeAntigravityLane(
-                        id: .geminiFiveHour,
-                        scope: .gemini,
-                        cadence: .fiveHour,
-                        usedPercentage: 80
-                    )
-                ]
-            )
-        )
-        manager.checkAntigravityThresholds(
-            snapshot: makeAntigravitySnapshot(
-                accountID: "account-b",
-                lanes: [
-                    makeAntigravityLane(
-                        id: .geminiFiveHour,
-                        scope: .gemini,
-                        cadence: .fiveHour,
-                        usedPercentage: 96
-                    )
-                ]
-            )
-        )
-
+            snapshot: makeAntigravitySnapshot(lanes: [], presentationState: .failed(.cliReportFailed)))
+        XCTAssertFalse(manager.hasIdentifiedAccount(for: .antigravity))
+        check(96)
+        XCTAssertEqual(deliverer.delivered.count, 1, "The first report after a failure is a new baseline")
+        check(80)
+        check(96)
         XCTAssertEqual(deliverer.delivered.count, 2)
-    }
-
-    func testAntigravityLocalSessionUsesObservedAccountBoundary() {
-        let localAccountA = ProviderAccountIdentity(
-            stableAccountID: "local-account-a",
-            email: "local-a@example.com"
-        )
-        let localAccountB = ProviderAccountIdentity(
-            stableAccountID: "local-account-b",
-            email: "local-b@example.com"
-        )
-
-        manager.checkAntigravityThresholds(
-            snapshot: makeAntigravitySnapshot(
-                accountID: "stored-account",
-                lanes: [
-                    makeAntigravityLane(
-                        id: .geminiFiveHour,
-                        scope: .gemini,
-                        cadence: .fiveHour,
-                        usedPercentage: 89
-                    )
-                ],
-                observedIdentity: localAccountA
-            )
-        )
-        manager.checkAntigravityThresholds(
-            snapshot: makeAntigravitySnapshot(
-                accountID: "stored-account",
-                lanes: [
-                    makeAntigravityLane(
-                        id: .geminiFiveHour,
-                        scope: .gemini,
-                        cadence: .fiveHour,
-                        usedPercentage: 96
-                    )
-                ],
-                observedIdentity: localAccountB
-            )
-        )
-
-        XCTAssertTrue(deliverer.delivered.isEmpty)
-
-        manager.checkAntigravityThresholds(
-            snapshot: makeAntigravitySnapshot(
-                accountID: "stored-account",
-                lanes: [
-                    makeAntigravityLane(
-                        id: .geminiFiveHour,
-                        scope: .gemini,
-                        cadence: .fiveHour,
-                        usedPercentage: 80
-                    )
-                ],
-                observedIdentity: localAccountB
-            )
-        )
-        manager.checkAntigravityThresholds(
-            snapshot: makeAntigravitySnapshot(
-                accountID: "stored-account",
-                lanes: [
-                    makeAntigravityLane(
-                        id: .geminiFiveHour,
-                        scope: .gemini,
-                        cadence: .fiveHour,
-                        usedPercentage: 96
-                    )
-                ],
-                observedIdentity: localAccountB
-            )
-        )
-
-        XCTAssertEqual(deliverer.delivered.count, 1)
     }
 
     func testAntigravityUnavailableLanePreservesHistoryUntilNumericQuotaReturns() {
         manager.checkAntigravityThresholds(
-            snapshot: makeAntigravitySnapshot(
-                accountID: "account-a",
-                lanes: [
+            snapshot: makeAntigravitySnapshot(lanes: [
                     makeAntigravityLane(
                         id: .geminiFiveHour,
                         scope: .gemini,
@@ -431,9 +296,7 @@ final class NotificationManagerTests: XCTestCase {
             )
         )
         manager.checkAntigravityThresholds(
-            snapshot: makeAntigravitySnapshot(
-                accountID: "account-a",
-                lanes: [
+            snapshot: makeAntigravitySnapshot(lanes: [
                     makeAntigravityLane(
                         id: .geminiFiveHour,
                         scope: .gemini,
@@ -445,9 +308,7 @@ final class NotificationManagerTests: XCTestCase {
             )
         )
         manager.checkAntigravityThresholds(
-            snapshot: makeAntigravitySnapshot(
-                accountID: "account-a",
-                lanes: [
+            snapshot: makeAntigravitySnapshot(lanes: [
                     makeAntigravityLane(
                         id: .geminiFiveHour,
                         scope: .gemini,
@@ -475,9 +336,7 @@ final class NotificationManagerTests: XCTestCase {
         ]
 
         manager.checkAntigravityThresholds(
-            snapshot: makeAntigravitySnapshot(
-                accountID: "account-a",
-                lanes: [
+            snapshot: makeAntigravitySnapshot(lanes: [
                     makeAntigravityLane(
                         id: .geminiFiveHour,
                         scope: .gemini,
@@ -494,9 +353,7 @@ final class NotificationManagerTests: XCTestCase {
             )
         )
         manager.checkAntigravityThresholds(
-            snapshot: makeAntigravitySnapshot(
-                accountID: "account-a",
-                lanes: [
+            snapshot: makeAntigravitySnapshot(lanes: [
                     makeAntigravityLane(
                         id: .geminiFiveHour,
                         scope: .gemini,
@@ -604,7 +461,6 @@ final class NotificationManagerTests: XCTestCase {
         let id = AntigravityQuotaLaneID.geminiWeekly
         func snapshot(_ used: Double, hidden: Set<AntigravityQuotaLaneID>) -> AntigravityRuntimeSnapshot {
             makeAntigravitySnapshot(
-                accountID: "a",
                 lanes: [
                     makeAntigravityLane(id: id, scope: .gemini, cadence: .weekly, usedPercentage: used)
                 ], hiddenLaneIDs: hidden)
@@ -620,7 +476,6 @@ final class NotificationManagerTests: XCTestCase {
         for (used, hidden) in [(20.0, Set([id])), (96.0, Set<AntigravityQuotaLaneID>())] {
             manager.checkAntigravityThresholds(
                 snapshot: makeAntigravitySnapshot(
-                    accountID: "a",
                     lanes: [
                         makeAntigravityLane(id: id, scope: .gemini, cadence: .weekly, usedPercentage: used)
                     ], hiddenLaneIDs: hidden))
@@ -665,7 +520,7 @@ final class NotificationManagerTests: XCTestCase {
         let known = makeAntigravityLane(
             id: .geminiWeekly, scope: .gemini, cadence: .weekly, usedPercentage: 20
         )
-        manager.checkAntigravityThresholds(snapshot: makeAntigravitySnapshot(accountID: "a", lanes: [known]))
+        manager.checkAntigravityThresholds(snapshot: makeAntigravitySnapshot(lanes: [known]))
         for used in [20.0, 96.0] {
             let newLane = makeAntigravityLane(
                 id: .init(rawValue: "workspace.new-model"),
@@ -673,30 +528,12 @@ final class NotificationManagerTests: XCTestCase {
                 cadence: .weekly, usedPercentage: used
             )
             manager.checkAntigravityThresholds(
-                snapshot: makeAntigravitySnapshot(accountID: "a", lanes: [known, newLane])
+                snapshot: makeAntigravitySnapshot(lanes: [known, newLane])
             )
         }
         let newLimit = try XCTUnwrap(manager.inventories[.antigravity]?.first { $0.title.contains("New model") })
         XCTAssertFalse(AppSettings.shared.notificationTargets.isSelected(newLimit.id, provider: .antigravity))
         XCTAssertTrue(deliverer.delivered.isEmpty)
-    }
-
-    func testUnidentifiedAntigravityUsageStaysSelectableWithoutImportingAlertHistory() throws {
-        let lane = makeAntigravityLane(id: .geminiWeekly, scope: .gemini, cadence: .weekly, usedPercentage: 96)
-        let unknown = ProviderAccountIdentity(stableAccountID: nil, email: nil)
-        manager.checkAntigravityThresholds(
-            snapshot: makeAntigravitySnapshot(accountID: "unused", lanes: [lane], observedIdentity: unknown))
-        let limit = try XCTUnwrap(manager.inventories[.antigravity]?.first)
-        XCTAssertFalse(manager.hasIdentifiedAccount(for: .antigravity))
-        XCTAssertTrue(AppSettings.shared.notificationTargets.providers.isEmpty)
-        AppSettings.shared.notificationTargets.setSelected(true, limit: limit)
-        manager.checkAntigravityThresholds(
-            snapshot: makeAntigravitySnapshot(accountID: "unused", lanes: [lane], observedIdentity: unknown))
-        XCTAssertTrue(AppSettings.shared.notificationTargets.isSelected(limit.id, provider: .antigravity))
-        XCTAssertTrue(deliverer.delivered.isEmpty)
-        manager.checkAntigravityThresholds(snapshot: makeAntigravitySnapshot(accountID: "confirmed", lanes: [lane]))
-        XCTAssertTrue(manager.hasIdentifiedAccount(for: .antigravity))
-        XCTAssertTrue(deliverer.delivered.isEmpty, "Identity confirmation must start fresh crossing history")
     }
 
     func testExternalLoginOwnerSeparatesUsersInSameCliSlotAndWorkspace() throws {
@@ -796,31 +633,18 @@ final class NotificationManagerTests: XCTestCase {
     }
 
     private func makeAntigravitySnapshot(
-        accountID rawAccountID: String,
         lanes: [AntigravityQuotaLane],
         notificationsEnabled: Bool = true,
-        observedIdentity: ProviderAccountIdentity? = nil,
-        hiddenLaneIDs: Set<AntigravityQuotaLaneID> = []
+        hiddenLaneIDs: Set<AntigravityQuotaLaneID> = [],
+        presentationState: AntigravityPresentationState? = nil
     ) -> AntigravityRuntimeSnapshot {
-        let accountIdentity = ProviderAccountIdentity(
-            stableAccountID: rawAccountID,
-            email: "\(rawAccountID)@example.com"
-        )
-        let quotaIdentity =
-            observedIdentity ?? accountIdentity
         let fetchedAt = Date(timeIntervalSince1970: 1_800_000_000)
         let quotaSnapshot = AntigravityQuotaSnapshot(
-            identity: quotaIdentity,
-            plan: "test",
+            identity: nil,
+            plan: nil,
             lanes: lanes,
             decodeIssues: [],
-            provenance: AntigravityQuotaProvenance(
-                transport: .localAppRPC,
-                endpointOwner: .external,
-                accountIdentity: quotaIdentity,
-                capability: .groupedQuotaSummary,
-                processIdentity: nil
-            ),
+            provenance: AntigravityQuotaProvenance(transport: .cliUsageReport, accountIdentity: nil),
             fetchedAt: fetchedAt
         )
         var displaySettings = AntigravityDisplaySettings.default
@@ -838,7 +662,7 @@ final class NotificationManagerTests: XCTestCase {
                 connection: .default,
                 display: displaySettings
             ),
-            presentationState: .ready(quotaSnapshot),
+            presentationState: presentationState ?? .ready(quotaSnapshot),
             quotaPresentation: .content(presentation),
             managedRuntimeAvailability: .available(
                 displayPath: "~/.local/bin/agy"

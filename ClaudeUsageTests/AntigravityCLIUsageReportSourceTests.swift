@@ -25,9 +25,7 @@ final class AntigravityCLIUsageReportSourceTests: XCTestCase {
         XCTAssertEqual(requests.map(\.workingDirectoryURL), [workspace, workspace])
         XCTAssertEqual(requests.map(\.executable), [Self.executable, Self.executable])
 
-        guard case .grouped(let snapshot) = response.payload else {
-            return XCTFail("Expected grouped quota")
-        }
+        let snapshot = response.snapshot
         XCTAssertEqual(
             snapshot.lanes.map(\.id),
             [
@@ -38,9 +36,7 @@ final class AntigravityCLIUsageReportSourceTests: XCTestCase {
         XCTAssertEqual(snapshot.fetchedAt, fetchedAt)
         XCTAssertEqual(
             snapshot.provenance,
-            AntigravityQuotaProvenance(
-                transport: .cliUsageReport, endpointOwner: .managed, accountIdentity: nil,
-                capability: .groupedQuotaSummary, processIdentity: nil)
+            AntigravityQuotaProvenance(transport: .cliUsageReport, accountIdentity: nil)
         )
     }
 
@@ -51,7 +47,7 @@ final class AntigravityCLIUsageReportSourceTests: XCTestCase {
         ])
         let fetchedAt = Date(timeIntervalSince1970: 1_900_000_000)
         let response = try await makeSource(runner: runner, now: { fetchedAt }).fetch(request())
-        guard case .grouped(let quota) = response.payload else { return XCTFail("Expected current CLI quota") }
+        let quota = response.snapshot
         XCTAssertNil(quota.identity)
         XCTAssertNil(quota.provenance.accountIdentity)
         let runtime = AntigravityRuntimeSnapshot(
@@ -190,7 +186,7 @@ final class AntigravityCLIUsageReportSourceTests: XCTestCase {
                 .success(output("1.2.12")), .success(output(report, exitStatus: exitStatus)),
             ])
             let response = try await makeSource(runner: runner).fetch(request())
-            guard case .grouped(let quota) = response.payload else { return XCTFail("Expected validated report") }
+            let quota = response.snapshot
             XCTAssertEqual(quota.lanes.map(\.id), [.geminiWeekly, .thirdPartyWeekly])
             XCTAssertTrue(quota.decodeIssues.isEmpty)
         }

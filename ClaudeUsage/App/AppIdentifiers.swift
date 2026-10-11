@@ -18,6 +18,9 @@ nonisolated enum AppIdentifiers {
     static let legacyKeychainService = "ClaudeUsage"
     static let legacyClaudeOAuthKeychainService = "ClaudeUsage.Claude Code-credentials-refreshed"
     static let popoverGeometryLogFileName = "ClaudeUsagePopoverGeometry.log"
+    /// 상태 아이템 위치를 저장하는 autosave 이름. 바꾸면 메뉴바 위치를 잃는다.
+    static let productionStatusItemAutosaveName = "claudeusage"
+    static let stagingStatusItemAutosaveName = "claudeusage-staging"
 
     /// UserDefaults 키. 접두어 "ClaudeUsage."는 저장된 값이므로 바꾸지 않는다.
     static func defaultsKey(_ name: String) -> String {

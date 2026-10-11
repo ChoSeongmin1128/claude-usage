@@ -110,7 +110,7 @@ nonisolated enum ClaudeCodeLoginShellLookup {
         guard ExternalCommand.isTrustedExecutable(shell) else { return nil }
         return await run(
             shell: shell, arguments: ["-ilc", command],
-            environment: ClaudeCodeCLI.environment(configDirectory: nil, home: home), home: home,
+            environment: ClaudeCodeCLI.environment(configDirectoryValue: nil, home: home), home: home,
             timeout: ContinuousClock.now.duration(to: deadline))
     }
 
@@ -119,74 +119,15 @@ nonisolated enum ClaudeCodeLoginShellLookup {
         timeout: Duration = timeout
     ) async -> ClaudeCodeExecutableSelection? {
         guard timeout > .zero, !Task.isCancelled else { return nil }
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        let task: Task<ClaudeCodeExecutableSelection?, Never> = Task.detached(priority: .utility) {
-            guard !Task.isCancelled, ContinuousClock.now < deadline else { return nil }
-            guard
-                let child = OwnedSubprocessSpawn.spawn(
-                    executablePath: shell.path, arguments: arguments, environment: environment,
-                    options: .init(workingDirectoryPath: home.path, ownProcessGroup: true, qosClass: QOS_CLASS_UTILITY)
-                )
-            else { return nil }
-            defer {
-                // The unreaped root reserves its PID/group until every signal has been sent.
-                _ = Darwin.kill(-child.processID, SIGKILL)
-                _ = Darwin.kill(child.processID, SIGKILL)
-                Darwin.close(child.standardOutputFileDescriptor)
-                Darwin.close(child.standardErrorFileDescriptor)
-                var status: Int32 = 0
-                if waitpid(child.processID, &status, WNOHANG) != child.processID {
-                    DispatchQueue.global(qos: .utility).async {
-                        var status: Int32 = 0
-                        while waitpid(child.processID, &status, 0) == -1, errno == EINTR {}
-                    }
-                }
-            }
-            for descriptor in [child.standardOutputFileDescriptor, child.standardErrorFileDescriptor] {
-                let flags = fcntl(descriptor, F_GETFL)
-                guard flags >= 0, fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == 0 else { return nil }
-            }
-            var output = Data()
-            var discardedError = Data()
-            while !Task.isCancelled, ContinuousClock.now < deadline {
-                guard drain(child.standardOutputFileDescriptor, into: &output),
-                    drain(child.standardErrorFileDescriptor, into: &discardedError)
-                else { return nil }
-                var information = siginfo_t()
-                if waitid(P_PID, id_t(child.processID), &information, WEXITED | WNOHANG | WNOWAIT) == 0,
-                    information.si_pid == child.processID
-                {
-                    guard information.si_code == CLD_EXITED, information.si_status == 0,
-                        drain(child.standardOutputFileDescriptor, into: &output)
-                    else { return nil }
-                    return selection(from: output, home: home)
-                }
-                usleep(5_000)
-            }
-            return nil
-        }
-        return await withTaskCancellationHandler {
-            await task.value
-        } onCancel: {
-            task.cancel()
-        }
-    }
-
-    private static func drain(_ descriptor: Int32, into data: inout Data) -> Bool {
-        var buffer = [UInt8](repeating: 0, count: 4_096)
-        while true {
-            let count = buffer.withUnsafeMutableBytes { bytes in
-                Darwin.read(descriptor, bytes.baseAddress, bytes.count)
-            }
-            if count > 0 {
-                guard data.count + count <= maximumOutputBytes else { return false }
-                data.append(contentsOf: buffer.prefix(count))
-            } else if count == 0 || errno == EAGAIN || errno == EWOULDBLOCK {
-                return true
-            } else if errno != EINTR {
-                return false
-            }
-        }
+        let seconds = Double(timeout.components.seconds) + Double(timeout.components.attoseconds) / 1e18
+        var request = OwnedProcessRun.Request(
+            executable: shell, arguments: arguments, environment: environment, currentDirectory: home,
+            timeout: seconds)
+        // 셸 설정이 느리면 기다리지 않고 바로 끝낸다.
+        request.maximumOutputBytes = maximumOutputBytes
+        request.terminationGrace = 0
+        guard let output = await ExternalCommand.run(request), output.succeeded else { return nil }
+        return selection(from: output.data, home: home)
     }
 
     static func selection(from output: Data, home: URL) -> ClaudeCodeExecutableSelection? {

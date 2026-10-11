@@ -253,8 +253,8 @@ final class AppSettingsTests: XCTestCase {
         defaults.set(true, forKey: "codexPopoverPinned")
         defaults.set(true, forKey: "codexPopoverCompact")
 
-        XCTAssertTrue(AppSettings.normalizedGlobalPopoverPinned(from: defaults))
-        XCTAssertTrue(AppSettings.normalizedGlobalPopoverCompact(from: defaults))
+        XCTAssertTrue(AppSettingsMigration.normalizedGlobalPopoverPinned(from: defaults))
+        XCTAssertTrue(AppSettingsMigration.normalizedGlobalPopoverCompact(from: defaults))
     }
 
     func testGlobalPopoverKeysOverrideLegacyProviderValues() {
@@ -269,8 +269,8 @@ final class AppSettingsTests: XCTestCase {
         defaults.set(true, forKey: "claudePopoverPinned")
         defaults.set(true, forKey: "codexPopoverCompact")
 
-        XCTAssertFalse(AppSettings.normalizedGlobalPopoverPinned(from: defaults))
-        XCTAssertFalse(AppSettings.normalizedGlobalPopoverCompact(from: defaults))
+        XCTAssertFalse(AppSettingsMigration.normalizedGlobalPopoverPinned(from: defaults))
+        XCTAssertFalse(AppSettingsMigration.normalizedGlobalPopoverCompact(from: defaults))
     }
 
     /// 구 AGY 팝오버 항목은 저장돼 있어도 로드 시점 정규화에서 사라지고

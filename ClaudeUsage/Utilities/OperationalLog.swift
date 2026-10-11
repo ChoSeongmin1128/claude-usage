@@ -20,24 +20,11 @@ nonisolated struct OperationalDiagnostic: Equatable, Sendable {
             return Self(code: "agy.quotaReady", source: snapshot.provenance.transport.rawValue)
         case .partial(let snapshot, _):
             return Self(code: "agy.quotaPartial", source: snapshot.provenance.transport.rawValue)
-        case .limited(let evidence):
-            return Self(code: "agy.quotaLimited", source: evidence.provenance.transport.rawValue)
-        case .identityOnly(let evidence):
-            return Self(code: "agy.identityOnly", source: evidence.provenance.transport.rawValue)
-        case .accountMismatch:
-            return Self(code: "agy.accountMismatch", source: "coordinator", isFailure: true)
         case .stale(_, let failure), .failed(let failure):
             if failure == .cancelled || failure == .appShuttingDown { return nil }
             return Self(
                 code: "agy." + failure.diagnosticCode,
                 source: source(for: failure), isFailure: true)
-        case .setupRequired(let reason):
-            let code: String
-            switch reason {
-            case .noAmbientLocalSession: code = "agy.noLocalSession"
-            case .usageTargetSelection, .ambiguousLocalSessions: code = "agy.usageTargetSelectionRequired"
-            }
-            return Self(code: code, source: "coordinator", isFailure: true)
         case .disabled, .refreshing:
             return nil
         }
@@ -45,8 +32,7 @@ nonisolated struct OperationalDiagnostic: Equatable, Sendable {
 
     private static func source(for failure: AntigravityFailure) -> String {
         switch failure {
-        case .sourceUnavailable(let source), .authenticationRequired(let source),
-            .localAuthentication(let source, _), .interactionRequired(let source),
+        case .sourceUnavailable(let source),
             .deadlineExceeded(let source), .schemaChanged(let source),
             .transportUnavailable(let source), .sourceContractViolation(let source):
             return source.rawValue

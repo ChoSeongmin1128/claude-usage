@@ -37,9 +37,12 @@ struct CompactUsageRow: View {
     private var defaultAccessibilityValue: String {
         var values = [basis.spokenValue(fromUsed: percentage)]
         if let resetAt {
+            // 화면 문구처럼 주간 한도는 날짜로 읽는다.
             values.append(
-                TimeFormatter.formatRelativeTimeWithClock(
-                    from: resetAt, style: timeFormatStyle))
+                isWeekly
+                    ? TimeFormatter.formatResetTimeWeekly(from: resetAt, style: timeFormatStyle)
+                        ?? TimeFormatter.formatRelativeTimeWithClock(from: resetAt, style: timeFormatStyle)
+                    : TimeFormatter.formatRelativeTimeWithClock(from: resetAt, style: timeFormatStyle))
         }
         return values.joined(separator: ", ")
     }

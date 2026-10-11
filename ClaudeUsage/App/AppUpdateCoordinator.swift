@@ -17,8 +17,7 @@ final class AppUpdateCoordinator {
         }
 
         guard let seconds = interval.timerInterval else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: true) { _ in
-            // apply registers this timer on the main run loop.
+        timer = Timer.scheduledOnMainRunLoop(interval: seconds, repeats: true) { _ in
             MainActor.assumeIsolated { performCheck() }
         }
     }

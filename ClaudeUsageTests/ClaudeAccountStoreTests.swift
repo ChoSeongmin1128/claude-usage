@@ -715,6 +715,28 @@ final class ClaudeAccountStoreTests: XCTestCase {
         XCTAssertEqual(updated?.displayName, "Chrome 회사 프로필")
     }
 
+    func testUnreadableStoredAccountSurvivesSaveAndOrphanCleanupLookup() throws {
+        let store = makeStore()
+        let first = store.upsertWebSessionAccount(sessionKey: "sk-ant-first-session")
+        let data = try XCTUnwrap(defaults.data(forKey: ClaudeAccountStore.accountsDefaultsKey))
+        var raw = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [Any])
+        raw.append(["id": "future-account", "kind": "futureKind", "extra": ["nested": true]])
+        defaults.set(try JSONSerialization.data(withJSONObject: raw), forKey: ClaudeAccountStore.accountsDefaultsKey)
+
+        XCTAssertEqual(store.accounts().map(\.id), [first.id])
+        _ = store.upsertWebSessionAccount(sessionKey: "sk-ant-second-session")
+        store.deleteAccount(id: first.id)
+
+        let saved = try XCTUnwrap(defaults.data(forKey: ClaudeAccountStore.accountsDefaultsKey))
+        let savedRaw = try XCTUnwrap(JSONSerialization.jsonObject(with: saved) as? [[String: Any]])
+        let future = try XCTUnwrap(savedRaw.first { $0["id"] as? String == "future-account" })
+        XCTAssertEqual(future["kind"] as? String, "futureKind")
+        XCTAssertEqual((future["extra"] as? [String: Any])?["nested"] as? Bool, true)
+        XCTAssertEqual(store.accounts().count, 1)
+        XCTAssertTrue(store.storedAccountIDs().contains("future-account"))
+        XCTAssertFalse(store.storedAccountIDs().contains(first.id))
+    }
+
     private func makeStore() -> ClaudeAccountStore {
         let store = ClaudeAccountStore(
             defaults: defaults,

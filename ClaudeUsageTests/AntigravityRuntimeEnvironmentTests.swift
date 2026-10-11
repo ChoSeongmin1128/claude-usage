@@ -3,52 +3,6 @@ import XCTest
 @testable import ClaudeUsage
 
 final class AntigravityRuntimeEnvironmentTests: XCTestCase {
-    func testLegacyCleanupRunsWithoutBuildingTheGraph() async throws {
-        let fixture = EnvironmentFixture()
-        let environment = fixture.environment()
-
-        await environment.cleanUpLegacyManagedProcesses()
-
-        let cleanups = await fixture.cleanups
-        let builds = await fixture.builds
-        XCTAssertEqual(cleanups, 1)
-        XCTAssertEqual(builds, 0)
-        await environment.shutdown()
-    }
-
-    func testLegacyCleanupDoesNotRunAfterShutdown() async throws {
-        let fixture = EnvironmentFixture()
-        let environment = fixture.environment()
-        await environment.shutdown()
-
-        await environment.cleanUpLegacyManagedProcesses()
-
-        let cleanups = await fixture.cleanups
-        XCTAssertEqual(cleanups, 0)
-    }
-
-    func testShutdownWaitsForAnInFlightLegacyCleanup() async throws {
-        let probe = LegacyCleanupProbe()
-        let environment = AntigravityRuntimeEnvironment(
-            fingerprint: { .init(entries: []) },
-            build: { throw CancellationError() },
-            legacyCleanup: {
-                await probe.markStarted()
-                try? await Task.sleep(for: .milliseconds(200))
-                await probe.markFinished()
-            })
-        let cleanup = Task { await environment.cleanUpLegacyManagedProcesses() }
-        while !(await probe.started) {
-            try await Task.sleep(for: .milliseconds(5))
-        }
-
-        await environment.shutdown()
-
-        let finished = await probe.finished
-        XCTAssertTrue(finished)
-        await cleanup.value
-    }
-
     func testUnchangedFilesReuseTheGraphWithoutRevalidation() async throws {
         let fixture = EnvironmentFixture()
         let environment = fixture.environment()
@@ -69,6 +23,18 @@ final class AntigravityRuntimeEnvironmentTests: XCTestCase {
         let after = try await Self.sourceGeneration(environment)
         XCTAssertEqual(before, 1)
         XCTAssertEqual(after, 2)
+        await environment.shutdown()
+    }
+
+    func testAvailabilityIsNotCheckedUntilTheFirstLease() async throws {
+        let fixture = EnvironmentFixture(status: .notFound)
+        let environment = fixture.environment()
+        let before = await environment.managedAvailability()
+        XCTAssertEqual(before, .notChecked)
+        XCTAssertEqual(AntigravityManagedRuntimeSettingsPresentation.resolve(before).diagnosticTitle, "확인 전")
+        _ = try await runtimeFailure(environment)
+        let after = await environment.managedAvailability()
+        XCTAssertEqual(after, .unavailable(reason: .executableNotFound))
         await environment.shutdown()
     }
 
@@ -108,7 +74,7 @@ final class AntigravityRuntimeEnvironmentTests: XCTestCase {
         let failure_executableChanged = try await runtimeFailure(environment)
         XCTAssertEqual(failure_executableChanged, .executableChanged)
         let discarded = await environment.managedAvailability()
-        XCTAssertEqual(discarded, .unavailable(reason: .executableNotFound))
+        XCTAssertEqual(discarded, .notChecked)
         await fixture.setMutationDuringBuild(false)
         let generation = try await Self.sourceGeneration(environment)
         let builds = await fixture.builds
@@ -122,7 +88,7 @@ final class AntigravityRuntimeEnvironmentTests: XCTestCase {
         let environment = fixture.environment()
         let gate = EnvironmentTestGate()
         let first = Task {
-            try await environment.withSources(forceDiscovery: false, deadline: .init()) { _ in
+            try await environment.withSources(deadline: .init()) { _ in
                 await gate.enterAndWait()
                 return 1
             }
@@ -147,7 +113,7 @@ final class AntigravityRuntimeEnvironmentTests: XCTestCase {
         let environment = fixture.environment()
         let gate = EnvironmentTestGate()
         let first = Task {
-            try await environment.withSources(forceDiscovery: false, deadline: .init()) { _ in
+            try await environment.withSources(deadline: .init()) { _ in
                 await gate.enterAndWait()
                 return 1
             }
@@ -172,25 +138,14 @@ final class AntigravityRuntimeEnvironmentTests: XCTestCase {
             build: { await gate.enterAndWait(); return await fixture.build() }
         )
         let attempt = Task {
-            try await environment.withSources(forceDiscovery: false,
-                deadline: .init(totalTimeout: .milliseconds(40))) { _ in true }
+            try await environment.withSources(deadline: .init(totalTimeout: .milliseconds(40))) { _ in true }
         }
         await gate.waitForEntry()
         do { _ = try await attempt.value; XCTFail("Expected timeout") } catch is AntigravityRPCDeadlineError {}
         await gate.release()
         await environment.shutdown()
         let availability = await environment.managedAvailability()
-        XCTAssertEqual(availability, .unavailable(reason: .executableNotFound))
-    }
-
-    func testForcedRefreshReusesTheBuiltGeneration() async throws {
-        let fixture = EnvironmentFixture()
-        let environment = fixture.environment()
-        _ = try await Self.sourceGeneration(environment)
-        _ = try await environment.withSources(forceDiscovery: true, deadline: .init()) { _ in true }
-        let builds = await fixture.builds
-        XCTAssertEqual(builds, 1)
-        await environment.shutdown()
+        XCTAssertEqual(availability, .notChecked)
     }
 
     func testShutdownWaitsForTheActiveLease() async throws {
@@ -198,7 +153,7 @@ final class AntigravityRuntimeEnvironmentTests: XCTestCase {
         let environment = fixture.environment()
         let gate = EnvironmentTestGate()
         let lease = Task {
-            try await environment.withSources(forceDiscovery: false, deadline: .init()) { _ in
+            try await environment.withSources(deadline: .init()) { _ in
                 await gate.enterAndWait()
                 return 1
             }
@@ -221,13 +176,13 @@ final class AntigravityRuntimeEnvironmentTests: XCTestCase {
     }
 
     private static func sourceGeneration(_ environment: AntigravityRuntimeEnvironment) async throws -> Int? {
-        try await environment.withSources(forceDiscovery: false, deadline: .init()) { sources in
+        try await environment.withSources(deadline: .init()) { sources in
             (sources.first { $0.id == .cliReport } as? EnvironmentReportSource)?.generation
         }
     }
 
     private func runtimeFailure(_ environment: AntigravityRuntimeEnvironment) async throws -> AntigravityRuntimeFailure? {
-        try await environment.withSources(forceDiscovery: false, deadline: .init()) { sources in
+        try await environment.withSources(deadline: .init()) { sources in
             guard let source = sources.first(where: { $0.id == .cliReport }) else { return nil }
             let request = AntigravityUsageSourceRequest(generation: 1, deadline: .init())
             do { _ = try await source.fetch(request); return nil }
@@ -237,17 +192,9 @@ final class AntigravityRuntimeEnvironmentTests: XCTestCase {
     }
 }
 
-private actor LegacyCleanupProbe {
-    var started = false
-    var finished = false
-    func markStarted() { started = true }
-    func markFinished() { finished = true }
-}
-
 private actor EnvironmentFixture {
     var revision = 1
     var builds = 0
-    var cleanups = 0
     var status: AntigravityAGYExecutableDiscoveryStatus
     var mutateDuringBuild = false
 
@@ -255,14 +202,12 @@ private actor EnvironmentFixture {
     nonisolated func environment() -> AntigravityRuntimeEnvironment {
         AntigravityRuntimeEnvironment(
             fingerprint: { await self.fingerprint() },
-            build: { await self.build() },
-            legacyCleanup: { await self.recordCleanup() }
+            build: { await self.build() }
         )
     }
     func fingerprint() -> AntigravityInstallationFingerprint { .init(entries: [String(revision)]) }
     func change(status: AntigravityAGYExecutableDiscoveryStatus? = nil) { revision += 1; if let status { self.status = status } }
     func setMutationDuringBuild(_ value: Bool) { mutateDuringBuild = value }
-    func recordCleanup() { cleanups += 1 }
     func build() -> AntigravityLocalRuntimeGeneration {
         builds += 1
         if mutateDuringBuild { revision += 1 }
@@ -277,7 +222,7 @@ private struct EnvironmentReportSource: AntigravityUsageSource {
     let generation: Int
 
     func fetch(_ request: AntigravityUsageSourceRequest) async throws -> AntigravityUsageSourceResponse {
-        throw AntigravityUsageSourceError.unavailable
+        throw AntigravityUsageSourceError.transportFailure
     }
 }
 

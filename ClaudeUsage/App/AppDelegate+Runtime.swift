@@ -53,9 +53,8 @@ extension AppDelegate {
 
     // MARK: - Monitoring
 
+    /// 진행 중인 조회는 조회 준비 단계가 겹치지 않게 막으므로 여기서 조회 중 표시를 풀지 않는다.
     func startMonitoring() {
-        isLoading = false
-        loadingStartedAt = nil
         updateMenuBar()
         updatePopoverViewModel()
         refreshAll(force: true)
@@ -63,6 +62,7 @@ extension AppDelegate {
     }
 
     func syncRefreshTimerState() {
+        guard !isTerminating else { return }
         let change = refreshScheduler.sync(
             autoRefresh: refreshConfiguration.autoRefresh,
             shouldPoll: shouldPollRuntimeProviders,
@@ -170,7 +170,7 @@ extension AppDelegate {
         claudeCredentialRefreshGeneration &+= 1
         let generation = claudeCredentialRefreshGeneration
         claudeCredentialRefreshTask?.cancel()
-        claudeUsageRefreshTask?.cancel()
+        claudeRefreshController.cancel()
         claudeCredentialRefreshRequest = request
         resetClaudeRuntimeAfterAccountBoundaryChange(refreshHealthSnapshot: false)
 
@@ -197,9 +197,6 @@ extension AppDelegate {
             }
             let usageTask: Task<Void, Never>? = await MainActor.run {
                 guard generation == self.claudeCredentialRefreshGeneration else { return nil }
-                if snapshot.runtime.credentialAvailability.hasAnyCredential {
-                    self.setupWizardCredentialStepOverride = nil
-                }
                 self.currentClaudeProfileMetadata = cachedProfileMetadata
                 self.currentClaudeNotificationPolicy = cachedProfileMetadata.map(ClaudeNotificationPolicy.init(metadata:))
                 self.applyUsageHealthSnapshot(snapshot)
@@ -306,6 +303,7 @@ extension AppDelegate {
     }
 
     func performRuntimeAction(_ action: ProviderRuntimeAction) {
+        guard !isTerminating else { return }
         switch action {
         case .refresh(let service, let force):
             refresh(service: service, force: force)
@@ -404,166 +402,80 @@ extension AppDelegate {
 
     @discardableResult
     func refreshUsage(
-        force: Bool = false,
-        syncHealthAfterCompletion: Bool = true,
-        allowWhenDisabled: Bool = false,
-        mayRetryCredentialChange: Bool = true
+        force: Bool = false, syncHealthAfterCompletion: Bool = true, allowWhenDisabled: Bool = false
     ) -> Task<Void, Never>? {
-        guard allowWhenDisabled || ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) else {
-            return nil
-        }
-        guard prepareRefresh(for: .claude, force: force) else { return nil }
+        claudeRefreshController.refresh(
+            force: force, syncHealthAfterCompletion: syncHealthAfterCompletion, allowWhenDisabled: allowWhenDisabled)
+    }
 
-        claudeUsageRefreshTask?.cancel()
-        let requestRevision = withRuntimeState { $0.beginClaudeUsageRequest() }
-        let task = Task { [weak self] in
-            guard let self else { return }
-            defer {
-                let ownsRequest = self.withRuntimeState { $0.finishCancelledClaudeUsageRequest(requestRevision) }
-                if ownsRequest {
+    func makeClaudeRefreshController() -> ClaudeRefreshController {
+        ClaudeRefreshController(
+            apiService: apiService,
+            host: .init(
+                isEnabled: { ServiceSelectionHelper.isEnabled(.claude, settings: .shared) },
+                prepare: { [weak self] force in self?.prepareRefresh(for: .claude, force: force) ?? false },
+                beginRequest: { [weak self] in self?.withRuntimeState { $0.beginClaudeUsageRequest() } ?? UUID() },
+                currentRequest: { [weak self] in self?.withRuntimeState { $0.claudeRequestRevision } ?? UUID() },
+                releaseUnfinishedRequest: { [weak self] revision in
+                    self?.withRuntimeState { $0.finishCancelledClaudeUsageRequest(revision) } ?? false
+                },
+                inputs: { [weak self] in
+                    ClaudeRefreshController.Inputs(
+                        lastOverageAttemptAt: self?.lastOverageAttemptAt,
+                        overageOwnerKey: self?.withRuntimeState { $0.overageOwnerKey },
+                        knownIdentities: self?.usageAccountsController.preferences.knownIdentities ?? [:])
+                },
+                applySuccess: { [weak self] result, profile, syncHealth in
+                    self?.applyClaudeUsage(result, profile: profile, syncHealth: syncHealth)
+                },
+                applyFailure: { [weak self] error, metadata, syncHealth in
+                    self?.applyClaudeFailure(error, metadata: metadata, syncHealth: syncHealth)
+                },
+                didReleaseRequest: { [weak self] in
+                    guard let self else { return }
                     self.popoverViewModel.nextUsageRetryAt =
                         self.runtimeProviderState(for: .claude).nextRefreshAllowedAt
                     self.syncRuntimePresentation()
-                    if !Task.isCancelled, mayRetryCredentialChange {
-                        self.refreshUsage(
-                            force: true, syncHealthAfterCompletion: syncHealthAfterCompletion,
-                            allowWhenDisabled: allowWhenDisabled, mayRetryCredentialChange: false)
-                    }
-                }
-            }
-            let requestAccountID = await apiService.currentActiveAccountID()
-            do {
-                Logger.debug("사용량 갱신 시작")
-                let result = try await ClaudeRuntimeRefresher.refresh(
-                    apiService: apiService,
-                    lastOverageAttemptAt: self.lastOverageAttemptAt,
-                    lastOverageOwnerKey: self.withRuntimeState { $0.overageOwnerKey },
-                    knownIdentities: self.usageAccountsController.preferences.knownIdentities
-                )
-                let cachedProfileMetadata = await self.apiService.fetchCachedProfileMetadata()
-                let responseAccountID = await self.apiService.currentActiveAccountID()
-                let responseContextRevision = await self.apiService.currentSessionContextRevision()
-                let responseCredentialGeneration = await self.apiService.currentClaudeCodeCredentialGeneration()
+                }))
+    }
 
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    guard !Task.isCancelled else { return }
-                    guard self.withRuntimeState({ $0.claudeRequestRevision }) == requestRevision,
-                        requestAccountID == responseAccountID,
-                        requestAccountID == result.provenance.accountID,
-                        result.sessionContextRevision == responseContextRevision,
-                        result.credentialGeneration.map({ $0 == responseCredentialGeneration }) ?? true
-                    else {
-                        Logger.info("Claude 계정 귀속이 다른 조회 결과 무시")
-                        return
-                    }
-                    let scopedMetadata = result.metadata.withClaudeProfileMetadata(cachedProfileMetadata)
-                    self.usageAccountsController.bindRuntimeAccount(scopedMetadata.account, for: .claude)
-                    self.currentClaudeProfileMetadata = scopedMetadata.claudeProfileMetadata
-                    self.currentClaudeNotificationPolicy = scopedMetadata.claudeProfileMetadata.map(
-                        ClaudeNotificationPolicy.init(metadata:))
-                    if let accountID = result.provenance.accountID {
-                        self.withRuntimeState {
-                            $0.applyClaudeSupplementalUsage(
-                                result.supplementalUsage, accountID: accountID,
-                                ownerKey: scopedMetadata.supplementalAccountKey)
-                        }
-                    }
-
-                    var state = self.runtimeProviderState(for: .claude)
-                    RuntimeProviderRefreshCoordinator.applySuccess(
-                        state: &state,
-                        payload: .claude(result.usage),
-                        metadata: scopedMetadata
-                    )
-                    self.setRuntimeProviderState(state, for: .claude)
-                    self.popoverViewModel.nextUsageRetryAt = state.nextRefreshAllowedAt
-                    self.syncRuntimePresentation()
-                    if syncHealthAfterCompletion {
-                        self.syncUsageHealthSnapshotToUI()
-                    }
-
-                    NotificationManager.shared.checkClaude(
-                        result.usage, accountID: scopedMetadata.notificationAccountKey(for: .claude),
-                        policy: self.currentClaudeNotificationPolicy)
-
-                }
-            } catch is CancellationError {
-                Logger.debug("Claude credential 변경으로 오래된 사용량 응답 폐기")
-                return
-            } catch let error as APIError {
-                guard !Task.isCancelled else {
-                    Logger.debug("Claude 사용량 갱신 취소")
-                    return
-                }
-                Logger.error("API 에러: \(error.errorDescription ?? "")")
-                let responseAccountID = await self.apiService.currentActiveAccountID()
-                let fetchMetadata = await self.apiService.currentFetchMetadataSnapshot()
-
-                await MainActor.run {
-                    guard !Task.isCancelled else { return }
-                    guard self.withRuntimeState({ $0.claudeRequestRevision }) == requestRevision,
-                        requestAccountID == responseAccountID
-                    else {
-                        Logger.info("Claude 계정 전환 중 도착한 이전 조회 실패 무시")
-                        return
-                    }
-                    var state = self.runtimeProviderState(for: .claude)
-                    let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
-                        state: &state,
-                        error: error,
-                        metadata: fetchMetadata,
-                        minimumInterval: AdaptiveRefreshPolicy.minimumInterval
-                    )
-                    self.setRuntimeProviderState(state, for: .claude)
-                    self.popoverViewModel.nextUsageRetryAt = resolution.nextAllowedAt
-                    if let backoffSeconds = resolution.backoffSeconds {
-                        Logger.info("임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
-                    }
-                    self.syncRuntimePresentation()
-                    if syncHealthAfterCompletion {
-                        self.syncUsageHealthSnapshotToUI()
-                    }
-                }
-            } catch {
-                guard !Task.isCancelled else {
-                    Logger.debug("Claude 사용량 갱신 취소")
-                    return
-                }
-                Logger.error("예상치 못한 에러: \(error)")
-
-                let apiError = APIError.unknownError(error.localizedDescription)
-                let responseAccountID = await self.apiService.currentActiveAccountID()
-                let fetchMetadata = await self.apiService.currentFetchMetadataSnapshot()
-                await MainActor.run {
-                    guard !Task.isCancelled else { return }
-                    guard self.withRuntimeState({ $0.claudeRequestRevision }) == requestRevision,
-                        requestAccountID == responseAccountID
-                    else {
-                        Logger.info("Claude 계정 전환 중 도착한 이전 조회 실패 무시")
-                        return
-                    }
-                    var state = self.runtimeProviderState(for: .claude)
-                    let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
-                        state: &state,
-                        error: apiError,
-                        metadata: fetchMetadata,
-                        minimumInterval: AdaptiveRefreshPolicy.minimumInterval
-                    )
-                    self.setRuntimeProviderState(state, for: .claude)
-                    self.popoverViewModel.nextUsageRetryAt = resolution.nextAllowedAt
-                    if let backoffSeconds = resolution.backoffSeconds {
-                        Logger.info("임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
-                    }
-                    self.syncRuntimePresentation()
-                    if syncHealthAfterCompletion {
-                        self.syncUsageHealthSnapshotToUI()
-                    }
-                }
+    private func applyClaudeUsage(
+        _ result: ClaudeRuntimeRefreshSuccess, profile: ClaudeProfileMetadata?, syncHealth: Bool
+    ) {
+        let scopedMetadata = result.metadata.withClaudeProfileMetadata(profile)
+        usageAccountsController.bindRuntimeAccount(scopedMetadata.account, for: .claude)
+        currentClaudeProfileMetadata = scopedMetadata.claudeProfileMetadata
+        currentClaudeNotificationPolicy = scopedMetadata.claudeProfileMetadata.map(
+            ClaudeNotificationPolicy.init(metadata:))
+        if let accountID = result.provenance.accountID {
+            withRuntimeState {
+                $0.applyClaudeSupplementalUsage(
+                    result.supplementalUsage, accountID: accountID, ownerKey: scopedMetadata.supplementalAccountKey)
             }
         }
-        claudeUsageRefreshTask = task
-        return task
+        var state = runtimeProviderState(for: .claude)
+        RuntimeProviderRefreshCoordinator.applySuccess(
+            state: &state, payload: .claude(result.usage), metadata: scopedMetadata, updatedAt: result.fetchedAt)
+        setRuntimeProviderState(state, for: .claude)
+        popoverViewModel.nextUsageRetryAt = state.nextRefreshAllowedAt
+        syncRuntimePresentation()
+        if syncHealth { syncUsageHealthSnapshotToUI() }
+        NotificationManager.shared.checkClaude(
+            result.usage, accountID: scopedMetadata.notificationAccountKey(for: .claude),
+            policy: currentClaudeNotificationPolicy)
+    }
+
+    private func applyClaudeFailure(_ error: APIError, metadata: RuntimeProviderFetchMetadata?, syncHealth: Bool) {
+        var state = runtimeProviderState(for: .claude)
+        let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
+            state: &state, error: error, metadata: metadata, minimumInterval: AdaptiveRefreshPolicy.minimumInterval)
+        setRuntimeProviderState(state, for: .claude)
+        popoverViewModel.nextUsageRetryAt = resolution.nextAllowedAt
+        if let backoffSeconds = resolution.backoffSeconds {
+            Logger.info("임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
+        }
+        syncRuntimePresentation()
+        if syncHealth { syncUsageHealthSnapshotToUI() }
     }
 
     func refreshCodexUsage(force: Bool = false) {

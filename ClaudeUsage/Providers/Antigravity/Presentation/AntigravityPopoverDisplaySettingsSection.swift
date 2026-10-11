@@ -260,12 +260,6 @@ struct AntigravityPopoverDisplaySettingsSection: View {
         switch state {
         case .refreshing:
             "확인 중"
-        case .setupRequired:
-            "AGY CLI에 로그인하세요."
-        case .accountMismatch:
-            "계정이 일치하지 않아 사용량을 숨겼습니다."
-        case .limited, .identityOnly:
-            "AGY CLI가 사용량 수치를 주지 않았습니다."
         case .failed:
             "사용량을 불러오지 못했습니다."
         case .disabled:

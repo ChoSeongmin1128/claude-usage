@@ -15,18 +15,33 @@ final class ClaudeUsageAccountProvider: UsageAccountProvider, UsageAccountMenuBa
     private let keychain: ClaudeCodeKeychain
     private let session: URLSession
     private let cliRefresher: ClaudeCodeCredentialReader.CLIRefresher
+    private let tokenOwner: ClaudeCodeFolderKeychain.TokenOwner
 
     init(
         store: ClaudeAccountStore = .shared, keychain: ClaudeCodeKeychain = .system,
         session: URLSession = .shared,
         cliRefresher: @escaping ClaudeCodeCredentialReader.CLIRefresher = {
-            await ClaudeCodeCLI.refreshLogin(configDirectory: $0)
-        }
+            await ClaudeCodeCLI.refreshLogin(configDirectoryValue: $0)
+        },
+        tokenOwner: ClaudeCodeFolderKeychain.TokenOwner? = nil
     ) {
         self.store = store
         self.keychain = keychain
         self.session = session
         self.cliRefresher = cliRefresher
+        self.tokenOwner = tokenOwner ?? ClaudeWebUsageFetcher.cachedOAuthOwner(session: session)
+    }
+
+    /// 폴더 로그인의 실제 Keychain 항목을 찾는다. 다른 폴더의 항목은 후보에서 뺀다.
+    nonisolated static func folderSlot(
+        _ path: String, keychain: ClaudeCodeKeychain, tokenOwner: ClaudeCodeFolderKeychain.TokenOwner
+    ) async -> ClaudeCodeLoginSlot {
+        let directory = URL(fileURLWithPath: path)
+        let others = siblingConfigDirectories().filter {
+            $0.standardizedFileURL.path != directory.standardizedFileURL.path
+        }
+        return await ClaudeCodeFolderKeychain.resolve(
+            directory, excluding: others, keychain: keychain, tokenOwner: tokenOwner)
     }
 
     func discoveryInput(directories: [String], knownIdentities: [String: UsageAccountIdentity])
@@ -144,21 +159,28 @@ final class ClaudeUsageAccountProvider: UsageAccountProvider, UsageAccountMenuBa
                 learnedIdentity: (web.reference, result.identity))
         }
         let source: UsageAccountSource
-        let slot: ClaudeCodeLoginSlot
+        let folder: String?
         if let directory = account.source(.directory) {
             source = directory
-            slot = .folderSlot(URL(fileURLWithPath: directory.reference))
+            folder = directory.reference
         } else if let defaultLogin = account.source(.defaultLogin) {
             source = defaultLogin
-            slot = .defaultSlot()
+            folder = nil
         } else {
             throw UsageAccountFetchError.unavailable
         }
         let keychain = self.keychain
         let session = self.session
         let refresher = cliRefresher
+        let tokenOwner = self.tokenOwner
         let task = Task.detached(priority: .utility) {
-            try await Self.fetchOwnedClaudeCodeUsage(
+            let slot: ClaudeCodeLoginSlot =
+                if let folder {
+                    await Self.folderSlot(folder, keychain: keychain, tokenOwner: tokenOwner)
+                } else {
+                    .defaultSlot()
+                }
+            return try await Self.fetchOwnedClaudeCodeUsage(
                 slot: slot, interactive: interactive, expectedIdentity: account.identity,
                 keychain: keychain, session: session, cliRefresher: refresher)
         }
@@ -187,12 +209,15 @@ final class ClaudeUsageAccountProvider: UsageAccountProvider, UsageAccountMenuBa
                 sessionKey: sessionKey,
                 organizationID: stored.userSelectedPreferredOrganizationID ?? stored.identity.organizationID)
         } else {
-            let slot =
-                source.role == .defaultLogin
-                ? ClaudeCodeLoginSlot.defaultSlot()
-                : .folderSlot(URL(fileURLWithPath: source.reference))
             let keychain = self.keychain
+            let tokenOwner = self.tokenOwner
+            let isDefault = source.role == .defaultLogin
+            let reference = source.reference
             revision = try await Task.detached(priority: .utility) {
+                let slot =
+                    isDefault
+                    ? ClaudeCodeLoginSlot.defaultSlot()
+                    : await Self.folderSlot(reference, keychain: keychain, tokenOwner: tokenOwner)
                 guard
                     case .credential(let credential) = await slot.currentCredential(
                         interactive: false, keychain: keychain)
@@ -214,13 +239,15 @@ final class ClaudeUsageAccountProvider: UsageAccountProvider, UsageAccountMenuBa
         slot: ClaudeCodeLoginSlot, interactive: Bool, expectedIdentity: UsageAccountIdentity = .init(),
         keychain: ClaudeCodeKeychain = .system, session: URLSession = .shared,
         cliRefresher: ClaudeCodeCredentialReader.CLIRefresher = {
-            await ClaudeCodeCLI.refreshLogin(configDirectory: $0)
+            await ClaudeCodeCLI.refreshLogin(configDirectoryValue: $0)
         }
     ) async throws -> CredentialUsage {
         var read = await slot.currentCredential(interactive: interactive, keychain: keychain)
         try Task.checkCancellation()
         if case .credential(let credential) = read, credential.isExpired {
-            switch await cliRefresher(slot.cliConfigDirectory) {
+            // 원문을 모르는 항목은 `claude`가 다른 항목을 보게 된다. 그 폴더의 Claude Code가 갱신할 때까지 기다린다.
+            guard slot.canRunCLI else { throw UsageAccountFetchError.unavailable }
+            switch await cliRefresher(slot.cliConfigDirectoryValue) {
             case .refreshed: read = await slot.currentCredential(interactive: false, keychain: keychain)
             case .notLoggedIn: throw UsageAccountFetchError.loginExpired
             case .executableNotFound: throw UsageAccountFetchError.executableNotFound
@@ -258,11 +285,16 @@ final class ClaudeUsageAccountProvider: UsageAccountProvider, UsageAccountMenuBa
 
     func switchDefault(to account: UsageAccount, plan: UsageAccountSwitchPlan) async throws {
         guard let directory = account.source(.directory) else { throw AccountSwitchError.unavailable }
-        let folder = URL(fileURLWithPath: directory.reference)
+        let reference = directory.reference
         let email = account.identity.email
+        let keychain = self.keychain
+        let refresher = cliRefresher
+        let tokenOwner = self.tokenOwner
         // 잠금을 기다리는 동안 main을 막지 않는다.
         try await Task.detached(priority: .userInitiated) {
-            try await ClaudeAccountSwitcher.switchDefault(to: folder, expectedEmail: email)
+            let folder = await Self.folderSlot(reference, keychain: keychain, tokenOwner: tokenOwner)
+            try await ClaudeAccountSwitcher.switchDefault(
+                to: folder, expectedEmail: email, keychain: keychain, refresher: refresher, tokenOwner: tokenOwner)
         }.value
     }
 

@@ -5,7 +5,7 @@ extension SettingsView {
     // MARK: - 인증 섹션
 
     var authSection: some View {
-        ClaudeSetupSectionShell(presentation: appliedClaudeSetupPresentation) {
+        ClaudeSetupSectionShell {
             settingsToggleRow(
                 "Claude 사용",
                 isOn: Binding(
@@ -245,42 +245,28 @@ extension SettingsView {
     }
 
     var hasReadyClaudeCredential: Bool {
-        appliedClaudeSetupPresentation.progress.hasReadyCredential
+        SetupCompletionPolicy.hasReadyCredential(
+            sessionCredentialAvailable: activeClaudeWebAccount() != nil && storedSessionKey.hasStoredKey
+                || (usageHealthSnapshot?.runtime.credentialAvailability.sessionCredentialAvailable ?? false),
+            oauthCredentialAvailable: usageHealthSnapshot?.runtime.credentialAvailability.oauthCredentialAvailable ?? false
+        )
     }
 
     var appliedPreferredOrganizationID: String {
         normalizeOrganizationID(activeClaudePreferredOrganizationID())
     }
 
-    private var hasClaudeCredentialInput: Bool {
-        SetupCompletionPolicy.hasReadyCredential(
-            sessionCredentialAvailable: activeClaudeWebAccount() != nil
-                && !(normalizeSessionKey(storedSessionKey ?? "").isEmpty)
-                || (usageHealthSnapshot?.runtime.credentialAvailability.sessionCredentialAvailable ?? false),
-            oauthCredentialAvailable: usageHealthSnapshot?.runtime.credentialAvailability.oauthCredentialAvailable ?? false
-        )
-    }
-
-    var appliedClaudeSetupPresentation: ClaudeSetupPresentation {
-        SetupCompletionPolicy.resolvePresentation(
-            hasReadyCredential: hasClaudeCredentialInput,
-            hasSuccessfulFetch: hasSuccessfulClaudeFetch,
-            preferredOrganizationID: appliedPreferredOrganizationID,
-            cachedMetadata: profileMetadata
-        )
-    }
-
     private var hasPendingManualSessionKey: Bool {
         let normalized = normalizeSessionKey(sessionKey)
         guard !normalized.isEmpty else { return false }
-        return normalized != normalizeSessionKey(storedSessionKey ?? "")
+        return !storedSessionKey.matches(normalized)
     }
 
     private var canSaveVerifiedSessionKey: Bool {
         let normalized = normalizeSessionKey(sessionKey)
         guard !normalized.isEmpty else { return false }
         guard normalized == lastVerifiedSessionKey else { return false }
-        return normalized != normalizeSessionKey(storedSessionKey ?? "")
+        return !storedSessionKey.matches(normalized)
     }
 
     var shouldShowAdvancedAuthSection: Bool {
@@ -310,7 +296,7 @@ extension SettingsView {
             return "로그인이 없습니다. 브라우저에서 가져오거나 Claude Code에 로그인하세요."
         }
         let webExpired = "웹 로그인이 만료됐습니다. claude.ai에 다시 로그인한 뒤 가져오세요."
-        let claudeCodeExpired = "Claude Code 로그인이 만료됐습니다. 터미널에서 `claude auth login`을 실행하세요."
+        let claudeCodeExpired = "Claude Code 로그인이 만료됐습니다. 터미널에서 claude auth login을 실행하세요."
         switch runtime.activePath {
         case .sessionPrimary:
             return runtime.sessionValidationState == .failed ? webExpired : nil
@@ -326,13 +312,13 @@ extension SettingsView {
         VStack(alignment: .leading, spacing: AppDesign.Space.compact) {
             sourceStatusRow(
                 title: "웹 로그인",
-                value: validationStatusLabel(snapshot.runtime.sessionValidationState),
-                color: validationStatusColor(snapshot.runtime.sessionValidationState)
+                value: validationStatus(snapshot.runtime.sessionValidationState).text,
+                color: validationStatus(snapshot.runtime.sessionValidationState).color
             )
             sourceStatusRow(
                 title: "Claude Code 로그인",
-                value: validationStatusLabel(snapshot.runtime.oauthValidationState),
-                color: validationStatusColor(snapshot.runtime.oauthValidationState)
+                value: validationStatus(snapshot.runtime.oauthValidationState).text,
+                color: validationStatus(snapshot.runtime.oauthValidationState).color
             )
             sourceStatusRow(
                 title: "조회에 쓰는 로그인",
@@ -356,27 +342,12 @@ extension SettingsView {
         }
     }
 
-    private func validationStatusLabel(_ state: ClaudeCredentialValidationState) -> String {
-        switch state {
-        case .unavailable:
-            return "없음"
-        case .detected:
-            return "저장됨"
-        case .verified:
-            return "연결됨"
-        case .failed:
-            return "다시 로그인 필요"
-        }
-    }
-
-    private func validationStatusColor(_ state: ClaudeCredentialValidationState) -> Color {
-        switch state {
-        case .unavailable:
-            return .secondary
-        case .detected, .verified:
-            return .green
-        case .failed:
-            return .orange
+    private func validationStatus(_ state: ClaudeCredentialValidationState) -> (text: String, color: Color) {
+        let status = ClaudeAccountSettingsPresentation.statusPresentation(for: state, unavailableText: "없음")
+        switch status.tone {
+        case .neutral: return (status.text, .secondary)
+        case .success: return (status.text, .green)
+        case .warning: return (status.text, .orange)
         }
     }
 

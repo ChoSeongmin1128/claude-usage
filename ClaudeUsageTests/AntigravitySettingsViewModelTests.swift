@@ -373,9 +373,7 @@ extension AntigravitySettingsViewModelTests {
         ]
         let finalQuota = AntigravityQuotaSnapshot(
             identity: nil, plan: nil, lanes: lanes, decodeIssues: [],
-            provenance: .init(
-                transport: .cliUsageReport, endpointOwner: .managed, accountIdentity: nil,
-                capability: .groupedQuotaSummary, processIdentity: nil),
+            provenance: AntigravityQuotaProvenance(transport: .cliUsageReport, accountIdentity: nil),
             fetchedAt: now)
 
         func publication(

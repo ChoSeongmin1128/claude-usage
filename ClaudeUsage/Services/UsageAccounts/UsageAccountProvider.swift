@@ -82,6 +82,8 @@ nonisolated enum UsageAccountFetchError: Error, Equatable {
     case unavailable
     case accountChanged
     case server(Int)
+    /// 429나 Cloudflare 확인 페이지. 알려 준 시간 동안 다시 보내지 않는다.
+    case rateLimited(retryAfter: Int?)
 }
 
 nonisolated struct UsageAccountSwitchPlan: Equatable, Sendable {

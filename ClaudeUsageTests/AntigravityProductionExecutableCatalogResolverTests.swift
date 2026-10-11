@@ -437,39 +437,6 @@ private struct StubRunningImageValidator:
     }
 }
 
-private struct StubKernelIdentityReader:
-    AntigravityKernelProcessIdentityReading
-{
-    func kernelIdentity(
-        for processID: Int32
-    ) -> AntigravityKernelProcessIdentity? {
-        AntigravityKernelProcessIdentity(
-            uniqueID: UInt64(processID),
-            parentUniqueID: 1,
-            pidVersion: 1
-        )
-    }
-}
-
-private struct StubLibprocReader: AntigravityLibprocReading {
-    let processInfo: AntigravityBSDProcessInfo
-    let executableURL: URL
-
-    func bsdInfo(
-        for processID: Int32
-    ) -> AntigravityBSDProcessInfo? {
-        processID == processInfo.processID
-            ? processInfo
-            : nil
-    }
-
-    func executableURL(for processID: Int32) -> URL? {
-        processID == processInfo.processID
-            ? executableURL
-            : nil
-    }
-}
-
 private final class StubResolverFileSystem:
     AntigravityProductionExecutableResolverFileSystem,
     @unchecked Sendable

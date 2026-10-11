@@ -173,10 +173,23 @@ final class RefreshOrchestrationTests: XCTestCase {
             hasAuthError: state.hasAuthError,
             lastAttemptState: state.lastAttemptState,
             lastSuccessfulMetadata: state.lastSuccessfulMetadata,
-            lastAttemptMetadata: state.lastAttemptMetadata
+            lastAttemptMetadata: state.lastAttemptMetadata,
+            consecutiveFailures: state.consecutiveFailures
         )
-        XCTAssertEqual(staleSnapshot.freshness, .stale)
+        XCTAssertEqual(staleSnapshot.freshness, .fresh, "One failure keeps the value current")
         XCTAssertEqual(staleSnapshot.fetchState, .temporaryFailure)
+
+        _ = RuntimeProviderRefreshCoordinator.applyFailure(
+            state: &state, error: .parseError, minimumInterval: 30)
+        XCTAssertEqual(state.consecutiveFailures, StaleDataPolicy.consecutiveFailures)
+        let secondFailure = RuntimeProviderSnapshot(
+            service: .claude, payload: state.payload, error: state.error, lastUpdated: state.lastUpdated,
+            credentialState: .usable, isDetected: true, canAttemptRefresh: true, hasAuthError: false,
+            lastAttemptState: state.lastAttemptState, consecutiveFailures: state.consecutiveFailures)
+        XCTAssertEqual(secondFailure.freshness, .stale)
+
+        RuntimeProviderRefreshCoordinator.applySuccess(state: &state, payload: sampleClaudePayload)
+        XCTAssertEqual(state.consecutiveFailures, 0)
     }
 
     func testApplyFailureClearsPayloadForDefinitiveAuthFailure() {
@@ -339,42 +352,6 @@ final class PopoverViewModelTests: XCTestCase {
         XCTAssertEqual(state.summary, "설정 오류")
     }
 
-    func testResolveAntigravitySummaryStateDoesNotMergeCLIAvailabilityIntoIdentityOnlySource() {
-        let identity = ProviderAccountIdentity(
-            stableAccountID: "subject-a",
-            email: "nathan@example.com"
-        )
-        let state = PopoverViewModel.resolveAntigravitySummaryState(
-            snapshot: antigravityRuntimeSnapshot(
-                presentationState:
-                    .identityOnly(
-                        AntigravityIdentityOnlyUsage(
-                            identity: identity,
-                            plan: "Workspace",
-                            provenance:
-                                antigravityProvenance(
-                                    identity: identity
-                                ),
-                            fetchedAt:
-                                Self.referenceDate
-                        )
-                    ),
-                managedRuntimeAvailability:
-                    .unavailable(
-                        reason: .signatureRejected
-                    )
-            ),
-            isEnabled: true
-        )
-
-        XCTAssertEqual(state.phase, .temporaryError)
-        XCTAssertEqual(
-            state.summary,
-            "한도 수치 없음"
-        )
-        XCTAssertFalse(state.summary.contains("CLI"))
-    }
-
     func testResolveAntigravitySummaryStateDoesNotInventSeparateCLISourceForReadyQuota() {
         let state = PopoverViewModel.resolveAntigravitySummaryState(
             snapshot: antigravityRuntimeSnapshot(
@@ -387,21 +364,6 @@ final class PopoverViewModelTests: XCTestCase {
         XCTAssertEqual(state.phase, .ready)
         XCTAssertEqual(state.summary, "2개 사용량 한도")
         XCTAssertFalse(state.summary.contains("CLI"))
-    }
-
-    func testResolveAntigravitySummaryStateUsesTypedSetupRequirementForMissingLogin() {
-        let state = PopoverViewModel.resolveAntigravitySummaryState(
-            snapshot: antigravityRuntimeSnapshot(
-                presentationState:
-                    .setupRequired(
-                        .noAmbientLocalSession
-                    )
-            ),
-            isEnabled: true
-        )
-
-        XCTAssertEqual(state.phase, .authRequired)
-        XCTAssertEqual(state.summary, "로그인 필요")
     }
 
     func testResolveAntigravitySummaryStateUsesTypedRefreshingState() {
@@ -417,24 +379,16 @@ final class PopoverViewModelTests: XCTestCase {
         XCTAssertEqual(state.summary, "사용량 확인 중")
     }
 
-    func testResolveAntigravitySummaryStateShowsReconnectForTypedAuthenticationFailure() {
+    func testResolveAntigravitySummaryStateAsksForCLILoginWhenReportFails() {
         let state = PopoverViewModel.resolveAntigravitySummaryState(
             snapshot: antigravityRuntimeSnapshot(
-                presentationState:
-                    .failed(
-                        .authenticationRequired(
-                            .googleOAuth
-                        )
-                    )
+                presentationState: .failed(.cliReportFailed)
             ),
             isEnabled: true
         )
 
         XCTAssertEqual(state.phase, .authRequired)
-        XCTAssertEqual(
-            state.summary,
-            "이전 조회 경로는 지원하지 않습니다"
-        )
+        XCTAssertEqual(state.summary, "AGY 사용량 없음")
     }
 
     private func antigravityRuntimeSnapshot(
@@ -520,13 +474,7 @@ final class PopoverViewModelTests: XCTestCase {
     private func antigravityProvenance(
         identity: ProviderAccountIdentity
     ) -> AntigravityQuotaProvenance {
-        AntigravityQuotaProvenance(
-            transport: .googleOAuth,
-            endpointOwner: .external,
-            accountIdentity: identity,
-            capability: .groupedQuotaSummary,
-            processIdentity: nil
-        )
+        AntigravityQuotaProvenance(transport: .cliUsageReport, accountIdentity: identity)
     }
 
     private static let referenceDate =
@@ -678,20 +626,9 @@ final class PopoverViewModelTests: XCTestCase {
     /// 되살리면 같은 수치가 두 경로로 중복 렌더링되므로 경계를 고정한다.
     func testAntigravityQuotaNeverProducesLegacyCatalogDisplaySections() {
         let viewModel = PopoverViewModel()
-        let identity = ProviderAccountIdentity(
-            stableAccountID: "subject-a",
-            email: "nathan@example.com"
-        )
         let states: [AntigravityPresentationState] = [
             .ready(antigravityQuotaSnapshot()),
-            .identityOnly(
-                AntigravityIdentityOnlyUsage(
-                    identity: identity,
-                    plan: "Workspace",
-                    provenance: antigravityProvenance(identity: identity),
-                    fetchedAt: Self.referenceDate
-                )
-            ),
+            .failed(.cliReportFailed),
         ]
 
         for state in states {

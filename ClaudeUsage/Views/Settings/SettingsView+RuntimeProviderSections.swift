@@ -94,37 +94,16 @@ extension SettingsView {
         }
     }
 
+    /// CLI 보고에는 계정 정보가 없어 보고를 받았으면 CLI 로그인 계정이라고만 적는다.
     private func antigravityIdentitySummary(_ state: AntigravitySettingsViewState) -> some View {
-        let identity: ProviderAccountIdentity?
+        let hasReport: Bool
         let isPrevious: Bool
-        var isCLIReport = false
         switch state.presentation {
-        case .ready(let quota), .partial(let quota, _):
-            identity = quota.identity ?? quota.provenance.accountIdentity
-            isPrevious = false
-            isCLIReport = quota.provenance.transport == .cliUsageReport
-        case .stale(let quota, _), .refreshing(previous: let quota?):
-            identity = quota.identity ?? quota.provenance.accountIdentity
-            isPrevious = true
-            isCLIReport = quota.provenance.transport == .cliUsageReport
-        case .limited(let value):
-            identity = value.evidence.identity
-            isPrevious = false
-        case .identityOnly(let value):
-            identity = value.identity
-            isPrevious = false
-        default:
-            identity = nil
-            isPrevious = false
+        case .ready, .partial: (hasReport, isPrevious) = (true, false)
+        case .stale, .refreshing(previous: .some): (hasReport, isPrevious) = (true, true)
+        case .disabled, .refreshing(previous: nil), .failed: (hasReport, isPrevious) = (false, false)
         }
-        let accountText: String
-        if let identity {
-            accountText = identity.email ?? "이메일 없음"
-        } else if isCLIReport {
-            accountText = AntigravityQuotaPresentationMapper.cliReportAccountLabel
-        } else {
-            accountText = "확인 전"
-        }
+        let accountText = hasReport ? AntigravityQuotaPresentationMapper.cliReportAccountLabel : "확인 전"
         return LabeledContent(isPrevious ? "마지막 확인 계정" : "로그인 계정") {
             Text(accountText)
                 .textSelection(.enabled)
@@ -226,10 +205,6 @@ extension SettingsView {
         case .ready: return ("연결됨", .blue)
         case .partial: return ("일부 한도만", .orange)
         case .stale: return (UsageStatusLabel.previousValue, .orange)
-        case .limited, .identityOnly: return ("사용량 수치 없음", .orange)
-        case .setupRequired(.ambiguousLocalSessions): return ("계정 여러 개", .orange)
-        case .setupRequired: return ("로그인 필요", .orange)
-        case .accountMismatch: return ("계정 불일치", .red)
         case .failed: return ("확인 실패", .red)
         case .refreshing: return ("확인 중", .secondary)
         case .disabled: return ("준비 중", .secondary)
@@ -266,16 +241,8 @@ extension SettingsView {
             "전체 한도"
         case .partial:
             "일부 한도"
-        case .limited:
-            "수치 없음"
-        case .identityOnly:
-            "계정만"
         case .stale(_, let reason):
             "\(UsageStatusLabel.previousValue) · " + reason.diagnosticCode
-        case .accountMismatch:
-            "계정 불일치"
-        case .setupRequired:
-            "설정 필요"
         case .failed(let reason):
             reason.diagnosticCode
         case .refreshing:

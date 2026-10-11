@@ -31,6 +31,35 @@ final class MenuBarStatusComposerTests: XCTestCase {
         XCTAssertFalse(snapshot.tooltip.contains("마지막 성공 데이터 표시 중"))
     }
 
+    func testClaudeAndCodexMarkPreviousValueOnlyWhenStale() throws {
+        let usage = ClaudeUsageResponse(fiveHour: .init(utilization: 42, resetsAt: nil), sevenDay: nil)
+        func claude(isStale: Bool) -> MenuBarProviderSnapshot {
+            MenuBarStatusComposer.claudeSnapshot(
+                config: ProviderMenuBarDisplayConfig(
+                    kind: .claude, showIcon: false, style: .none, percentageDisplay: .fiveHour,
+                    showBatteryPercent: false, resetTimeDisplay: .none, timeFormat: .h24,
+                    circularDisplayMode: .usage, iconMetric: .fiveHour),
+                isStale: isStale, usage: usage, error: .networkError("fixture"), hasAuthError: false,
+                hasCredential: true, secondaryColor: .secondaryLabelColor, icon: nil, renderImages: false)
+        }
+        XCTAssertFalse(claude(isStale: false).isStale)
+        XCTAssertFalse(claude(isStale: false).tooltip.contains("갱신 지연"))
+        XCTAssertTrue(claude(isStale: true).isStale)
+        XCTAssertTrue(claude(isStale: true).tooltip.contains("갱신 지연"))
+
+        let codexUsage = try JSONDecoder().decode(
+            CodexUsageResponse.self,
+            from: Data(#"{"rate_limit":{"primary_window":{"used_percent":42,"limit_window_seconds":18000}}}"#.utf8))
+        let codex = MenuBarStatusComposer.codexSnapshot(
+            config: ProviderMenuBarDisplayConfig(
+                kind: .codex, showIcon: false, style: .none, percentageDisplay: .fiveHour,
+                showBatteryPercent: false, resetTimeDisplay: .none, timeFormat: .h24,
+                circularDisplayMode: .usage, iconMetric: .fiveHour),
+            isStale: true, usage: codexUsage, error: .networkError("fixture"), hasAuthError: false,
+            isAuthenticated: true, secondaryColor: .secondaryLabelColor, icon: nil, renderImages: false)
+        XCTAssertTrue(codex.isStale)
+    }
+
     func testMissingClaudeCredentialWithoutFailureStillRequestsLogin() {
         let snapshot = claudeCredentialSnapshot(usage: nil, error: nil)
 
@@ -364,7 +393,7 @@ final class MenuBarStatusComposerTests: XCTestCase {
                 presentation: presentation,
                 context: .init(
                     phase: .stale(
-                        .sourceUnavailable(.googleOAuth)
+                        .sourceUnavailable(.cliReport)
                     )
                 ),
                 icon: nil

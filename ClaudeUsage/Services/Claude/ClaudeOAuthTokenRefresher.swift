@@ -31,7 +31,7 @@ actor ClaudeOAuthTokenRefresher {
         var errorDescription: String? {
             switch self {
             case .invalidGrant:
-                return "Claude Code 로그인이 만료됐습니다. 터미널에서 `claude auth login`을 실행하세요."
+                return "Claude Code 로그인이 만료됐습니다. 터미널에서 claude auth login을 실행하세요."
             case .temporary(let detail):
                 return "Claude OAuth refresh 일시 실패: \(detail)"
             case .missingRefreshToken:

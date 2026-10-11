@@ -351,9 +351,7 @@ final class AntigravityMenuBarQuotaEditorAdapterTests: XCTestCase {
             ]
         let snapshot = AntigravityQuotaSnapshot(
             identity: nil, plan: "fixture", lanes: lanes, decodeIssues: [],
-            provenance: AntigravityQuotaProvenance(
-                transport: .cliUsageReport, endpointOwner: .external, accountIdentity: nil,
-                capability: .groupedQuotaSummary, processIdentity: nil), fetchedAt: now)
+            provenance: AntigravityQuotaProvenance(transport: .cliUsageReport, accountIdentity: nil), fetchedAt: now)
         return AntigravityQuotaPresentationMapper.map(
             snapshot: snapshot, settings: settings, basisOverride: .remaining, now: now, timeZone: utc)
     }

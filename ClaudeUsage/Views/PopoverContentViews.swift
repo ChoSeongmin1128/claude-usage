@@ -213,19 +213,8 @@ struct ProviderStatusSectionView: View {
         }
     }
 
-    private var statusText: String {
-        if let error = status.error {
-            return error.compactStatusText
-        }
-        return status.statusText ?? "데이터 없음"
-    }
-
-    private var statusColor: Color {
-        if let error = status.error {
-            return error.compactStatusColor
-        }
-        return status.statusText == nil ? .secondary : .orange
-    }
+    private var statusText: String { status.compactStatusText }
+    private var statusColor: Color { status.compactStatusColor }
 }
 
 struct PopoverDisplayItemsListView: View {
@@ -342,19 +331,14 @@ struct ProviderStatusRow: View {
         .padding(.vertical, AppDesign.Space.compact)
     }
 
-    private var statusText: String {
-        if let error = status.error {
-            return error.compactStatusText
-        }
-        return status.statusText ?? "데이터 없음"
-    }
+    private var statusText: String { status.compactStatusText }
+    private var statusColor: Color { status.compactStatusColor }
+}
 
-    private var statusColor: Color {
-        if let error = status.error {
-            return error.compactStatusColor
-        }
-        return status.statusText == nil ? .secondary : .orange
-    }
+private extension PopoverStatusSectionData {
+    /// 상태 행의 짧은 문구와 색. 오류가 있으면 오류를, 없으면 상태 문구를 쓴다.
+    var compactStatusText: String { error?.compactStatusText ?? statusText ?? "데이터 없음" }
+    var compactStatusColor: Color { error?.compactStatusColor ?? (statusText == nil ? .secondary : .orange) }
 }
 
 private extension APIError {

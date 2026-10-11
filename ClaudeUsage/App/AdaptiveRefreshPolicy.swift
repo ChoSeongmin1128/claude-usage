@@ -36,6 +36,12 @@ nonisolated enum AdaptiveRefreshPolicy {
         return maximumInterval
     }
 
+    /// 다 쓴 한도는 초기화 전까지 값이 바뀌지 않고 초기화 직후 조회가 따로 있어 빈번한 조회에서 뺀다.
+    static func isLowRemaining(usedPercentage: Double) -> Bool {
+        let remaining = 100 - usedPercentage
+        return remaining > 0 && remaining <= lowRemainingPercent
+    }
+
     static func isStale(lastUpdatedAt: Date?, now: Date) -> Bool {
         guard let lastUpdatedAt else { return true }
         return now.timeIntervalSince(lastUpdatedAt) > staleAfter

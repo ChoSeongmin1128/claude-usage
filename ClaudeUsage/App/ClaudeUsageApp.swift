@@ -8,6 +8,13 @@
 import SwiftUI
 
 @main
+enum ClaudeUsageMain {
+    static func main() {
+        AppLaunchGate.acquireOrExit()
+        ClaudeUsageApp.main()
+    }
+}
+
 struct ClaudeUsageApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 

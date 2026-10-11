@@ -135,11 +135,8 @@ final class AppExperiencePreferencesTests: XCTestCase {
         let quota = agyQuota()
         XCTAssertEqual(
             agyWelcomeStatus(agyRuntime(.stale(quota, failure: .transportUnavailable(.cliReport)))), .notVerified)
-        XCTAssertEqual(
-            agyWelcomeStatus(agyRuntime(.failed(.authenticationRequired(.cliReport)))), .notVerified)
         XCTAssertEqual(agyWelcomeStatus(agyRuntime(.failed(.cliReportFailed))), .notVerified)
         XCTAssertEqual(agyWelcomeStatus(agyRuntime(.disabled)), .notVerified)
-        XCTAssertEqual(agyWelcomeStatus(agyRuntime(.setupRequired(.noAmbientLocalSession))), .notVerified)
     }
 
     func testAGYConnectionUsesAtomicLoadingAndRequiresAReadySuccessfulPublication() {
@@ -182,9 +179,7 @@ final class AppExperiencePreferencesTests: XCTestCase {
             availability: availability)
         return AntigravityQuotaSnapshot(
             identity: nil, plan: nil, lanes: includeLane ? [lane] : [], decodeIssues: issues,
-            provenance: .init(
-                transport: .cliUsageReport, endpointOwner: .managed, accountIdentity: nil,
-                capability: .groupedQuotaSummary, processIdentity: nil),
+            provenance: AntigravityQuotaProvenance(transport: .cliUsageReport, accountIdentity: nil),
             fetchedAt: Date(timeIntervalSince1970: 1_900_000_000))
     }
 

@@ -10,26 +10,24 @@ final class OperationalLogTests: XCTestCase {
         XCTAssertTrue(engine.responds(to: NSSelectorFromString("updater:mayPerformUpdateCheck:error:")))
     }
 
-    func testAccountMaterialNeverEntersFailureDiagnostics() {
-        let secret = "private@example.test bearer-secret csrf-secret"
-        let diagnostic = OperationalDiagnostic.antigravity(
-            .accountMismatch(
-                expected: ProviderAccountIdentity(stableAccountID: secret, email: secret),
-                received: ProviderAccountIdentity(email: secret))
-        )
-        XCTAssertEqual(diagnostic?.code, "agy.accountMismatch")
-        XCTAssertEqual(diagnostic?.source, "coordinator")
+    func testAccountMaterialNeverEntersDiagnostics() {
+        let secret = "private@example.test bearer-secret"
+        let identity = ProviderAccountIdentity(stableAccountID: secret, email: secret)
+        let snapshot = AntigravityQuotaSnapshot(
+            identity: identity, plan: nil, lanes: [], decodeIssues: [],
+            provenance: AntigravityQuotaProvenance(transport: .cliUsageReport, accountIdentity: identity),
+            fetchedAt: Date(timeIntervalSince1970: 1_900_000_000))
+        let diagnostic = OperationalDiagnostic.antigravity(.ready(snapshot))
+        XCTAssertEqual(diagnostic?.code, "agy.quotaReady")
+        XCTAssertEqual(diagnostic?.source, "cliUsageReport")
         XCTAssertFalse(String(describing: diagnostic).contains(secret))
     }
 
-    func testCSRFAndTransportFailuresRemainDistinct() {
-        let csrf = OperationalDiagnostic.antigravity(.failed(.localAuthentication(.localApp, .rejected)))
+    func testTransportFailuresAreAttributedToTheReportSource() {
         let transport = OperationalDiagnostic.antigravity(.failed(.transportUnavailable(.cliReport)))
-        XCTAssertEqual(csrf?.code, "agy.localApp.csrf.rejected")
-        XCTAssertEqual(csrf?.source, "localApp")
         XCTAssertEqual(transport?.code, "agy.cliReport.transportUnavailable")
         XCTAssertEqual(transport?.source, "cliReport")
-        XCTAssertEqual(csrf?.isFailure, true)
+        XCTAssertEqual(transport?.isFailure, true)
     }
 
     func testCLIReportFailuresAreAttributedToTheReportSource() {

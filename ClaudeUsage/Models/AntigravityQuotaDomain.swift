@@ -10,18 +10,6 @@ nonisolated struct ProviderAccountIdentity: Sendable, Equatable, Hashable, Codab
     }
 }
 
-nonisolated struct ProcessIdentity: Sendable, Equatable {
-    let processID: Int32
-    let startedAt: Date?
-    let executablePath: String?
-
-    init(processID: Int32, startedAt: Date? = nil, executablePath: String? = nil) {
-        self.processID = processID
-        self.startedAt = startedAt
-        self.executablePath = executablePath
-    }
-}
-
 nonisolated struct AntigravityQuotaLaneID:
     RawRepresentable,
     Hashable,
@@ -119,24 +107,10 @@ nonisolated struct AntigravityQuotaSnapshot: Sendable, Equatable {
 
 nonisolated struct AntigravityQuotaProvenance: Sendable, Equatable {
     enum Transport: String, Sendable, Equatable {
-        case localAppRPC
         case cliUsageReport
-        case googleOAuth
-    }
-
-    enum EndpointOwner: String, Sendable, Equatable {
-        case external
-        case managed
-    }
-
-    enum Capability: String, Sendable, Equatable {
-        case groupedQuotaSummary
-        case limitedQuota
     }
 
     let transport: Transport
-    let endpointOwner: EndpointOwner
+    /// CLI 보고에는 계정 정보가 없어 지금은 항상 nil이다.
     let accountIdentity: ProviderAccountIdentity?
-    let capability: Capability
-    let processIdentity: ProcessIdentity?
 }

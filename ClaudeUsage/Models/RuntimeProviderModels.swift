@@ -248,6 +248,7 @@ struct RuntimeProviderState {
     var loadingStartedAt: Date?
     var nextRefreshAllowedAt: Date?
     var hasAuthError: Bool
+    var consecutiveFailures = 0
 
     init(
         payload: RuntimeProviderPayload? = nil,
@@ -398,6 +399,7 @@ struct RuntimeProviderSnapshot {
     let hasAuthError: Bool
     let lastSuccessfulMetadata: RuntimeProviderFetchMetadata?
     let lastAttemptMetadata: RuntimeProviderFetchMetadata?
+    let consecutiveFailures: Int
 
     init(
         service: PopoverService,
@@ -415,9 +417,11 @@ struct RuntimeProviderSnapshot {
         lastAttemptMetadata: RuntimeProviderFetchMetadata? = nil,
         claudeOverage: OverageSpendLimitResponse? = nil,
         claudeOverageUpdatedAt: Date? = nil,
-        claudeOverageIsStale: Bool = false
+        claudeOverageIsStale: Bool = false,
+        consecutiveFailures: Int = 0
     ) {
         self.service = service
+        self.consecutiveFailures = consecutiveFailures
         self.claudeOverageUpdatedAt = claudeOverageUpdatedAt
         self.claudeOverageIsStale = claudeOverageIsStale
         self.claudeOverage = service == .claude && payload != nil ? claudeOverage : nil
@@ -457,7 +461,10 @@ struct RuntimeProviderSnapshot {
     var freshness: RuntimeProviderFreshness {
         if isLoading { return .loading }
         guard displayPayload != nil else { return .unavailable }
-        return lastAttemptError == nil ? .fresh : .stale
+        guard lastAttemptError != nil,
+            StaleDataPolicy.showsPreviousValue(afterConsecutiveFailures: consecutiveFailures)
+        else { return .fresh }
+        return .stale
     }
 
     var fetchState: RuntimeProviderFetchState {

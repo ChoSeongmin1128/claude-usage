@@ -1,19 +1,15 @@
 import Foundation
 
 extension SettingsView {
-    func syncStoredSessionKeyState() {
+    @discardableResult
+    func syncStoredSessionKeyState() -> Task<Void, Never> {
         organizationPersistTask?.cancel()
         organizationPersistTask = nil
         cancelOrganizationLoad()
-        claudeAccountStore.ensureLegacyMigrationIfNeeded()
-        if let account = claudeAccountStore.activeWebAccount() {
-            storedSessionKey = sessionKeyLoader(account.id)
-        } else {
-            storedSessionKey = nil
-        }
         // 저장된 세션 키를 입력칸에 채우지 않는다. 화면 공유나 캡처로 계정 로그인이 드러날 수 있다.
         sessionKey = ""
         lastVerifiedSessionKey = nil
+        return storedSessionKey.reload()
     }
 
     func syncClaudeAccountsState() {
@@ -91,8 +87,11 @@ extension SettingsView {
         }
     }
 
+    /// 고른 조직을 저장하기 전에 창을 닫은 경우만 저장한다. Claude 패널을 열지 않았으면 선택 값이 비어 있어,
+    /// 그대로 저장하면 직접 고른 조직이 자동 선택으로 바뀐다.
     func flushPendingOrganizationPersistence() {
-        organizationPersistTask?.cancel()
+        guard let pending = organizationPersistTask else { return }
+        pending.cancel()
         organizationPersistTask = nil
         _ = persistPreferredOrganizationSelection()
     }
@@ -109,8 +108,7 @@ extension SettingsView {
             return
         }
 
-        let existingKey = normalizeSessionKey(storedSessionKey ?? "")
-        guard existingKey != normalizedKey else {
+        guard !storedSessionKey.matches(normalizedKey) else {
             testResult = .success("이미 저장된 세션 키입니다.")
             return
         }
@@ -124,7 +122,7 @@ extension SettingsView {
                 sourceDetail: nil
             )
             syncClaudeAccountsState()
-            storedSessionKey = normalizedKey
+            storedSessionKey.markSaved(normalizedKey)
             testResult = .success("저장했습니다.")
         } catch {
             testResult = .failure(error.localizedDescription)
@@ -178,34 +176,12 @@ extension SettingsView {
         return account
     }
 
-    func activeClaudeWebSessionKey() -> String? {
-        guard let account = activeClaudeWebAccount() else { return nil }
-        return sessionKeyLoader(account.id)
-    }
-
     func activeClaudePreferredOrganizationID() -> String {
         activeClaudeWebAccount()?.userSelectedPreferredOrganizationID ?? ""
     }
 
     func normalizeSessionKey(_ raw: String) -> String {
-        var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if let prefixRange = value.range(of: "sessionKey=", options: [.anchored, .caseInsensitive]) {
-            value = String(value[prefixRange.upperBound...])
-        }
-
-        if let semiIndex = value.firstIndex(of: ";") {
-            value = String(value[..<semiIndex])
-        }
-
-        value = value.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if value.hasPrefix("\""), value.hasSuffix("\""), value.count >= 2 {
-            value.removeFirst()
-            value.removeLast()
-        }
-
-        return value
+        ClaudeSessionKeyInput.normalize(raw)
     }
 
     func normalizeOrganizationID(_ raw: String) -> String {
@@ -220,22 +196,7 @@ extension SettingsView {
             return
         }
 
-        let normalizedKey: String = {
-            if !sessionKey.isEmpty {
-                return normalizeSessionKey(sessionKey)
-            }
-            if let storedSessionKey = activeClaudeWebSessionKey(), !storedSessionKey.isEmpty {
-                return normalizeSessionKey(storedSessionKey)
-            }
-            return ""
-        }()
-
-        guard !normalizedKey.isEmpty else {
-            cancelOrganizationLoad(clearState: true)
-            organizationMessage = SettingsNotice("조직 선택은 웹 로그인에서만 됩니다.", isWarning: true)
-            loadUsageHealthSnapshot()
-            return
-        }
+        let manualKey = sessionKey.isEmpty ? nil : normalizeSessionKey(sessionKey)
 
         cancelOrganizationLoad()
         let loadToken = UUID()
@@ -249,6 +210,21 @@ extension SettingsView {
                 return await MainActor.run {
                     isCurrentOrganizationLoad(token: loadToken, accountID: loadAccountID)
                 }
+            }
+
+            // 입력한 키가 없으면 저장된 키가 있는지만 본다. 키를 읽는 일은 저장 키 모델이 메인 스레드 밖에서 한다.
+            let hasSessionKey: Bool
+            if let manualKey {
+                hasSessionKey = !manualKey.isEmpty
+            } else {
+                hasSessionKey = await storedSessionKey.loadedFingerprint() != nil
+            }
+            guard hasSessionKey else {
+                guard await shouldApply() else { return }
+                cancelOrganizationLoad(clearState: true)
+                organizationMessage = SettingsNotice("조직 선택은 웹 로그인에서만 됩니다.", isWarning: true)
+                loadUsageHealthSnapshot()
+                return
             }
 
             // 활성 계정의 조직 조회는 AppDelegate가 주입한 공용 actor를

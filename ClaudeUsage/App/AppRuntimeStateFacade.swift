@@ -82,7 +82,6 @@ final class AppRuntimeStateFacade {
     var systemStatus: ClaudeSystemStatus?
     var providerSystemStatuses: [AppProviderKind: ProviderSystemStatus] = [:]
     var antigravityRuntimeSnapshot = AntigravityRuntimeSnapshot.idle
-    var setupWizardCredentialStepOverride: SetupWizardView.Step?
     var claudeCredentialAvailability = ClaudeCredentialAvailability(
         sessionCredentialAvailable: false,
         oauthCredentialAvailable: false
@@ -119,7 +118,8 @@ final class AppRuntimeStateFacade {
                 claudeOverage: state.lastSuccessfulMetadata?.accountID == activeClaudeAccountID
                     ? (currentOverage ?? state.claudeUsage?.extraUsage) : nil,
                 claudeOverageUpdatedAt: lastOverageFetchAt,
-                claudeOverageIsStale: scopedSupplementalUsage?.lastRefreshFailed ?? false
+                claudeOverageIsStale: scopedSupplementalUsage?.lastRefreshFailed ?? false,
+                consecutiveFailures: state.consecutiveFailures
             )
         case .codex:
             return RuntimeProviderSnapshot(
@@ -135,7 +135,8 @@ final class AppRuntimeStateFacade {
                 hasAuthError: state.hasAuthError,
                 lastAttemptState: state.lastAttemptState,
                 lastSuccessfulMetadata: state.lastSuccessfulMetadata,
-                lastAttemptMetadata: state.lastAttemptMetadata
+                lastAttemptMetadata: state.lastAttemptMetadata,
+                consecutiveFailures: state.consecutiveFailures
             )
         case .antigravity:
             let snapshot = antigravityRuntimeSnapshot
@@ -161,10 +162,7 @@ final class AppRuntimeStateFacade {
                     snapshot.settings != nil,
                 canAttemptRefresh:
                     canAttemptRefresh,
-                hasAuthError:
-                    Self.antigravityHasAuthError(
-                        snapshot.presentationState
-                    ),
+                hasAuthError: false,
                 lastAttemptState:
                     Self.antigravityAttemptState(
                         snapshot
@@ -178,12 +176,15 @@ final class AppRuntimeStateFacade {
     private static func antigravityCanAttemptRefresh(
         _ snapshot: AntigravityRuntimeSnapshot
     ) -> Bool {
-        guard snapshot.readiness == .ready,
-              snapshot.settings != nil
-        else {
+        switch snapshot.readiness {
+        case .ready:
+            return snapshot.settings != nil
+        case .blocked(.typedSettings):
+            // 설정을 한 번 읽지 못한 상태는 다음 조회가 설정을 다시 읽어 스스로 복구한다.
+            return true
+        case .idle, .bootstrapping, .blocked, .shuttingDown:
             return false
         }
-        return true
     }
 
     private static func antigravityCredentialState(
@@ -204,71 +205,7 @@ final class AppRuntimeStateFacade {
     private static func antigravityAttemptState(
         _ snapshot: AntigravityRuntimeSnapshot
     ) -> RuntimeProviderAttemptState {
-        switch snapshot.readiness {
-        case .bootstrapping:
-            return .loading
-        case .blocked:
-            return .definitiveFailure
-        case .idle, .ready, .shuttingDown:
-            break
-        }
-
-        switch snapshot.presentationState {
-        case .refreshing:
-            return .loading
-        case .stale:
-            return .temporaryFailure
-        case .accountMismatch:
-            return .definitiveFailure
-        case .failed(let failure):
-            return Self.antigravityIsAuthFailure(
-                failure
-            )
-                ? .authFailure
-                : .definitiveFailure
-        case .disabled,
-             .setupRequired,
-             .ready,
-             .partial,
-             .limited,
-             .identityOnly:
-            return .idle
-        }
-    }
-
-    private static func antigravityHasAuthError(
-        _ state: AntigravityPresentationState
-    ) -> Bool {
-        guard case .failed(let failure) = state
-        else {
-            return false
-        }
-        return antigravityIsAuthFailure(failure)
-    }
-
-    private static func antigravityIsAuthFailure(
-        _ failure: AntigravityFailure
-    ) -> Bool {
-        switch failure {
-        case .authenticationRequired:
-            return true
-        case .cancelled, .accountChanged,
-             .appShuttingDown,
-             .invalidRefreshContext,
-             .generationExhausted,
-             .noEligibleSource,
-             .sourceUnavailable,
-             .interactionRequired,
-             .deadlineExceeded,
-             .schemaChanged,
-             .transportUnavailable,
-             .sourceContractViolation,
-             .localAuthentication,
-             .numericQuotaUnavailable,
-            .runtimeUnavailable,
-            .cliReportFailed:
-            return false
-        }
+        AntigravityStatusProjection(snapshot: snapshot).attemptState
     }
 
     @discardableResult

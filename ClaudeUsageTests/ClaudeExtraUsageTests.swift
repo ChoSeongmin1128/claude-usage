@@ -149,6 +149,23 @@ final class ClaudeExtraUsageTests: XCTestCase {
         XCTAssertEqual(calls, 0)
     }
 
+    func testOAuthPathKeepsUnreadableExtraUsageUnknown() async throws {
+        let usage = try decode(
+            #"{ "five_hour": { "utilization": 1, "resets_at": null }, "extra_usage": {"is_enabled":true} }"#)
+        XCTAssertNil(usage.extraUsage)
+        XCTAssertTrue(usage.hasMalformedExtraUsage)
+        let fallback = ExtraUsageFallbackStub(.value(separateUsage))
+        let result = try await ClaudeSupplementalRefreshResult.refresh(
+            embeddedUsage: usage.extraUsage, embeddedUsageIsMalformed: usage.hasMalformedExtraUsage, source: .oauth
+        ) { try await fallback.fetch() }
+
+        guard case .failed = result else { return XCTFail("Unreadable extra usage must not read as disabled") }
+        XCTAssertFalse(try decode(#"{ "five_hour": { "utilization": 1, "resets_at": null } }"#).hasMalformedExtraUsage)
+        XCTAssertFalse(
+            try decode(#"{ "five_hour": { "utilization": 1, "resets_at": null }, "extra_usage": null }"#)
+                .hasMalformedExtraUsage)
+    }
+
     func testOAuthPathTreatsAbsentExtraUsageAsNotEnabled() async throws {
         let now = Date()
         let usage = try decode(#"{ "five_hour": { "utilization": 1, "resets_at": null } }"#)

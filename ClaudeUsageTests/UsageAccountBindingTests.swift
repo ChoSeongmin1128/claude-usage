@@ -212,6 +212,39 @@ final class UsageAccountBindingTests: XCTestCase {
         } catch { XCTAssertEqual(error as? UsageAccountFetchError, .unavailable) }
     }
 
+    func testRejectedResetCreditQueryFallsBackToPlainUsageOnce() async throws {
+        let counter = BindingRequestCounter()
+        let usage = try await ClaudeWebUsageFetcher.fetchOAuthUsage(
+            accessToken: "token",
+            session: session { request in
+                counter.increment()
+                let url = try XCTUnwrap(request.url)
+                let response = try XCTUnwrap(
+                    HTTPURLResponse(
+                        url: url, statusCode: url.query == nil ? 200 : 400, httpVersion: nil, headerFields: nil))
+                return (response, Data(#"{"five_hour":{"utilization":12,"resets_at":null}}"#.utf8))
+            })
+        XCTAssertEqual(usage.fiveHourPercentage, 12)
+        XCTAssertEqual(counter.count, 2)
+
+        let cloudflare = BindingRequestCounter()
+        do {
+            _ = try await ClaudeWebUsageFetcher.fetchOAuthUsage(
+                accessToken: "token",
+                session: session { request in
+                    cloudflare.increment()
+                    let response = try XCTUnwrap(
+                        HTTPURLResponse(
+                            url: try XCTUnwrap(request.url), statusCode: 403, httpVersion: nil, headerFields: nil))
+                    return (response, Data("<title>Just a moment...</title>".utf8))
+                })
+            XCTFail("A challenge page is not a usage response")
+        } catch {
+            XCTAssertEqual(error as? UsageAccountFetchError, .rateLimited(retryAfter: nil))
+        }
+        XCTAssertEqual(cloudflare.count, 1, "A challenge is not retried without the query")
+    }
+
     private func session(_ handler: @escaping BindingURLProtocol.Handler) -> URLSession {
         BindingURLProtocol.handler = handler
         let configuration = URLSessionConfiguration.ephemeral

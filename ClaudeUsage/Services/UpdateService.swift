@@ -54,6 +54,7 @@ private enum UpdateEngineMessages {
     nonisolated static let sparkleInteractiveStarted = "업데이트 확인 창을 열었습니다"
     nonisolated static let updateSessionInProgress = "이미 업데이트를 확인하는 중입니다"
     nonisolated static let downloadCancelled = "업데이트 다운로드를 취소했습니다"
+    nonisolated static let checkDidNotFinish = "업데이트 확인이 끝나지 않았습니다. 잠시 뒤 다시 확인합니다"
 
     nonisolated static func sparkleSchedulerReadyMessage(usingFeedOverride: Bool) -> String {
         return sparkleSchedulerReady
@@ -339,6 +340,9 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
     private let preferredFeedURL: URL?
     private var activeSessionOrigin: UpdateSessionOrigin?
     private var pendingCheckContinuation: CheckedContinuation<UpdateCheckResult, Never>?
+    private var pendingCheckID: UUID?
+    /// Sparkle이 확인을 시작하지 않으면 콜백이 오지 않는다. 다운로드까지 기다릴 수 있게 넉넉히 잡는다.
+    private static let checkCompletionTimeout: Duration = .seconds(600)
     private var lastCycleResult: UpdateCheckResult?
     private var preparedInstallHandler: (() -> Void)?
     private var installRequestInProgress = false
@@ -377,9 +381,16 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
         updater.automaticallyDownloadsUpdates = true
         UpdateRuntimeState.shared.beginChecking(message: "새 버전이 있으면 자동으로 준비합니다")
 
+        let checkID = UUID()
         return await withCheckedContinuation { continuation in
             pendingCheckContinuation = continuation
+            pendingCheckID = checkID
             updater.checkForUpdatesInBackground()
+            Task { [weak self] in
+                try? await Task.sleep(for: Self.checkCompletionTimeout)
+                guard let self, self.pendingCheckID == checkID else { return }
+                self.resumePendingCheckIfNeeded(with: .error(UpdateEngineMessages.checkDidNotFinish))
+            }
         }
     }
 
@@ -505,6 +516,7 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
     private func resumePendingCheckIfNeeded(with result: UpdateCheckResult) {
         guard let continuation = pendingCheckContinuation else { return }
         pendingCheckContinuation = nil
+        pendingCheckID = nil
         continuation.resume(returning: result)
     }
 

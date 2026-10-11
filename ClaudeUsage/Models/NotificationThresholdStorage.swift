@@ -8,11 +8,19 @@ nonisolated struct NotificationThresholdStorage: Codable {
     let presets: [NotificationPreset]
     static let key = "notificationRulesV2"
 
-    static func load(from defaults: UserDefaults) -> [NotificationPreset]? {
-        guard let data = defaults.data(forKey: key),
-            let stored = try? JSONDecoder().decode(Self.self, from: data), stored.schemaVersion == 2
-        else { return nil }
-        return stored.presets
+    enum Stored: Equatable {
+        case presets([NotificationPreset])
+        case missing
+        /// 손상됐거나 새 버전이 쓴 형식이다. 덮어쓰면 새 버전으로 돌아갔을 때 규칙이 사라지므로 읽기만 건너뛴다.
+        case unreadable
+    }
+
+    static func load(from defaults: UserDefaults) -> Stored {
+        guard let data = defaults.data(forKey: key) else { return .missing }
+        guard let stored = try? JSONDecoder().decode(Self.self, from: data), stored.schemaVersion == 2 else {
+            return .unreadable
+        }
+        return .presets(stored.presets)
     }
 
     static func save(_ presets: [NotificationPreset], to defaults: UserDefaults) {

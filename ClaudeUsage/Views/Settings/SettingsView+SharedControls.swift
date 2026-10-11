@@ -419,7 +419,9 @@ private struct ProviderPopoverPreviewView: View {
             IconActionButton(
                 symbol: settings.popoverPinned ? "pin.fill" : "pin", label: "고정", isActive: settings.popoverPinned
             ) {}
-        }.allowsHitTesting(false)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     @ViewBuilder
@@ -459,6 +461,7 @@ private struct ProviderPopoverPreviewView: View {
         .font(AppDesign.Typography.caption)
         .foregroundStyle(.secondary)
         .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     private var sections: [PopoverDisplaySection] {

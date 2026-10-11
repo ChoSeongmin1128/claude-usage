@@ -696,9 +696,8 @@ final class PopoverResizeTests: XCTestCase {
         }
         let quota = AntigravityQuotaSnapshot(
             identity: identity, plan: nil, lanes: lanes, decodeIssues: [],
-            provenance: .init(
-                transport: .cliUsageReport, endpointOwner: .managed, accountIdentity: identity,
-                capability: .groupedQuotaSummary, processIdentity: nil), fetchedAt: now)
+            provenance: AntigravityQuotaProvenance(transport: .cliUsageReport, accountIdentity: identity),
+            fetchedAt: now)
         return AntigravityRuntimeSnapshot(
             readiness: .ready,
             settings: .init(connection: .default, display: .default), presentationState: .ready(quota),

@@ -42,7 +42,7 @@ final class LoginWebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
         for store in observedCookieStores {
             store.remove(self)
         }
-        popupWebView?.stopLoading()
+        closePopup()
     }
 
     func registerCookieStore(_ store: WKHTTPCookieStore) {
@@ -62,7 +62,7 @@ final class LoginWebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
         closePopup()
     }
 
-    private func closePopup() {
+    func closePopup() {
         let wv = popupWebView
         let win = popupWindow
         popupWebView = nil
@@ -120,11 +120,14 @@ final class LoginWebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
     }
 
     private func handleAuthenticatedPage(webView: WKWebView, isPopupWebView: Bool) {
-        guard let url = webView.url?.absoluteString,
-              url.contains("claude.ai"),
-              !url.contains("/login") else {
+        // 주소 문자열 검사는 Google 로그인 주소의 redirect_uri(claude.ai, %2Flogin)에도 맞아 다른 사이트를 읽었다.
+        guard let pageURL = webView.url, let host = pageURL.host?.lowercased(),
+            host == "claude.ai" || host.hasSuffix(".claude.ai"),
+            !pageURL.path.hasPrefix("/login")
+        else {
             return
         }
+        let url = pageURL.absoluteString
 
         if !loginDetected {
             loginDetected = true

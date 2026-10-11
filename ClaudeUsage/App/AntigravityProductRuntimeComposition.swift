@@ -51,11 +51,10 @@ nonisolated enum
                     runtimeEnvironment,
                 settingsBootstrap:
                     settingsBootstrap,
-                agyExecutableStatus: .notFound,
                 runtimeEnvironment: runtimeEnvironment,
-                legacyAccountCleanup: {
+                legacyDataCleanup: {
                     _ =
-                        AntigravityLegacyAccountCleanup
+                        AntigravityLegacyDataCleanup
                         .production(homeDirectoryURL: homeDirectoryURL)
                         .run()
                 }

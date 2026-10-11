@@ -5,6 +5,7 @@ import Foundation
 @MainActor
 final class SessionActivityMonitor {
     private var streams: [PopoverService: FSEventStreamRef] = [:]
+    private var watchedDirectories: [PopoverService: URL] = [:]
     private(set) var lastActivityAt: [PopoverService: Date] = [:]
     var onActivity: ((PopoverService) -> Void)?
 
@@ -19,7 +20,14 @@ final class SessionActivityMonitor {
 
     func start(directories: [PopoverService: URL] = SessionActivityMonitor.defaultWatchedDirectories()) {
         stop()
-        for (service, directory) in directories where FileManager.default.fileExists(atPath: directory.path) {
+        watchedDirectories = directories
+        watchNewDirectories()
+    }
+
+    /// 앱을 켠 뒤 처음 생긴 세션 폴더(설치나 첫 세션)도 감시를 시작한다.
+    func watchNewDirectories() {
+        for (service, directory) in watchedDirectories
+        where streams[service] == nil && FileManager.default.fileExists(atPath: directory.path) {
             if let stream = makeStream(service: service, path: directory.path) {
                 streams[service] = stream
             }
@@ -33,7 +41,10 @@ final class SessionActivityMonitor {
             FSEventStreamRelease(stream)
         }
         streams.removeAll()
+        watchedDirectories.removeAll()
     }
+
+    var watchingServices: Set<PopoverService> { Set(streams.keys) }
 
     fileprivate func record(_ service: PopoverService) {
         lastActivityAt[service] = Date()

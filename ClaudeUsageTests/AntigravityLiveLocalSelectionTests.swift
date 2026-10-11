@@ -46,10 +46,11 @@ final class AntigravityLiveLocalSelectionTests: XCTestCase {
         let settings = AntigravitySettingsStore(persistence: try LiveLocalSelectionPersistence())
         let refresh = AntigravityRefreshCoordinator(
             sources: [], runtimeEnvironment: environment)
-        // 기본 legacyAccountCleanup은 아무것도 하지 않아 사용자의 Keychain을 건드리지 않는다.
+        // 기본 legacyDataCleanup은 아무것도 하지 않아 사용자의 Keychain을 건드리지 않는다.
         let controller = AntigravityRuntimeController(
             settingsStore: settings, refreshCoordinator: refresh, runtimeLifecycle: environment,
-            settingsBootstrap: .ready(.alreadyCurrent), agyExecutableStatus: .notFound,
+            settingsBootstrap: .ready(.alreadyCurrent),
+            initialManagedAvailability: .unavailable(reason: .executableNotFound),
             runtimeEnvironment: environment)
         return (controller, settings)
     }
@@ -61,6 +62,7 @@ final class AntigravityLiveLocalSelectionTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("ClaudeUsage-live-selection-\(UUID())")
         try FileManager.default.createDirectory(
             at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
         let (controller, settings) = try makeRuntime(root: root)
         do {
             let snapshot = await controller.bootstrap(performInitialRefresh: true)
@@ -76,9 +78,8 @@ final class AntigravityLiveLocalSelectionTests: XCTestCase {
             // Reports own no long-lived process, so nothing is ever recorded.
             guard
                 !FileManager.default.fileExists(
-                    atPath: root.appendingPathComponent(AntigravityManagedProcessRecordFileStore.fileName).path)
+                    atPath: root.appendingPathComponent("managed-agy-sessions.json").path)
             else { throw LiveLocalSelectionError.cleanupUnconfirmed }
-            try FileManager.default.removeItem(at: root)
         } catch {
             await controller.shutdown()
             throw error

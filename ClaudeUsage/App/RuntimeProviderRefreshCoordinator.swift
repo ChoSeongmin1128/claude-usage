@@ -58,6 +58,7 @@ enum RuntimeProviderRefreshCoordinator {
     ) {
         state.lastSuccessfulPayload = payload
         state.lastSuccessfulAt = updatedAt
+        state.consecutiveFailures = 0
         state.lastAttemptState = .idle
         state.lastAttemptError = nil
         state.lastSuccessfulMetadata = metadata
@@ -86,6 +87,7 @@ enum RuntimeProviderRefreshCoordinator {
             )
             state.lastAttemptState = .temporaryFailure
             state.lastAttemptError = error
+            state.consecutiveFailures += 1
             state.nextRefreshAllowedAt = backoff.candidate
             state.hasAuthError = false
             return RuntimeRefreshFailureResolution(
@@ -102,11 +104,13 @@ enum RuntimeProviderRefreshCoordinator {
             state.lastSuccessfulAt = nil
             state.lastAttemptState = .authFailure
             state.hasAuthError = true
+            state.consecutiveFailures = 0
         } else {
             // 비인증 definitive 실패(4xx, 스키마 변경 등)는 마지막 성공 데이터를 유지한다.
             // 메뉴바/팝오버가 갑자기 빈 화면·에러 카드로 뒤집히는 것보다 stale 표시가 낫다.
             state.lastAttemptState = .definitiveFailure
             state.hasAuthError = false
+            state.consecutiveFailures += 1
         }
 
         return RuntimeRefreshFailureResolution(

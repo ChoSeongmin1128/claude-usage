@@ -1,14 +1,9 @@
 import SwiftUI
 
 struct ClaudeSetupSectionShell<Content: View>: View {
-    let presentation: ClaudeSetupPresentation
     private let content: Content
 
-    init(
-        presentation: ClaudeSetupPresentation,
-        @ViewBuilder content: () -> Content
-    ) {
-        self.presentation = presentation
+    init(@ViewBuilder content: () -> Content) {
         self.content = content()
     }
 

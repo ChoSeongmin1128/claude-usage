@@ -50,7 +50,7 @@ extension APIError: LocalizedError {
             if reason == "account_identity_unavailable" || reason == "credential_unavailable" {
                 return "Codex 로그인을 찾지 못했습니다. CLI 로그인 상태를 확인한 뒤 새로고침하세요."
             }
-            return "Codex 로그인이 만료됐습니다. 터미널에서 `codex login`을 실행하세요."
+            return "Codex 로그인이 만료됐습니다. 터미널에서 codex login을 실행하세요."
 
         case .codexTokenRefreshTemporary(let reason):
             if reason == "credential_changed" || reason == "owner_recovery_exhausted" {
@@ -65,10 +65,10 @@ extension APIError: LocalizedError {
             return "Codex 서버가 응답하지 않습니다. 잠시 뒤 다시 시도합니다."
 
         case .claudeCodeCredentialUnavailable:
-            return "Claude Code 로그인을 찾지 못했습니다. 터미널에서 `claude auth login`을 실행하세요."
+            return "Claude Code 로그인을 찾지 못했습니다. 터미널에서 claude auth login을 실행하세요."
 
         case .claudeCodeReauthenticationRequired:
-            return "Claude Code 로그인이 만료됐습니다. 터미널에서 `claude auth login`을 실행하세요."
+            return "Claude Code 로그인이 만료됐습니다. 터미널에서 claude auth login을 실행하세요."
 
         case .claudeCodeReconnectRequired:
             return "Claude Code를 다시 연결하세요."

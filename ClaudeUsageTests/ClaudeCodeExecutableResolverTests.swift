@@ -127,7 +127,7 @@ final class ClaudeCodeExecutableResolverTests: XCTestCase {
         let result = await ExternalCommand.run(
             selected.executableURL, arguments: [],
             environment: ClaudeCodeCLI.environment(
-                configDirectory: nil, home: fixture.root, additionalSearchDirectories: selected.searchDirectories),
+                configDirectoryValue: nil, home: fixture.root, additionalSearchDirectories: selected.searchDirectories),
             currentDirectory: fixture.root, timeout: 1)
         XCTAssertTrue(result?.succeeded == true)
         XCTAssertEqual(result.flatMap { String(data: $0.data, encoding: .utf8) }, "interpreter-found")

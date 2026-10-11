@@ -89,14 +89,24 @@ struct MenuBarUpdateRequestState: Equatable {
 }
 
 struct MenuBarProviderRenderKey: Equatable, Sendable {
+    /// 문구 밖에서 그림을 바꾸는 입력. 표시 설정과 presentation을 통째로 담아 입력이 늘어도 비교에서 빠지지 않게 한다.
+    enum Visual: Equatable, Sendable {
+        case plain(hasStyleIcon: Bool)
+        /// Claude/Codex: 표시 설정 전체와 그 설정이 그리는 사용량 값
+        case usage(ProviderMenuBarDisplayConfig, values: [Double])
+        /// AGY: mapper가 확정한 표시 값 전체
+        case antigravity(
+            AntigravityMenuBarQuotaPresentation, design: MenuBarDesign, colorMode: MenuBarColorMode,
+            arrangement: MenuBarQuotaArrangement?)
+    }
+
     let kind: AppProviderKind
     let regularText: String?
     let condensedText: String?
     let tooltip: String
     let resetText: String?
     let showsProviderIcon: Bool
-    let visualConfiguration: [String]
-    let visualValues: [Double]
+    let visual: Visual
     let statusIndicator: StatusIndicator?
     let systemStatusSummary: String?
     let accessibilityLabel: String?

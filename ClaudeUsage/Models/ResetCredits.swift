@@ -110,9 +110,21 @@ private nonisolated struct ResetCreditDecodingSink: Decodable {
 /// 서비스와 무관하게 팝오버와 메뉴바가 쓰는 초기화권 요약.
 nonisolated struct ResetCreditSummary: Equatable, Sendable {
     enum Scope: Sendable, Equatable {
-        case all, fiveHourOnly
+        case all, fiveHourOnly, unknown
 
-        var title: String { self == .all ? "전체 한도" : "5시간 한도만" }
+        var title: String {
+            switch self {
+            case .all: "전체 한도"
+            case .fiveHourOnly: "5시간 한도만"
+            case .unknown: "범위 확인 안 됨"
+            }
+        }
+
+        /// 서버가 지우는 범위를 주지 않으면 짐작하지 않는다.
+        static func claude(clears: [String]) -> Self {
+            if clears.isEmpty { return .unknown }
+            return clears.contains(where: { $0.hasPrefix("seven_day") }) ? .all : .fiveHourOnly
+        }
     }
 
     struct Item: Equatable, Sendable {
@@ -176,7 +188,7 @@ nonisolated struct ResetCreditSummary: Equatable, Sendable {
         let items = usable.map { grant in
             Item(
                 id: grant.id, serverTitle: grant.label?.isEmpty == false ? grant.label : nil,
-                scope: grant.clears.contains(where: { $0.hasPrefix("seven_day") }) ? .all : .fiveHourOnly,
+                scope: .claude(clears: grant.clears),
                 expiresAt: grant.endsAt)
         }
         return ResetCreditSummary(

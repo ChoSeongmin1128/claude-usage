@@ -525,6 +525,14 @@ struct LoginWindowView: View {
                 .padding(.horizontal, AppDesign.Space.content)
                 .padding(.vertical, AppDesign.Space.row)
                 .background(Color.orange.opacity(0.16))
+            } else if let embeddedStatusMessage {
+                Text(embeddedStatusMessage)
+                    .font(AppDesign.Typography.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, AppDesign.Space.content)
+                    .padding(.vertical, AppDesign.Space.row)
+                    .background(.bar)
             }
         }
     }

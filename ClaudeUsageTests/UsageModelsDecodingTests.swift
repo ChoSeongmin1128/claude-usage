@@ -16,6 +16,19 @@ final class UsageModelsDecodingTests: XCTestCase {
         }
     }
 
+    func testUnreadableSessionWindowDoesNotShowWeeklyInItsPlace() throws {
+        let usage = try JSONDecoder().decode(
+            ClaudeUsageResponse.self,
+            from: Data(#"{"five_hour":{"utilization":null},"seven_day":{"utilization":40,"resets_at":null}}"#.utf8))
+
+        XCTAssertTrue(usage.hasMalformedSessionWindow)
+        XCTAssertNil(usage.gaugePercentage)
+        XCTAssertEqual(usage.weeklyPercentage, 40)
+        let missing = try JSONDecoder().decode(
+            ClaudeUsageResponse.self, from: Data(#"{"seven_day":{"utilization":40,"resets_at":null}}"#.utf8))
+        XCTAssertEqual(missing.gaugePercentage, 40, "A plan without a session window still uses the weekly value")
+    }
+
     func testClaudeUsageDecodesScopedWeeklyLimits() throws {
         let json = """
         {

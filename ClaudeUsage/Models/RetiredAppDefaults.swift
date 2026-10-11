@@ -23,6 +23,10 @@ nonisolated enum RetiredAppDefaults {
                 // 적응형 새로고침(2.8.0)이 대신하는 고정 주기 설정
                 "refreshInterval", "usePerProviderRefreshIntervals", "claudeRefreshInterval",
                 "codexRefreshInterval", "antigravityRefreshInterval", "reducedRefreshOnBattery",
+                // 도달하지 않던 OAuth 자동 전환의 실행 표시
+                AppIdentifiers.defaultsKey("oauthAwareMigrationVersion"),
+                // 계정 귀속을 깨뜨릴 수 있어 폐기한 교차 계정 OAuth 우선 설정
+                "claudePreferOAuth",
             ],
             replacement: nil),
         Group(

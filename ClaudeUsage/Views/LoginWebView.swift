@@ -42,6 +42,12 @@ struct LoginWebView: NSViewRepresentable {
         return webView
     }
 
+    static func dismantleNSView(_ nsView: WKWebView, coordinator: LoginWebViewCoordinator) {
+        // 로그인 창을 닫거나 뒤로 가면 Google 로그인 팝업도 함께 닫는다.
+        coordinator.closePopup()
+        nsView.stopLoading()
+    }
+
     func updateNSView(_ nsView: WKWebView, context: Context) {
         guard clearTrigger != context.coordinator.lastClearTrigger else { return }
         context.coordinator.lastClearTrigger = clearTrigger

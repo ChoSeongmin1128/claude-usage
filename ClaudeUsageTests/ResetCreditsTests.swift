@@ -62,6 +62,13 @@ final class ResetCreditsTests: XCTestCase {
         XCTAssertEqual(summary.availableCount, 2)
     }
 
+    func testMissingClearsDoesNotClaimFiveHourOnly() throws {
+        let usage = try claudeUsage(#"{ "eligible": true, "grants": [{ "id": "g", "resets_left": 1 }] }"#)
+        let summary = try XCTUnwrap(ResetCreditSummary.claude(usage.resetGrants, now: now))
+        XCTAssertEqual(summary.items.first?.scope, .unknown)
+        XCTAssertEqual(summary.scopeText, "범위 확인 안 됨")
+    }
+
     func testMalformedClaudeGrantCountRemainsUnknownAndPreservesBaseUsage() throws {
         for field in [
             "", #", "resets_left": null"#, #", "resets_left": "unknown""#,

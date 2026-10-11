@@ -161,21 +161,13 @@ actor AntigravityCLIUsageReportSource: AntigravityUsageSource {
         }
 
         return AntigravityUsageSourceResponse(
-            payload: .grouped(
-                AntigravityQuotaSnapshot(
-                    identity: nil,
-                    plan: nil,
-                    lanes: summary.lanes,
-                    decodeIssues: summary.decodeIssues,
-                    provenance: AntigravityQuotaProvenance(
-                        transport: .cliUsageReport,
-                        endpointOwner: .managed,
-                        accountIdentity: nil,
-                        capability: .groupedQuotaSummary,
-                        processIdentity: nil
-                    ),
-                    fetchedAt: now()
-                )
+            snapshot: AntigravityQuotaSnapshot(
+                identity: nil,
+                plan: nil,
+                lanes: summary.lanes,
+                decodeIssues: summary.decodeIssues,
+                provenance: AntigravityQuotaProvenance(transport: .cliUsageReport, accountIdentity: nil),
+                fetchedAt: now()
             )
         )
     }

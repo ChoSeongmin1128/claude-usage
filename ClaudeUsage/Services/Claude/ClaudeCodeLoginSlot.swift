@@ -8,6 +8,8 @@ nonisolated struct ClaudeCodeKeychain: Sendable {
     var update: @Sendable (_ service: String, _ payload: Data) async -> Bool
     var readInteractively: @Sendable (_ service: String, _ reason: String) -> KeychainAccessPreflight.ReadOutcome
     var updateDirectly: @Sendable (_ service: String, _ payload: Data) -> Bool
+    /// Claude Code 로그인 항목 이름. 비밀 값은 읽지 않는다. 확인하지 못하면 nil이다.
+    var credentialServiceNames: @Sendable () async -> [String]? = { nil }
 
     static let system = ClaudeCodeKeychain(
         read: { await ClaudeCodeKeychainCLI.read(service: $0) },
@@ -25,7 +27,8 @@ nonisolated struct ClaudeCodeKeychain: Sendable {
             ]
             return SecItemUpdate(query as CFDictionary, [kSecValueData as String: payload] as CFDictionary)
                 == errSecSuccess
-        })
+        },
+        credentialServiceNames: { await ClaudeCodeKeychainCLI.credentialServiceNames() })
 
     /// Keychain에 항목이 없는 것으로 동작한다.
     static let none = ClaudeCodeKeychain(
@@ -49,24 +52,41 @@ nonisolated struct ClaudeCodeLoginSlot: Equatable, Sendable {
         let account: Data?
     }
 
+    /// Keychain 항목을 어떻게 찾았는지. Claude Code는 CLAUDE_CONFIG_DIR 원문으로 항목 이름을 정한다.
+    enum KeychainMatch: Equatable, Sendable {
+        /// CLAUDE_CONFIG_DIR 없이 실행한 기본 로그인
+        case defaultLogin
+        /// 이 원문을 CLAUDE_CONFIG_DIR로 준 Claude Code가 쓰는 항목
+        case configDirectoryValue(String)
+        /// 원문은 모르고 토큰 주인이 이 폴더 계정과 같은 항목. `claude`로 갱신할 수 없고 전환에도 쓰지 않는다.
+        case accountOwner
+    }
+
     let configDirectory: URL
     let profileFile: URL
     let keychainService: String
-    let isDefault: Bool
+    let keychainMatch: KeychainMatch
+
+    var isDefault: Bool { keychainMatch == .defaultLogin }
 
     static func defaultSlot(home: URL = FileManager.default.realHomeDirectory) -> Self {
         let directory = home.appendingPathComponent(".claude", isDirectory: true)
         return Self(
             configDirectory: directory, profileFile: home.appendingPathComponent(".claude.json"),
-            keychainService: ClaudeCodeCredentialReader.defaultKeychainService, isDefault: true)
+            keychainService: ClaudeCodeCredentialReader.defaultKeychainService, keychainMatch: .defaultLogin)
     }
 
+    /// 경로를 정리한 표기로 계산한 이름. 실제로 쓰인 표기는 `ClaudeCodeFolderKeychain.resolve`가 찾는다.
     static func folderSlot(_ directory: URL, home: URL = FileManager.default.realHomeDirectory) -> Self {
+        folderSlot(directory, configDirectoryValue: directory.standardizedFileURL.path)
+    }
+
+    static func folderSlot(_ directory: URL, configDirectoryValue: String) -> Self {
         Self(
             configDirectory: directory, profileFile: directory.appendingPathComponent(".claude.json"),
-            keychainService: ClaudeCodeCredentialReader.keychainServiceName(
-                for: directory, homeDirectory: home, usesExplicitConfigDirectory: true),
-            isDefault: false)
+            keychainService: ClaudeCodeCredentialReader.scopedKeychainServiceName(
+                configDirectoryValue: configDirectoryValue),
+            keychainMatch: .configDirectoryValue(configDirectoryValue))
     }
 
     /// nil이면 기본 로그인이다.
@@ -74,8 +94,14 @@ nonisolated struct ClaudeCodeLoginSlot: Equatable, Sendable {
         configDirectory.map { folderSlot($0, home: home) } ?? defaultSlot(home: home)
     }
 
-    /// CLI에 넘길 CLAUDE_CONFIG_DIR. 기본 로그인은 넘기지 않는다(넘기면 Keychain 이름이 달라진다).
-    var cliConfigDirectory: URL? { isDefault ? nil : configDirectory }
+    /// CLI에 넘길 CLAUDE_CONFIG_DIR 원문. 기본 로그인은 넘기지 않는다(넘기면 Keychain 이름이 달라진다).
+    var cliConfigDirectoryValue: String? {
+        if case .configDirectoryValue(let value) = keychainMatch { return value }
+        return nil
+    }
+
+    /// `claude`로 이 로그인을 갱신하거나 확인할 수 있는지. 원문을 모르면 다른 항목을 보게 된다.
+    var canRunCLI: Bool { keychainMatch != .accountOwner }
 
     var credentialFiles: [URL] {
         ClaudeCodeCredentialReader.credentialFileNames.map { configDirectory.appendingPathComponent($0) }
@@ -185,7 +211,9 @@ nonisolated struct ClaudeCodeLoginSlot: Equatable, Sendable {
     }
 
     /// 권한을 0600으로 만든 임시 파일에 쓴 뒤 바꿔 넣는다. 쓰는 동안에도 다른 사용자가 읽을 수 없다.
-    static func writePrivately(_ data: Data, to file: URL) throws {
+    /// 링크면 대상 파일을 바꾼다. Claude Code도 링크를 따라가 쓰므로 dotfiles로 관리하는 링크를 끊지 않는다.
+    static func writePrivately(_ data: Data, to link: URL) throws {
+        let file = link.resolvingSymlinksInPath()
         let temporary = file.deletingLastPathComponent()
             .appendingPathComponent(".\(file.lastPathComponent).\(UUID().uuidString).tmp")
         guard
@@ -212,8 +240,9 @@ nonisolated struct ClaudeCodeLoginSlot: Equatable, Sendable {
         return try? JSONSerialization.data(withJSONObject: account)
     }
 
-    /// `.claude.json`의 다른 설정과 파일 권한은 그대로 두고 `oauthAccount`만 바꾼다.
-    static func replaceOAuthAccount(in file: URL, with account: Data?) throws {
+    /// `.claude.json`의 다른 설정과 파일 권한은 그대로 두고 `oauthAccount`만 바꾼다. 링크면 대상 파일을 바꾼다.
+    static func replaceOAuthAccount(in link: URL, with account: Data?) throws {
+        let file = link.resolvingSymlinksInPath()
         guard let data = try? Data(contentsOf: file),
             var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else {

@@ -24,14 +24,15 @@ nonisolated protocol AntigravityLegacyAccountFileCleaning: Sendable {
     func removeDirectoryIfEmpty(at url: URL)
 }
 
-nonisolated enum AntigravityLegacyAccountCleanupResult: Equatable, Sendable {
+nonisolated enum AntigravityLegacyDataCleanupResult: Equatable, Sendable {
     case cleaned
     case deferred
 }
 
-// 2.5.1 전 버전이 보관한 Antigravity Google OAuth 계정과 그 이전 기록을 지운다.
-// 지금은 AGY CLI 로그인만 쓰므로 값을 읽거나 옮기지 않고, 확인 창 없이 지우지 못한 항목은 다음 실행에 다시 시도한다.
-nonisolated struct AntigravityLegacyAccountCleanup: Sendable {
+// 이전 버전이 남긴 Antigravity 자료를 지운다. 2.5.1 전 버전의 Google OAuth 계정과 이전 기록,
+// 2.4.0~2.6.0이 띄운 AGY 세션의 원장과 실행 잠금이 대상이다. 값을 읽거나 옮기지 않고,
+// 확인 창 없이 지우지 못한 항목은 다음 실행에 다시 시도한다.
+nonisolated struct AntigravityLegacyDataCleanup: Sendable {
     static let vaultAccountPrefix = "oauth.antigravity.v2."
     static let legacyKeychainAccounts = [
         "antigravity-oauth-credentials",
@@ -49,12 +50,19 @@ nonisolated struct AntigravityLegacyAccountCleanup: Sendable {
         "credential-migration-v2.json",
     ]
     static let migrationMarkerFileName = "antigravity-credentials-v2.json"
+    /// 남은 AGY 프로세스는 재부팅하면 사라지므로 원장을 읽어 종료하지 않고 파일만 지운다.
+    static let managedSessionFileNames = [
+        "managed-agy-sessions.json",
+        "managed-agy-launch.lock",
+    ]
 
     let vaultService: String
     let legacyKeychainServices: [String]
     let legacyCredentialDirectory: URL
     let stateDirectory: URL
     let migrationsDirectory: URL
+    /// 채널이 함께 쓰던 실행 잠금 폴더. 운영 채널만 지운다.
+    let sharedLaunchLockDirectory: URL?
     let keychain: any AntigravityLegacyAccountKeychainCleaning
     let files: any AntigravityLegacyAccountFileCleaning
 
@@ -65,13 +73,15 @@ nonisolated struct AntigravityLegacyAccountCleanup: Sendable {
                 legacyCredentialDirectory.appendingPathComponent(Self.quarantineFilePrefix + name),
             ]
         }
+        let sharedLock = sharedLaunchLockDirectory.map { [$0.appendingPathComponent("managed-agy-launch.lock")] } ?? []
         return credentialFiles
-            + Self.stateFileNames.map { stateDirectory.appendingPathComponent($0) }
+            + (Self.stateFileNames + Self.managedSessionFileNames).map { stateDirectory.appendingPathComponent($0) }
             + [migrationsDirectory.appendingPathComponent(Self.migrationMarkerFileName)]
+            + sharedLock
     }
 
     @discardableResult
-    func run() -> AntigravityLegacyAccountCleanupResult {
+    func run() -> AntigravityLegacyDataCleanupResult {
         var deferred: [String] = []
         // 비밀이 든 Keychain 항목부터 지운다. 중간에 멈춰도 비밀 없이 메타데이터만 남는다.
         switch keychain.accounts(service: vaultService) {
@@ -93,6 +103,10 @@ nonisolated struct AntigravityLegacyAccountCleanup: Sendable {
             }
         }
         files.removeDirectoryIfEmpty(at: migrationsDirectory)
+        if let sharedLaunchLockDirectory {
+            files.removeDirectoryIfEmpty(at: sharedLaunchLockDirectory)
+            files.removeDirectoryIfEmpty(at: sharedLaunchLockDirectory.deletingLastPathComponent())
+        }
         guard deferred.isEmpty else {
             Logger.warning(
                 "[Antigravity] 이전 계정 정리를 마치지 못해 다음 실행에 다시 시도합니다: \(deferred.joined(separator: ", "))"
@@ -139,6 +153,10 @@ nonisolated struct AntigravityLegacyAccountCleanup: Sendable {
             migrationsDirectory: AntigravityStoragePaths.applicationSupportDirectoryURL(
                 homeDirectoryURL: homeDirectoryURL, directoryName: directoryName
             ).appendingPathComponent("Migrations", isDirectory: true),
+            sharedLaunchLockDirectory: ownsProductionLegacyLocations
+                ? AntigravityStoragePaths.canonicalStateDirectoryURL(
+                    homeDirectoryURL: homeDirectoryURL, directoryName: AppIdentifiers.legacySharedSupportDirectoryName)
+                : nil,
             keychain: SystemAntigravityLegacyAccountKeychainCleaner(),
             files: SystemAntigravityLegacyAccountFileCleaner(trustedBaseDirectory: homeDirectoryURL)
         )

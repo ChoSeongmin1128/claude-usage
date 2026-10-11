@@ -70,7 +70,7 @@ final class PopoverViewModel: ObservableObject {
     /// 계정이 2개 이상인 서비스만 들어 있다.
     @Published var multiAccount: [PopoverService: MultiAccountPresentation] = [:]
     var accountActions = PopoverAccountActions()
-    @Published private(set) var claudeSetupPresentation: ClaudeSetupPresentation?
+    @Published private(set) var claudeHasReadyCredential: Bool?
     @Published private(set) var runtimeSnapshots: [PopoverService: RuntimeProviderSnapshot] = [:]
     @Published var antigravityRuntimeSnapshot = AntigravityRuntimeSnapshot.idle {
         didSet {
@@ -131,15 +131,19 @@ final class PopoverViewModel: ObservableObject {
         service == .antigravity ? nil : snapshot(for: service)?.nextRefreshAllowedAt
     }
 
+    /// 실패로 끝난 조회도 끝난 것이다. 실패 뒤에 버튼을 막아 두지 않는다.
     private func isAwaitingCompletion(_ service: PopoverService, requestedAt: Date, now: Date) -> Bool {
         guard now.timeIntervalSince(requestedAt) < Self.manualRequestTimeout else { return false }
         if let completed = lastCompletedAt(for: service), completed >= requestedAt { return false }
-        if snapshot(for: service)?.lastAttemptState == .temporaryFailure, snapshot(for: service)?.isLoading == false,
-            service != .antigravity
-        {
-            return false
+        if service == .antigravity {
+            if case .refreshing = antigravityRuntimeSnapshot.presentationState { return true }
+            return (antigravityRuntimeSnapshot.lastAttemptAt ?? .distantPast) < requestedAt
         }
-        return true
+        guard let snapshot = snapshot(for: service), !snapshot.isLoading else { return true }
+        switch snapshot.lastAttemptState {
+        case .temporaryFailure, .authFailure, .definitiveFailure: return false
+        case .idle, .loading: return true
+        }
     }
 
     /// 막힌 구간이 끝나면 버튼이 다시 켜지도록 화면을 갱신한다.
@@ -266,7 +270,7 @@ final class PopoverViewModel: ObservableObject {
     }
 
     var hasClaudeCredential: Bool {
-        claudeSetupPresentation?.progress.hasReadyCredential
+        claudeHasReadyCredential
             ?? usageHealthSnapshot?.runtime.credentialAvailability.hasAnyCredential
             ?? false
     }
@@ -289,81 +293,65 @@ final class PopoverViewModel: ObservableObject {
     func runtimeServiceState(for service: PopoverService, settings: AppSettings) -> RuntimeServiceState {
         switch service {
         case .claude:
-            let isEnabled = settings.isProviderEnabled(.claude)
-            let snapshot = snapshot(for: service)
-            let provenance = snapshot?.lastSuccessfulMetadata ?? snapshot?.lastAttemptMetadata
-            let isAuthRequired = isEnabled && !(snapshot?.hasCredential ?? false) && !(snapshot?.hasContent ?? false) && !(snapshot?.isLoading ?? false)
-            let summary = snapshot.map { runtimeSummary(for: $0, isEnabled: isEnabled, isAuthRequired: isAuthRequired) }
-                ?? (!isEnabled ? "사용 꺼짐" : (isAuthRequired ? "로그인 필요" : "확인 전"))
-            let meta = snapshot.flatMap(runtimeMeta(for:))
-            return RuntimeServiceState(
-                service: .claude,
-                summary: summary,
-                meta: meta,
-                lastUpdated: snapshot?.lastUpdated,
-                isLoading: snapshot?.isLoading ?? false,
-                error: snapshot?.error,
-                hasContent: snapshot?.hasContent ?? false,
-                isAuthRequired: isAuthRequired,
-                shouldShowWarningDot: shouldShowWarningDot(snapshot: snapshot, isAuthRequired: isAuthRequired),
-                freshness: snapshot?.freshness ?? .unavailable,
-                sourceLabel: provenance?.sourceLabel,
-                accountID: provenance?.accountID,
-                accountLabel: claudeAccountPresentation?.label
-            )
+            return accountProviderServiceState(
+                service, settings: settings, accountLabel: { _, _ in self.claudeAccountPresentation?.label })
         case .codex:
-            let isEnabled = settings.isProviderEnabled(.codex)
-            let snapshot = snapshot(for: service)
-            let provenance = snapshot?.lastSuccessfulMetadata ?? snapshot?.lastAttemptMetadata
-            let isAuthRequired = isEnabled && !(snapshot?.hasCredential ?? false) && !(snapshot?.hasContent ?? false) && !(snapshot?.isLoading ?? false)
-            let summary = snapshot.map { runtimeSummary(for: $0, isEnabled: isEnabled, isAuthRequired: isAuthRequired) }
-                ?? (!isEnabled ? "사용 꺼짐" : (isAuthRequired ? "로그인 필요" : "확인 전"))
-            let meta = snapshot.flatMap(runtimeMeta(for:))
-            return RuntimeServiceState(
-                service: .codex,
-                summary: summary,
-                meta: meta,
-                lastUpdated: snapshot?.lastUpdated,
-                isLoading: snapshot?.isLoading ?? false,
-                error: snapshot?.error,
-                hasContent: snapshot?.hasContent ?? false,
-                isAuthRequired: isAuthRequired,
-                shouldShowWarningDot: shouldShowWarningDot(snapshot: snapshot, isAuthRequired: isAuthRequired),
-                freshness: snapshot?.freshness ?? .unavailable,
-                sourceLabel: provenance?.sourceLabel,
-                accountID: provenance?.accountID,
-                accountLabel: snapshot?.hasContent == true ? provenance?.account?.identity.email : nil
-            )
+            return accountProviderServiceState(
+                service, settings: settings,
+                accountLabel: { snapshot, provenance in
+                    snapshot?.hasContent == true ? provenance?.account?.identity.email : nil
+                })
         case .antigravity:
             return antigravityRuntimeServiceState(settings: settings)
         }
     }
 
+    /// Claude와 Codex는 같은 런타임 상태 규칙을 쓴다. 계정 이름을 정하는 방법만 다르다.
+    private func accountProviderServiceState(
+        _ service: PopoverService, settings: AppSettings,
+        accountLabel: (RuntimeProviderSnapshot?, RuntimeProviderFetchMetadata?) -> String?
+    ) -> RuntimeServiceState {
+        let isEnabled = settings.isProviderEnabled(service.providerKind)
+        let snapshot = snapshot(for: service)
+        let provenance = snapshot?.lastSuccessfulMetadata ?? snapshot?.lastAttemptMetadata
+        let isAuthRequired =
+            isEnabled && !(snapshot?.hasCredential ?? false) && !(snapshot?.hasContent ?? false)
+            && !(snapshot?.isLoading ?? false)
+        let summary =
+            snapshot.map { runtimeSummary(for: $0, isEnabled: isEnabled, isAuthRequired: isAuthRequired) }
+            ?? (!isEnabled ? "사용 꺼짐" : (isAuthRequired ? "로그인 필요" : "확인 전"))
+        return RuntimeServiceState(
+            service: service,
+            summary: summary,
+            meta: snapshot.flatMap(runtimeMeta(for:)),
+            lastUpdated: snapshot?.lastUpdated,
+            isLoading: snapshot?.isLoading ?? false,
+            error: snapshot?.error,
+            hasContent: snapshot?.hasContent ?? false,
+            isAuthRequired: isAuthRequired,
+            shouldShowWarningDot: shouldShowWarningDot(snapshot: snapshot, isAuthRequired: isAuthRequired),
+            freshness: snapshot?.freshness ?? .unavailable,
+            sourceLabel: provenance?.sourceLabel,
+            accountID: provenance?.accountID,
+            accountLabel: accountLabel(snapshot, provenance)
+        )
+    }
+
     private func antigravityRuntimeServiceState(settings: AppSettings) -> RuntimeServiceState {
         let isEnabled = settings.isProviderEnabled(.antigravity)
         let snapshot = antigravityRuntimeSnapshot
-        let summaryState = Self.resolveAntigravitySummaryState(
-            snapshot: snapshot,
-            isEnabled: isEnabled
-        )
-        let isAuthRequired = Self.antigravityRequiresAction(
-            snapshot.presentationState
-        )
-        let shouldShowWarning = Self.antigravityShouldShowWarning(
-            snapshot: snapshot,
-            isEnabled: isEnabled
-        )
+        let status = AntigravityStatusProjection(snapshot: snapshot, isEnabled: isEnabled)
 
         return RuntimeServiceState(
             service: .antigravity,
-            summary: summaryState.summary,
+            summary: status.summary,
             meta: Self.antigravityMeta(snapshot),
             lastUpdated: snapshot.lastSuccessfulAt,
             isLoading: snapshot.isLoading,
             error: nil,
             hasContent: snapshot.hasQuotaContent,
-            isAuthRequired: isAuthRequired,
-            shouldShowWarningDot: shouldShowWarning,
+            isAuthRequired: status.requiresAction,
+            shouldShowWarningDot: status.showsWarning,
             freshness: Self.antigravityFreshness(snapshot),
             sourceLabel: Self.antigravityIdentityRail(snapshot)?.sourceLabel,
             accountID: nil
@@ -372,7 +360,7 @@ final class PopoverViewModel: ObservableObject {
 
     func update(
         snapshots: [RuntimeProviderSnapshot],
-        setupPresentation: ClaudeSetupPresentation? = nil
+        claudeHasReadyCredential: Bool? = nil
     )
     {
         let oldAccounts = runtimeSnapshots.mapValues { $0.lastSuccessfulMetadata?.accountID }
@@ -381,7 +369,7 @@ final class PopoverViewModel: ObservableObject {
                 .filter { $0.service != .antigravity }
                 .map { ($0.service, $0) }
         )
-        self.claudeSetupPresentation = setupPresentation
+        self.claudeHasReadyCredential = claudeHasReadyCredential
         for service in [PopoverService.claude, .codex] {
             if oldAccounts[service] ?? nil != snapshot(for: service)?.lastSuccessfulMetadata?.accountID {
                 manualRequestedAt[service] = nil
@@ -466,79 +454,8 @@ final class PopoverViewModel: ObservableObject {
         snapshot: AntigravityRuntimeSnapshot,
         isEnabled: Bool
     ) -> LocalProviderSummaryState {
-        if !isEnabled {
-            return .init(phase: .disabled, summary: "사용 꺼짐")
-        }
-        switch snapshot.readiness {
-        case .bootstrapping:
-            return .init(phase: .loading, summary: "확인 중")
-        case .blocked:
-            return .init(
-                phase: .temporaryError,
-                summary: "설정 오류"
-            )
-        case .shuttingDown:
-            return .init(phase: .disabled, summary: "종료 중")
-        case .idle, .ready:
-            break
-        }
-
-        switch snapshot.presentationState {
-        case .disabled:
-            return .init(phase: .probingRuntime, summary: "확인 전")
-        case .setupRequired:
-            return .init(phase: .authRequired, summary: "로그인 필요")
-        case .refreshing:
-            return .init(phase: .loading, summary: "사용량 확인 중")
-        case .ready:
-            return .init(
-                phase: .ready,
-                summary: antigravityQuotaSummary(snapshot)
-            )
-        case .partial:
-            return .init(
-                phase: .ready,
-                summary: "\(antigravityQuotaSummary(snapshot)) · 일부만 표시"
-            )
-        case .stale:
-            return .init(
-                phase: .temporaryError,
-                summary: UsageStatusLabel.previousValue
-            )
-        case .accountMismatch:
-            return .init(
-                phase: .authRequired,
-                summary: "계정이 다름"
-            )
-        case .limited:
-            return .init(
-                phase: .temporaryError,
-                summary: "한도 수치 없음"
-            )
-        case .identityOnly:
-            return .init(
-                phase: .temporaryError,
-                summary: "한도 수치 없음"
-            )
-        case .failed(let failure):
-            return .init(
-                phase: antigravityFailureRequiresAction(failure)
-                    ? .authRequired
-                    : .temporaryError,
-                summary: antigravityFailureSummary(failure)
-            )
-        }
-    }
-
-    private static func antigravityQuotaSummary(
-        _ snapshot: AntigravityRuntimeSnapshot
-    ) -> String {
-        guard case .content(let presentation) =
-                snapshot.quotaPresentation
-        else {
-            return "연결됨"
-        }
-        return "\(presentation.observedLaneCount)개 사용량 한도"
+        let status = AntigravityStatusProjection(snapshot: snapshot, isEnabled: isEnabled)
+        return .init(phase: status.phase, summary: status.summary)
     }
 
     private static func antigravityIdentityRail(
@@ -581,78 +498,6 @@ final class PopoverViewModel: ObservableObject {
             return .loading
         case .stale:
             return .stale
-        }
-    }
-
-    private static func antigravityRequiresAction(
-        _ state: AntigravityPresentationState
-    ) -> Bool {
-        switch state {
-        case .setupRequired, .accountMismatch:
-            return true
-        case .failed(let failure):
-            return antigravityFailureRequiresAction(failure)
-        case .disabled,
-             .refreshing,
-             .ready,
-             .partial,
-             .stale,
-             .limited,
-             .identityOnly:
-            return false
-        }
-    }
-
-    private static func antigravityFailureRequiresAction(
-        _ failure: AntigravityFailure
-    ) -> Bool {
-        switch failure {
-        case .authenticationRequired,
-            .interactionRequired,
-            .cliReportFailed:
-            return true
-        case .cancelled, .accountChanged,
-             .appShuttingDown,
-             .invalidRefreshContext,
-             .generationExhausted,
-             .noEligibleSource,
-             .sourceUnavailable,
-             .deadlineExceeded,
-             .schemaChanged,
-             .transportUnavailable,
-             .sourceContractViolation,
-             .localAuthentication,
-             .numericQuotaUnavailable,
-             .runtimeUnavailable:
-            return false
-        }
-    }
-
-    private static func antigravityFailureSummary(
-        _ failure: AntigravityFailure
-    ) -> String {
-        AntigravityPopoverPresentationAdapter.failureSummary(failure).title
-    }
-
-    private static func antigravityShouldShowWarning(
-        snapshot: AntigravityRuntimeSnapshot,
-        isEnabled: Bool
-    ) -> Bool {
-        guard isEnabled else { return false }
-        if case .blocked = snapshot.readiness {
-            return true
-        }
-        switch snapshot.presentationState {
-        case .disabled, .refreshing, .ready:
-            return false
-        case .partial,
-             .stale,
-             .setupRequired,
-             .accountMismatch,
-             .limited,
-             .identityOnly,
-             .failed:
-            return true
         }
     }
 }

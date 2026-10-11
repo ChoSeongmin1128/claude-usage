@@ -83,6 +83,8 @@ nonisolated enum ClaudeOAuthCredentialReadError: LocalizedError, Sendable {
     case reauthenticationRequired
     case reconnectRequired
     case executableNotFound
+    /// 토큰이 만료됐는데 Claude Code 갱신을 지금 실행하지 못했다. 로그인은 그대로일 수 있다.
+    case refreshUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -92,13 +94,16 @@ nonisolated enum ClaudeOAuthCredentialReadError: LocalizedError, Sendable {
             return "Claude Code 로그인은 유지되고 있지만 \(AppDistribution.current.appName) 연결 정보를 다시 확인해야 합니다."
         case .executableNotFound:
             return ClaudeCodeCredentialIssue.executableNotFoundExplanation
+        case .refreshUnavailable:
+            return "Claude Code 로그인을 지금 갱신하지 못했습니다. 잠시 뒤 다시 확인합니다."
         }
     }
 }
 
 actor ClaudeCodeCredentialReader {
     typealias CLIKeychainPayloadReader = @Sendable (_ service: String) async -> ClaudeCodeKeychainCLI.Outcome
-    typealias CLIRefresher = @Sendable (_ configDirectory: URL?) async -> ClaudeCodeCLI.RefreshOutcome
+    /// 인자는 CLAUDE_CONFIG_DIR 원문이다. nil이면 기본 로그인을 갱신한다.
+    typealias CLIRefresher = @Sendable (_ configDirectoryValue: String?) async -> ClaudeCodeCLI.RefreshOutcome
     typealias InteractiveKeychainPayloadReader = @Sendable (
         _ service: String,
         _ account: String?,
@@ -177,17 +182,19 @@ actor ClaudeCodeCredentialReader {
         self.cliKeychainPayloadReader =
             cliKeychainPayloadReader ?? (readsUserKeychain ? userKeychainReader : noKeychainReader)
         // Claude Code 실행도 같은 이유로 실제 사용자의 홈을 읽을 때만 한다.
-        let userRefresher: CLIRefresher = { @Sendable directory in
-            await ClaudeCodeCLI.refreshLogin(configDirectory: directory)
+        let userRefresher: CLIRefresher = { @Sendable value in
+            await ClaudeCodeCLI.refreshLogin(configDirectoryValue: value)
         }
         let noRefresher: CLIRefresher = { @Sendable _ in .unavailable }
         self.cliRefresher = cliRefresher ?? (readsUserKeychain ? userRefresher : noRefresher)
     }
 
-    // After a failed write-back the app's copy holds the only current refresh
-    // token, so a reset may drop the copy only when Claude Code's credential
-    // file holds the same token. Claude Code's Keychain item is not read: its
-    // classic ACL shows a password prompt even to a no-UI query.
+    // A mirror of Claude Code's login is never rotated by the app, so Claude Code
+    // always holds the same or a newer token and the copy can go. An app-managed
+    // copy may hold the only current refresh token after a failed write-back, so
+    // it goes only when Claude Code's credential file holds the same token.
+    // Claude Code's Keychain item is not read: its classic ACL shows a password
+    // prompt even to a no-UI query.
     func canDiscardAppVaultCopy() async -> Bool {
         let storedPayload: String?
         do {
@@ -196,6 +203,7 @@ actor ClaudeCodeCredentialReader {
             return false
         }
         guard let payload = storedPayload else { return true }
+        if ClaudeOAuthCredentialVaultPayload.ownership(of: payload) == .cliMirror { return true }
         guard let vaultCredential = Self.parseCredential(from: payload, source: Self.vaultSource(for: payload)) else {
             return false
         }
@@ -249,8 +257,10 @@ actor ClaudeCodeCredentialReader {
         let inventory = try await loadFileThenVaultInventoryFallback(
             previousAccessToken: previousAccessToken
         )
-        if inventory.accessToken == nil, case .executableNotFound? = lastReadError {
-            throw ClaudeOAuthCredentialReadError.executableNotFound
+        if inventory.accessToken == nil, let lastReadError,
+            lastReadError == .executableNotFound || lastReadError == .refreshUnavailable
+        {
+            throw lastReadError
         }
         return inventory
     }
@@ -735,7 +745,7 @@ actor ClaudeCodeCredentialReader {
         else { return nil }
         if credential.isExpired {
             lastReadError = nil
-            switch await cliRefresher(usesScopedKeychainService ? claudeConfigDirectory : nil) {
+            switch await cliRefresher(usesScopedKeychainService ? claudeConfigDirectory.path : nil) {
             case .refreshed:
                 if case .payload(let refreshedPayload) = await cliKeychainPayloadReader(service),
                     let refreshed = Self.parseCredential(from: refreshedPayload, source: .keychain(service: service))
@@ -748,7 +758,7 @@ actor ClaudeCodeCredentialReader {
             case .executableNotFound:
                 lastReadError = .executableNotFound
             case .unavailable:
-                break
+                lastReadError = .refreshUnavailable
             }
         }
         guard !credential.isExpired else { return nil }
@@ -838,7 +848,7 @@ actor ClaudeCodeCredentialReader {
     /// 무효가 되므로 Claude Code에 갱신을 맡기고 다시 읽는다.
     private func refreshThroughClaudeCode() async -> ClaudeCodeOAuthCredential? {
         lastReadError = nil
-        switch await cliRefresher(usesScopedKeychainService ? claudeConfigDirectory : nil) {
+        switch await cliRefresher(usesScopedKeychainService ? claudeConfigDirectory.path : nil) {
         case .refreshed: break
         case .notLoggedIn:
             lastReadError = .reauthenticationRequired
@@ -846,7 +856,9 @@ actor ClaudeCodeCredentialReader {
         case .executableNotFound:
             lastReadError = .executableNotFound
             return nil
-        case .unavailable: return nil
+        case .unavailable:
+            lastReadError = .refreshUnavailable
+            return nil
         }
         guard case .credential(let file) = await lookupCredentialFromFiles() else { return nil }
         let current = await keychainCredential(fresherThan: file)?.credential ?? file
@@ -1030,7 +1042,13 @@ actor ClaudeCodeCredentialReader {
             return defaultKeychainService
         }
 
-        let digest = SHA256.hash(data: Data(normalizedConfig.utf8))
+        return scopedKeychainServiceName(configDirectoryValue: normalizedConfig)
+    }
+
+    /// CLAUDE_CONFIG_DIR을 준 Claude Code가 쓰는 Keychain 이름. Claude Code는 변수 원문을 NFC로만 바꿔
+    /// 해시하고 경로를 정리하지 않는다(2.1.288 확인). 그래서 끝 '/'나 링크 경로처럼 표기가 다르면 이름도 다르다.
+    nonisolated static func scopedKeychainServiceName(configDirectoryValue: String) -> String {
+        let digest = SHA256.hash(data: Data(configDirectoryValue.precomposedStringWithCanonicalMapping.utf8))
         let suffix = digest.prefix(4).map { String(format: "%02x", $0) }.joined()
         return "\(defaultKeychainService)-\(suffix)"
     }

@@ -243,6 +243,8 @@ actor CodexAPIService {
                     recovered = true
                     credential = try await recover(credential, budget: budget)
                 } catch let error as APIError where error.isTemporaryFailure {
+                    // 같은 주기 안에서 다시 보내면 제한이 길어진다. 대기 시간은 갱신 조정이 지킨다.
+                    if case .rateLimited = error { throw error }
                     attempt += 1
                     guard attempt < 3 else { throw error }
                     let delay = pow(2.0, Double(attempt - 1))
@@ -359,7 +361,8 @@ actor CodexAPIService {
                 }
                 guard let response = response as? HTTPURLResponse else { throw APIError.parseError }
                 guard (200...299).contains(response.statusCode) else {
-                    throw CodexHTTPFailure(status: response.statusCode)
+                    throw CodexHTTPFailure(
+                        status: response.statusCode, retryAfter: HTTPResponseClassification.retryAfterSeconds(response))
                 }
                 guard data.count <= 2_097_152 else { throw APIError.parseError }
                 return data

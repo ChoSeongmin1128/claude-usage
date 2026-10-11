@@ -39,8 +39,6 @@ nonisolated struct AntigravityUnavailableRuntimeSource: AntigravityUsageSource {
 }
 
 nonisolated protocol AntigravityRuntimeLifecycling: Sendable {
-    /// Retires processes recorded by earlier releases. It never gates refreshes.
-    func cleanUpLegacyManagedProcesses() async
     func shutdown() async
 }
 
@@ -50,39 +48,25 @@ nonisolated protocol AntigravityRuntimeLifecycling: Sendable {
 actor AntigravityRuntimeEnvironment: AntigravityRuntimeLifecycling {
     typealias FingerprintReader = @Sendable () async throws -> AntigravityInstallationFingerprint
     typealias Builder = @Sendable () async throws -> AntigravityLocalRuntimeGeneration
-    typealias LegacyCleanup = @Sendable () async -> Void
     private let fingerprint: FingerprintReader
     private let build: Builder
-    private let legacyCleanup: LegacyCleanup
     private var current: AntigravityLocalRuntimeGeneration?
     private var acceptedFingerprint: AntigravityInstallationFingerprint?
     private var leased = false
     private var stopped = false
-    private var legacyCleanupTask: Task<Void, Never>?
-    private var availability: AntigravityManagedRuntimeAvailability = .unavailable(reason: .executableNotFound)
+    private var availability: AntigravityManagedRuntimeAvailability = .notChecked
 
     init(
         fingerprint: @escaping FingerprintReader,
-        build: @escaping Builder,
-        legacyCleanup: @escaping LegacyCleanup = {}
+        build: @escaping Builder
     ) {
         self.fingerprint = fingerprint
         self.build = build
-        self.legacyCleanup = legacyCleanup
     }
 
     func managedAvailability() -> AntigravityManagedRuntimeAvailability { availability }
 
-    func cleanUpLegacyManagedProcesses() async {
-        guard !stopped, legacyCleanupTask == nil else { return }
-        let legacyCleanup = self.legacyCleanup
-        let task = Task.detached(priority: .utility) { await legacyCleanup() }
-        legacyCleanupTask = task
-        await task.value
-    }
-
     func withSources<T: Sendable>(
-        forceDiscovery: Bool,
         deadline: AntigravityRPCDeadline,
         operation: @Sendable ([any AntigravityUsageSource]) async -> T
     ) async throws -> T {
@@ -109,7 +93,7 @@ actor AntigravityRuntimeEnvironment: AntigravityRuntimeLifecycling {
 
     private var runtimeFailure: AntigravityRuntimeFailure? {
         switch availability {
-        case .available: nil
+        case .available, .notChecked: nil
         case .unavailable(.executableNotFound): .executableMissing
         case .unavailable(.signatureRejected): .verificationRejected
         }
@@ -172,7 +156,6 @@ actor AntigravityRuntimeEnvironment: AntigravityRuntimeLifecycling {
         while leased {
             await Task.detached { try? await Task.sleep(for: .milliseconds(10)) }.value
         }
-        await legacyCleanupTask?.value
         current = nil
     }
 }
@@ -231,8 +214,6 @@ extension AntigravityRuntimeEnvironment {
         stateDirectory: URL = AntigravityStoragePaths.canonicalStateDirectoryURL(),
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> AntigravityRuntimeEnvironment {
-        let legacyCleanup = AntigravityLegacyManagedProcessCleanup.production(
-            stateDirectory: stateDirectory, homeDirectoryURL: homeDirectoryURL)
         let reportWorkspace = AntigravityCLIReportWorkspace.url(in: stateDirectory)
         return AntigravityRuntimeEnvironment(
             fingerprint: {
@@ -261,8 +242,7 @@ extension AntigravityRuntimeEnvironment {
                     return AntigravityLocalRuntimeGeneration(
                         sources: sources, executableStatus: resolution.agyExecutableStatus)
                 }.value
-            },
-            legacyCleanup: { _ = await legacyCleanup.cleanUp() }
+            }
         )
     }
 }

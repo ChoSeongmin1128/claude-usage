@@ -17,6 +17,7 @@ final class CodexRefreshController {
     private var preparationID: UUID?
     private var requestID: UUID?
     private var credentialGeneration: UUID?
+    private var credentialOwner: String?
 
     init(
         authManager: CodexAuthManager, apiService: CodexAPIService,
@@ -52,8 +53,12 @@ final class CodexRefreshController {
                 if changed {
                     request?.cancel()
                     requestID = nil
+                    let owner = Self.loginOwner(credential)
+                    let sameLogin = owner != nil && owner == credentialOwner
                     credentialGeneration = credential.generation
-                    clearPresentation()
+                    credentialOwner = owner
+                    // 같은 로그인의 토큰 회전은 표시를 유지한다. 로그인을 확인하지 못하면 바뀐 것으로 본다.
+                    if !sameLogin { clearPresentation() }
                 }
                 guard prepare(force || changed) else { return }
                 start(credential, budget: budget, mayRetryCredentialChange: mayRetryCredentialChange, force: force)
@@ -64,6 +69,7 @@ final class CodexRefreshController {
                 request?.cancel()
                 requestID = nil
                 credentialGeneration = nil
+                credentialOwner = nil
                 clearPresentation()
                 applyFailure((error as? APIError) ?? .codexReauthRequired(reason: "credential_unavailable"))
             }
@@ -89,6 +95,7 @@ final class CodexRefreshController {
                 try Task.checkCancellation()
                 guard requestID == id, isEnabled() else { return }
                 credentialGeneration = result.credential.generation
+                credentialOwner = Self.loginOwner(result.credential)
                 applySuccess(result)
                 let detailed = try await apiService.fetchResetCreditDetails(for: result, force: force)
                 try await authManager.validate(detailed.credential)
@@ -101,8 +108,9 @@ final class CodexRefreshController {
                 guard requestID == id, isEnabled() else { return }
                 let current = try? await authManager.loadSnapshot()
                 guard requestID == id, !Task.isCancelled, isEnabled() else { return }
-                if current?.generation == failure.generation {
+                if let current, current.generation == failure.generation {
                     credentialGeneration = failure.generation
+                    credentialOwner = Self.loginOwner(current)
                     applyFailure(failure.error)
                 } else {
                     retryChangedCredential(budget: budget, allowed: mayRetryCredentialChange)
@@ -132,10 +140,19 @@ final class CodexRefreshController {
         preparation = nil
         request = nil
         credentialGeneration = nil
+        credentialOwner = nil
     }
 
     func shutdown() async {
         cancel()
         await apiService.shutdown()
+    }
+
+    /// 워크스페이스와 사용자 이메일을 모두 확인할 때만 로그인을 특정한다.
+    private nonisolated static func loginOwner(_ credential: CodexCredentialSnapshot) -> String? {
+        guard let account = credential.token.accountID, !account.isEmpty,
+            let email = credential.token.idToken.flatMap(JWTClaims.decode)?["email"] as? String, !email.isEmpty
+        else { return nil }
+        return account + "|" + email.lowercased()
     }
 }

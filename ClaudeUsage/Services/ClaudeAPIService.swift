@@ -24,267 +24,30 @@ actor ClaudeAPIService {
             self.profileMetadataDirectory = profileMetadataDirectory
         }
 
-        fileprivate func profileMetadataStore(for accountID: String?) -> ClaudeProfileMetadataStore {
+        func profileMetadataStore(for accountID: String?) -> ClaudeProfileMetadataStore {
             ClaudeProfileMetadataStore(accountID: accountID, rootDirectory: profileMetadataDirectory)
         }
 
-        fileprivate func data(forKey key: String) -> Data? {
+        func data(forKey key: String) -> Data? {
             defaults.data(forKey: key)
         }
 
-        fileprivate func set(_ data: Data, forKey key: String) {
+        func set(_ data: Data, forKey key: String) {
             defaults.set(data, forKey: key)
         }
 
-        fileprivate func removeObject(forKey key: String) {
+        func removeObject(forKey key: String) {
             defaults.removeObject(forKey: key)
         }
     }
 
     // MARK: - Properties
 
-    nonisolated struct OrganizationSummary: Sendable, Equatable, Identifiable, Codable {
-        let id: String
-        let name: String?
-        let planLabel: String?
-        let billingType: String?
-        let rateLimitTier: String?
-        let capabilities: [String]?
-
-        nonisolated init(
-            id: String,
-            name: String?,
-            planLabel: String? = nil,
-            billingType: String? = nil,
-            rateLimitTier: String? = nil,
-            capabilities: [String]? = nil
-        ) {
-            self.id = id
-            self.name = Self.normalized(name)
-            self.planLabel = Self.normalized(planLabel)
-            self.billingType = Self.normalized(billingType)
-            self.rateLimitTier = Self.normalized(rateLimitTier)
-            self.capabilities = capabilities
-        }
-
-        /// `/api/organizations` 항목과 `/api/account`의 membership 조직이 같은 모양이다.
-        nonisolated init?(json organization: [String: Any]) {
-            func firstNonEmptyString(_ values: Any?...) -> String? {
-                values.compactMap { $0 as? String }
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .first(where: { !$0.isEmpty })
-            }
-            guard let uuid = organization["uuid"] as? String, !uuid.isEmpty else { return nil }
-            self.init(
-                id: uuid,
-                name: firstNonEmptyString(
-                    organization["name"], organization["display_name"], organization["company_name"]),
-                planLabel: firstNonEmptyString(
-                    organization["plan"], organization["plan_label"], organization["planLabel"],
-                    organization["subscription_type"], organization["subscriptionType"]),
-                billingType: firstNonEmptyString(organization["billing_type"], organization["billingType"]),
-                rateLimitTier: firstNonEmptyString(organization["rate_limit_tier"], organization["rateLimitTier"]),
-                capabilities: organization["capabilities"] as? [String])
-        }
-
-        /// UI 표시용 라벨. UUID 를 노출하지 않는다 — 사용자에게 UUID 는 노이즈일 뿐
-        /// 디버그용으로 봐야 한다면 `idSuffixLabel` 을 별도 호출하면 된다.
-        var displayName: String {
-            if let name, !name.isEmpty {
-                return name
-            }
-            return idSuffixLabel
-        }
-
-        /// 같은 이름의 조직이 여러 개인 경우 분간하기 위한 짧은 ID 꼬리표 (앞 8자).
-        /// 일반 표시에서는 사용하지 않고, 동일 name 충돌 시에만 호출하는 게 안전.
-        var idSuffixLabel: String {
-            let trimmed = id.replacingOccurrences(of: "-", with: "")
-            return "조직 \(String(trimmed.prefix(8)))"
-        }
-
-        var hasTeamPlanSignal: Bool {
-            ClaudePlanSignals.hasOrganizationCapability(capabilities)
-                || ClaudePlanSignals.isOrganizationPlan(planValue: planLabel)
-                || ClaudePlanSignals.isOrganizationTier(rateLimitTier)
-        }
-
-        /// Claude의 개인 workspace는 현재 "<email>'s Organization" 형태로
-        /// 노출될 수 있다. 명시적인 personal/individual metadata와 이 이름
-        /// 패턴만 개인 신호로 사용하고, 일반 조직명은 추측하지 않는다.
-        var hasPersonalAccountSignal: Bool {
-            let normalizedName = name?.lowercased() ?? ""
-            let hasPersonalWorkspaceName =
-                normalizedName.contains("@")
-                    && (
-                        normalizedName.contains("'s organization")
-                            || normalizedName.contains("’s organization")
-                    )
-            if hasPersonalWorkspaceName {
-                return true
-            }
-
-            let values = [planLabel, billingType, rateLimitTier]
-                .compactMap { $0?.lowercased() }
-            return values.contains { value in
-                value.contains("personal")
-                    || value.contains("individual")
-                    || value.contains("consumer")
-            }
-        }
-
-        private nonisolated static func normalized(_ value: String?) -> String? {
-            guard let value else { return nil }
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        }
-    }
-
-    struct OrganizationPreview: Sendable, Equatable, Identifiable {
-        let organization: OrganizationSummary
-        let fiveHourPercentage: Double?
-        let weeklyPercentage: Double?
-        let overage: OverageSpendLimitResponse?
-        let usageErrorMessage: String?
-
-        var id: String { organization.id }
-    }
-
-    struct AuthPathHealthSnapshot: Sendable, Equatable {
-        let lastAttemptAt: Date?
-        let lastSuccessAt: Date?
-        let lastFailureAt: Date?
-        let lastErrorMessage: String?
-        let consecutiveFailures: Int
-        let totalAttempts: Int
-        let totalFailures: Int
-
-        nonisolated var hasAttempt: Bool {
-            lastAttemptAt != nil || lastSuccessAt != nil || lastFailureAt != nil
-        }
-
-        nonisolated var isUnstable: Bool {
-            if consecutiveFailures >= 2 {
-                return true
-            }
-            guard let lastFailureAt else { return false }
-            guard let lastSuccessAt else { return true }
-            return lastFailureAt > lastSuccessAt
-        }
-
-        nonisolated var failureRatePercent: Int? {
-            guard totalAttempts > 0 else { return nil }
-            let ratio = (Double(totalFailures) / Double(totalAttempts)) * 100
-            return Int(ratio.rounded())
-        }
-    }
-
-    struct RuntimeAuthSnapshot: Sendable, Equatable {
-        enum ActivePath: String, Sendable {
-            case unauthenticated
-            case sessionPrimary
-            case oauthPreferred
-            case oauthFallback
-        }
-
-        let activePath: ActivePath
-        let credentialAvailability: ClaudeCredentialAvailability
-        let sessionValidationState: ClaudeCredentialValidationState
-        let oauthValidationState: ClaudeCredentialValidationState
-        let sessionCooldownRemaining: Int?
-        let oauthPreferredRemaining: Int?
-        var claudeCodeCredentialIssue: ClaudeCodeCredentialIssue? = nil
-    }
-
-    struct UsageHealthSnapshot: Sendable, Equatable {
-        let lastOverallSuccessAt: Date?
-        let session: AuthPathHealthSnapshot
-        let oauth: AuthPathHealthSnapshot
-        let runtime: RuntimeAuthSnapshot
-        let accounts: [ClaudeAccount]
-        let activeAccountID: String?
-
-        init(
-            lastOverallSuccessAt: Date?,
-            session: AuthPathHealthSnapshot,
-            oauth: AuthPathHealthSnapshot,
-            runtime: RuntimeAuthSnapshot,
-            accounts: [ClaudeAccount] = [],
-            activeAccountID: String? = nil
-        ) {
-            self.lastOverallSuccessAt = lastOverallSuccessAt
-            self.session = session
-            self.oauth = oauth
-            self.runtime = runtime
-            self.accounts = accounts
-            self.activeAccountID = activeAccountID
-        }
-
-        var activeAccount: ClaudeAccount? {
-            guard let activeAccountID else { return nil }
-            return accounts.first(where: { $0.id == activeAccountID })
-        }
-    }
-
-    private enum AuthFetchPath: String, Codable {
-        case session
-        case oauth
-    }
-
-    private struct AuthPathHealthState: Codable {
-        enum CodingKeys: String, CodingKey {
-            case lastAttemptAt
-            case lastSuccessAt
-            case lastFailureAt
-            case lastErrorMessage
-            case consecutiveFailures
-            case totalAttempts
-            case totalFailures
-        }
-
-        var lastAttemptAt: Date?
-        var lastSuccessAt: Date?
-        var lastFailureAt: Date?
-        var lastErrorMessage: String?
-        var consecutiveFailures: Int = 0
-        var totalAttempts: Int = 0
-        var totalFailures: Int = 0
-
-        init() {}
-
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            lastAttemptAt = try container.decodeIfPresent(Date.self, forKey: .lastAttemptAt)
-            lastSuccessAt = try container.decodeIfPresent(Date.self, forKey: .lastSuccessAt)
-            lastFailureAt = try container.decodeIfPresent(Date.self, forKey: .lastFailureAt)
-            lastErrorMessage = try container.decodeIfPresent(String.self, forKey: .lastErrorMessage)
-            consecutiveFailures = try container.decodeIfPresent(Int.self, forKey: .consecutiveFailures) ?? 0
-            totalAttempts = try container.decodeIfPresent(Int.self, forKey: .totalAttempts) ?? 0
-            totalFailures = try container.decodeIfPresent(Int.self, forKey: .totalFailures) ?? 0
-        }
-
-        func encode(to encoder: Encoder) throws {
-            var container = encoder.container(keyedBy: CodingKeys.self)
-            try container.encodeIfPresent(lastAttemptAt, forKey: .lastAttemptAt)
-            try container.encodeIfPresent(lastSuccessAt, forKey: .lastSuccessAt)
-            try container.encodeIfPresent(lastFailureAt, forKey: .lastFailureAt)
-            try container.encodeIfPresent(lastErrorMessage, forKey: .lastErrorMessage)
-            try container.encode(consecutiveFailures, forKey: .consecutiveFailures)
-            try container.encode(totalAttempts, forKey: .totalAttempts)
-            try container.encode(totalFailures, forKey: .totalFailures)
-        }
-    }
-
-    private struct AuthPathHealthStore: Codable {
-        var session = AuthPathHealthState()
-        var oauth = AuthPathHealthState()
-        var lastOverallSuccessAt: Date?
-    }
-
     private var sessionKey: String?
     private let accountStore: ClaudeAccountStore
     private let cacheStorage: CacheStorage
-    private let httpRunner: HTTPRunner
+    private let transport: ClaudeHTTPTransport
+    private let organizationCache: ClaudeOrganizationListCache
     private var sessionContextRevision = 0
     private var oauthCredentialFingerprint: String?
     private var oauthReadRevision = 0
@@ -296,37 +59,25 @@ actor ClaudeAPIService {
     private let baseURL = ClaudeEndpoints.webAPIBase
     private var cachedOrganizationID: String?
     private var preferredOrganizationID: String?
-    private var sessionPathCooldownUntil: Date?
-    private var sessionPathCooldownReason: APIError?
-    private var sessionPathLimitStrike = 0
+    private var sessionCooldown = ClaudeSessionPathCooldown()
     /// OAuth 경로 보호: 토큰별 rate limit 예산이 작아서 (과거 429 → 2500초 대기 관측)
     /// 성공 결과를 짧게 캐시하고, 429 는 Retry-After 만큼 경로 쿨다운한다.
     private var oauthPathCooldownUntil: Date?
     private var lastOAuthSuccess: (usage: ClaudeUsageResponse, at: Date)?
     private var claudeCodeCredentialGeneration = 0
     private static let minimumOAuthCallInterval: TimeInterval = 300
-    private let requestTimeout = ClaudeEndpoints.requestTimeout
     private let sourcePlanner = ClaudeSourcePlanner()
     private let messagesHeaderFallbackFetcher = ClaudeMessagesHeaderFallbackFetcher()
     private var profileMetadataStore: ClaudeProfileMetadataStore
     private let oauthProfileMetadataStore: ClaudeProfileMetadataStore
     private let oauthCredentialReader: any ClaudeOAuthCredentialReading
     private let sessionKeyLoader: @Sendable (String) -> String?
-    private let organizationCacheTTL: TimeInterval = 7 * 24 * 60 * 60
-    private static let authPathHealthDefaultsKeyPrefix = AppIdentifiers.defaultsKey("authPathHealth.v1")
-    private static let organizationCacheDefaultsKeyPrefix = AppIdentifiers.defaultsKey("cachedOrganizations.v1")
-    private var authPathHealthStore = AuthPathHealthStore()
+    private var health: ClaudeAuthPathHealthRecorder
     private var lastKnownUsagePercent: Double?
     private var lastSuccessfulUsageSource: ClaudeUsageSource?
     private var lastFetchMetadata: RuntimeProviderFetchMetadata?
     private var lastResolvedSessionOrganization: OrganizationSummary?
     private let accountStoreObserver = ClaudeAccountStoreNotificationObserver()
-
-    private struct OrganizationCache: Codable {
-        let savedAt: Date
-        let organizations: [OrganizationSummary]
-        let sessionFingerprint: String?
-    }
 
     // MARK: - Init
 
@@ -336,21 +87,22 @@ actor ClaudeAPIService {
         httpRunner: @escaping HTTPRunner = { try await URLSession.shared.data(for: $0) }
     ) {
         self.cacheStorage = cacheStorage
-        self.httpRunner = httpRunner
+        self.transport = ClaudeHTTPTransport(runner: httpRunner, timeout: ClaudeEndpoints.requestTimeout)
+        self.organizationCache = ClaudeOrganizationListCache(cacheStorage: cacheStorage)
         self.accountStore = ClaudeAccountStore.shared
         self.usesStoredActiveAccount = true
         self.accountStore.ensureLegacyMigrationIfNeeded()
         let activeAccount = self.accountStore.activeAccount()
-        let profileMetadataStore = cacheStorage.profileMetadataStore(for: activeAccount?.id)
         let oauthProfileMetadataStore = cacheStorage.profileMetadataStore(
             for: ClaudeAccountStore.claudeCodeExternalAccountID)
-        self.profileMetadataStore = profileMetadataStore
+        self.profileMetadataStore = Self.profileMetadataStore(
+            for: activeAccount?.id, cacheStorage: cacheStorage, sharing: oauthProfileMetadataStore)
         self.oauthProfileMetadataStore = oauthProfileMetadataStore
         self.oauthCredentialReader = ClaudeCodeCredentialReader(profileMetadataStore: oauthProfileMetadataStore)
         let sessionKeyLoader: @Sendable (String) -> String? = { KeychainManager.shared.load(for: $0) }
         self.sessionKeyLoader = sessionKeyLoader
         self.activeAccount = activeAccount
-        self.authPathHealthStore = Self.loadAuthPathHealthStore(for: activeAccount?.id, cacheStorage: cacheStorage)
+        self.health = ClaudeAuthPathHealthRecorder(accountID: activeAccount?.id, cacheStorage: cacheStorage)
         // Actor initializers run synchronously on the caller's executor.
         // App startup constructs this service from the main actor, so a
         // Keychain-backed session load here can stall the UI. Every public
@@ -377,7 +129,8 @@ actor ClaudeAPIService {
         httpRunner: @escaping HTTPRunner = { try await URLSession.shared.data(for: $0) }
     ) {
         self.cacheStorage = cacheStorage
-        self.httpRunner = httpRunner
+        self.transport = ClaudeHTTPTransport(runner: httpRunner, timeout: ClaudeEndpoints.requestTimeout)
+        self.organizationCache = ClaudeOrganizationListCache(cacheStorage: cacheStorage)
         self.accountStore = ClaudeAccountStore.shared
         self.usesStoredActiveAccount = false
         let profileMetadataStore = cacheStorage.profileMetadataStore(for: nil)
@@ -389,7 +142,7 @@ actor ClaudeAPIService {
         self.sessionKeyLoader = { _ in nil }
         self.sessionKey = sessionKey
         self.activeAccount = nil
-        self.authPathHealthStore = Self.loadAuthPathHealthStore(for: nil, cacheStorage: cacheStorage)
+        self.health = ClaudeAuthPathHealthRecorder(accountID: nil, cacheStorage: cacheStorage)
     }
 
     /// Tests and orchestration checks can inject an OAuth reader without touching the real Keychain.
@@ -401,19 +154,21 @@ actor ClaudeAPIService {
         httpRunner: @escaping HTTPRunner = { try await URLSession.shared.data(for: $0) }
     ) {
         self.cacheStorage = cacheStorage
-        self.httpRunner = httpRunner
+        self.transport = ClaudeHTTPTransport(runner: httpRunner, timeout: ClaudeEndpoints.requestTimeout)
+        self.organizationCache = ClaudeOrganizationListCache(cacheStorage: cacheStorage)
         self.accountStore = accountStore
         self.usesStoredActiveAccount = true
         self.accountStore.ensureLegacyMigrationIfNeeded()
         let activeAccount = self.accountStore.activeAccount()
-        let profileMetadataStore = cacheStorage.profileMetadataStore(for: activeAccount?.id)
-        self.profileMetadataStore = profileMetadataStore
-        self.oauthProfileMetadataStore = cacheStorage.profileMetadataStore(
+        let oauthProfileMetadataStore = cacheStorage.profileMetadataStore(
             for: ClaudeAccountStore.claudeCodeExternalAccountID)
+        self.profileMetadataStore = Self.profileMetadataStore(
+            for: activeAccount?.id, cacheStorage: cacheStorage, sharing: oauthProfileMetadataStore)
+        self.oauthProfileMetadataStore = oauthProfileMetadataStore
         self.oauthCredentialReader = oauthCredentialReader
         self.sessionKeyLoader = sessionKeyLoader
         self.activeAccount = activeAccount
-        self.authPathHealthStore = Self.loadAuthPathHealthStore(for: activeAccount?.id, cacheStorage: cacheStorage)
+        self.health = ClaudeAuthPathHealthRecorder(accountID: activeAccount?.id, cacheStorage: cacheStorage)
         self.sessionKey = nil
         self.preferredOrganizationID = activeAccount?.kind == .webSession
             ? Self.normalizeOrganizationID(activeAccount?.userSelectedPreferredOrganizationID)
@@ -424,6 +179,14 @@ actor ClaudeAPIService {
                 await self?.reloadActiveAccount()
             }
         }
+    }
+
+    /// 같은 파일을 쓰는 메타데이터 저장소를 둘 만들면 서로의 갱신을 덮는다. Claude Code 계정은 OAuth 쪽 저장소를 함께 쓴다.
+    private static func profileMetadataStore(
+        for accountID: String?, cacheStorage: CacheStorage, sharing oauthStore: ClaudeProfileMetadataStore
+    ) -> ClaudeProfileMetadataStore {
+        accountID == ClaudeAccountStore.claudeCodeExternalAccountID
+            ? oauthStore : cacheStorage.profileMetadataStore(for: accountID)
     }
 
     func reloadActiveAccount() {
@@ -455,13 +218,14 @@ actor ClaudeAPIService {
 
         sessionContextRevision &+= 1
         activeAccount = nextAccount
-        profileMetadataStore = cacheStorage.profileMetadataStore(for: nextAccount?.id)
-        authPathHealthStore = Self.loadAuthPathHealthStore(for: nextAccount?.id, cacheStorage: cacheStorage)
+        profileMetadataStore = Self.profileMetadataStore(
+            for: nextAccount?.id, cacheStorage: cacheStorage, sharing: oauthProfileMetadataStore)
+        health = ClaudeAuthPathHealthRecorder(accountID: nextAccount?.id, cacheStorage: cacheStorage)
         cachedOrganizationID = nil
         lastResolvedSessionOrganization = nil
         lastKnownUsagePercent = nil
         lastSuccessfulUsageSource = nil
-        resetSessionPathCooldown()
+        sessionCooldown.reset()
         // 계정이 바뀌면 OAuth 캐시/쿨다운도 무효 (토큰이 계정별이므로)
         oauthPathCooldownUntil = nil
         lastOAuthSuccess = nil
@@ -508,9 +272,7 @@ actor ClaudeAPIService {
         self.sessionKey = key
         self.cachedOrganizationID = nil  // 캐시 초기화
         self.lastResolvedSessionOrganization = nil
-        self.sessionPathCooldownUntil = nil
-        self.sessionPathCooldownReason = nil
-        self.sessionPathLimitStrike = 0
+        self.sessionCooldown.reset()
         if previousFingerprint != currentSessionFingerprint() {
             self.clearCachedOrganizations()
         }
@@ -522,9 +284,7 @@ actor ClaudeAPIService {
         self.sessionKey = nil
         self.cachedOrganizationID = nil
         self.lastResolvedSessionOrganization = nil
-        self.sessionPathCooldownUntil = nil
-        self.sessionPathCooldownReason = nil
-        self.sessionPathLimitStrike = 0
+        self.sessionCooldown.reset()
         self.clearCachedOrganizations()
     }
 
@@ -604,9 +364,9 @@ actor ClaudeAPIService {
             ? accountStore.state()
             : ClaudeAccountState(accounts: [], activeAccountID: nil)
         return UsageHealthSnapshot(
-            lastOverallSuccessAt: authPathHealthStore.lastOverallSuccessAt,
-            session: makeAuthPathSnapshot(for: .session),
-            oauth: makeAuthPathSnapshot(for: .oauth),
+            lastOverallSuccessAt: health.lastOverallSuccessAt,
+            session: health.snapshot(.session),
+            oauth: health.snapshot(.oauth),
             runtime: makeRuntimeAuthSnapshot(
                 oauthCredentialAvailable: oauthCredentialAvailable,
                 credentialIssue: credentialIssue
@@ -669,8 +429,8 @@ actor ClaudeAPIService {
             lastKnownUsagePercent = nil
             lastSuccessfulUsageSource = nil
             lastFetchMetadata = nil
-            cacheStorage.removeObject(forKey: Self.authPathHealthDefaultsKey(for: claudeCodeAccountID))
-            if activeAccount?.id == claudeCodeAccountID { authPathHealthStore = AuthPathHealthStore() }
+            ClaudeAuthPathHealthRecorder.removeHistory(for: claudeCodeAccountID, cacheStorage: cacheStorage)
+            if activeAccount?.id == claudeCodeAccountID { health.reset() }
             accountStore.updateValidationState(.detected, for: claudeCodeAccountID)
         }
         accountStore.replaceIdentity(ClaudeAccountIdentity(), for: claudeCodeAccountID)
@@ -682,47 +442,6 @@ actor ClaudeAPIService {
     /// 로그인 윈도우 미리보기에서 organizationUUID / planLabel 표시에 사용.
     func fetchCachedClaudeCodeProfileMetadata() async -> ClaudeProfileMetadata? {
         await oauthProfileMetadataStore.load()
-    }
-
-    /// `/api/oauth/profile` 응답을 그대로 모델링한 가벼운 DTO.
-    /// 외부에서 view 로 노출되기 전 ClaudeAccountIdentity / ClaudeProfileMetadata 로 매핑된다.
-    struct ClaudeOAuthProfileResponse: Decodable, Sendable {
-        struct Account: Decodable, Sendable {
-            let uuid: String?
-            let email: String?
-            let fullName: String?
-            let displayName: String?
-            let hasClaudeMax: Bool?
-            let hasClaudePro: Bool?
-
-            enum CodingKeys: String, CodingKey {
-                case uuid
-                case email
-                case fullName = "full_name"
-                case displayName = "display_name"
-                case hasClaudeMax = "has_claude_max"
-                case hasClaudePro = "has_claude_pro"
-            }
-        }
-        struct Organization: Decodable, Sendable {
-            let uuid: String?
-            let name: String?
-            let organizationType: String?
-            let billingType: String?
-            let rateLimitTier: String?
-            let hasExtraUsageEnabled: Bool?
-
-            enum CodingKeys: String, CodingKey {
-                case uuid
-                case name
-                case organizationType = "organization_type"
-                case billingType = "billing_type"
-                case rateLimitTier = "rate_limit_tier"
-                case hasExtraUsageEnabled = "has_extra_usage_enabled"
-            }
-        }
-        let account: Account?
-        let organization: Organization?
     }
 
     /// OAuth 자격으로 `/api/oauth/profile` 호출. 사용량 호출과 같은 401 retry 정책을 공유한다.
@@ -746,7 +465,7 @@ actor ClaudeAPIService {
         request.httpMethod = "GET"
         ClaudeEndpoints.applyOAuthHeaders(to: &request, accessToken: accessToken)
 
-        let (data, response) = try await data(for: request)
+        let (data, response) = try await transport.send(request)
         try validateOAuthCredential(accessToken: accessToken, generation: generation)
         guard let http = response as? HTTPURLResponse else {
             throw APIError.unknownError("Invalid OAuth profile HTTP response")
@@ -759,7 +478,7 @@ actor ClaudeAPIService {
             {
                 return try await performOAuthProfileRequest(accessToken: newToken, allowRefreshRetry: false)
             }
-            throw classifyHTTPError(statusCode: http.statusCode, data: data, response: http)
+            throw ClaudeHTTPTransport.classify(statusCode: http.statusCode, data: data, response: http)
         }
         do {
             return (try JSONDecoder().decode(ClaudeOAuthProfileResponse.self, from: data), generation)
@@ -863,11 +582,6 @@ actor ClaudeAPIService {
         )
     }
 
-    /// 일회성 OAuth-aware 자동 복구. UserDefaults 플래그로 1회만 동작.
-    /// 사용자가 직접 추가/선택한 web 계정(chromeProfile, embeddedWebLogin, manualInput)
-    /// 은 건드리지 않고, 레거시 자동 마이그레이션 결과면서 동작 불가 상태인 경우에만 전환.
-    nonisolated static let oauthAwareMigrationVersionKey = AppIdentifiers.defaultsKey("oauthAwareMigrationVersion")
-    nonisolated static let oauthAwareMigrationCurrentVersion = 1
     /// v2.3: OAuth (`/api/oauth/usage`) 경로를 정식 소스로 승격.
     /// v2.2.0 에서 비활성화했던 이유(토큰별 rate limit, refresh rotation 함정)는
     /// (1) OAuth 경로 최소 호출 간격 + 성공 캐시, (2) 429 Retry-After 쿨다운,
@@ -876,59 +590,6 @@ actor ClaudeAPIService {
     /// 문제가 재발하면 환경변수 `CLAUDE_USAGE_ENABLE_CLAUDE_OAUTH_USAGE=0` 이 kill switch.
     nonisolated private static var claudeOAuthUsageCallsEnabled: Bool {
         ProcessInfo.processInfo.environment["CLAUDE_USAGE_ENABLE_CLAUDE_OAUTH_USAGE"] != "0"
-    }
-
-    /// 자동 전환 결정의 핵심 룰을 단위 테스트 가능한 pure function 으로 분리.
-    /// 단순한 입력만 받고 store/keychain 접근 없음 → caller 가 책임지고 데이터 준비.
-    nonisolated static func shouldAutoSwitchActiveToCLIForBrokenLegacyMigration(
-        activeAccount: ClaudeAccount?,
-        oauthCredentialAvailable: Bool,
-        sessionKeyMissing: Bool
-    ) -> Bool {
-        guard oauthCredentialAvailable else { return false }
-        guard let active = activeAccount,
-              active.kind == .webSession,
-              active.source == .legacyMigration
-        else {
-            return false
-        }
-        return sessionKeyMissing || active.lastValidationState == .failed
-    }
-
-    private func runOAuthAwareLegacyMigrationIfNeeded() async {
-        // v2.3: OAuth 경로 승격으로 이 migration 도 다시 활성.
-        // 손상된 legacy web 계정은 CLI external 계정으로 자동 전환된다.
-        guard Self.claudeOAuthUsageCallsEnabled else { return }
-
-        let defaults = UserDefaults.standard
-        let currentVersion = defaults.integer(forKey: Self.oauthAwareMigrationVersionKey)
-        guard currentVersion < Self.oauthAwareMigrationCurrentVersion else { return }
-
-        defer {
-            defaults.set(Self.oauthAwareMigrationCurrentVersion, forKey: Self.oauthAwareMigrationVersionKey)
-        }
-
-        let active = activeAccount
-        let sessionKeyMissing: Bool = {
-            guard let active else { return true }
-            let storedKey = KeychainManager.shared.load(for: active.id)
-            return (storedKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }()
-
-        guard Self.shouldAutoSwitchActiveToCLIForBrokenLegacyMigration(
-            activeAccount: active,
-            oauthCredentialAvailable: true,  // caller 가 OAuth 토큰 검증 후 진입
-            sessionKeyMissing: sessionKeyMissing
-        ) else { return }
-
-        Logger.info("OAuth-aware migration v\(Self.oauthAwareMigrationCurrentVersion): legacy web 활성+손상 → CLI active 전환 (\(active?.id ?? "?"))")
-        _ = accountStore.upsertClaudeCodeExternalAccount(
-            identity: await claudeCodeAccountIdentity(),
-            validationState: stableClaudeCodeValidationState(credentialAvailable: true),
-            setActiveIfMissing: false
-        )
-        accountStore.setActiveAccountID(ClaudeAccountStore.claudeCodeExternalAccountID)
-        reloadActiveAccount()
     }
 
     // MARK: - Public API
@@ -952,7 +613,7 @@ actor ClaudeAPIService {
     }
 
     /// 사용량과 실제 조회 출처/계정 귀속을 함께 반환한다.
-    func fetchUsageOutcome() async throws -> ClaudeUsageFetchOutcome {
+    func fetchUsageOutcome(bypassOAuthCache: Bool = false) async throws -> ClaudeUsageFetchOutcome {
         reloadActiveAccount()
         Logger.info("사용량 데이터 요청 시작")
         let initialActiveKind: ClaudeAccountKind? = {
@@ -979,12 +640,6 @@ actor ClaudeAPIService {
                 try await synchronizeOAuthIdentityIfNeeded(accessToken: oauthAccessToken)
                 reloadActiveAccount()
             }
-            // v2.1.1 → 다음 버전 업데이트 사각지대 대응:
-            // 활성 계정이 레거시 자동 마이그레이션 web 인데 sessionKey 자체가 손상되었거나
-            // 직전 검증이 .failed 라면, 사용자 명시 선택이 아니므로 한 번에 한해
-            // CLI external 을 active 로 자동 전환한다. 사용자가 직접 추가/선택한 web
-            // 계정에는 영향 없음. UserDefaults 마이그레이션 플래그로 1회만 동작.
-            await runOAuthAwareLegacyMigrationIfNeeded()
         }
 
         let activeKind: ClaudeAccountKind? = {
@@ -1001,7 +656,7 @@ actor ClaudeAPIService {
             guard let sessionKey, !sessionKey.isEmpty else { return nil }
             return sessionKey
         }()
-        let sessionCooldownError = normalizedSessionKey != nil ? currentSessionPathCooldownError() : nil
+        let sessionCooldownError = normalizedSessionKey != nil ? sessionCooldown.currentError() : nil
         // 시스템 Claude Code 로그인은 활성 웹 계정과 다른 사용자일 수 있다.
         // OAuth는 Claude Code 계정이 명시적으로 활성일 때만 해당 계정의 source로 노출한다.
         let oauthTokenForFetch: String? = {
@@ -1016,8 +671,9 @@ actor ClaudeAPIService {
             sourcePreference: .auto,
             webSessionAvailable: normalizedSessionKey != nil && sessionCooldownError == nil,
             oauthAvailable: effectiveOAuthAvailable,
-            webSessionValidationState: validationState(for: .session, credentialAvailable: normalizedSessionKey != nil && sessionCooldownError == nil),
-            oauthValidationState: validationState(for: .oauth, credentialAvailable: effectiveOAuthAvailable),
+            webSessionValidationState: health.validationState(
+                .session, credentialAvailable: normalizedSessionKey != nil && sessionCooldownError == nil),
+            oauthValidationState: health.validationState(.oauth, credentialAvailable: effectiveOAuthAvailable),
             recentSuccessfulSource: nil,
             currentUsagePercent: lastKnownUsagePercent,
             fallbackPolicy: await currentMessagesFallbackPolicy())
@@ -1046,7 +702,7 @@ actor ClaudeAPIService {
                 }
                 do {
                     let result = try await fetchSessionUsage(sessionKey)
-                    resetSessionPathCooldown()
+                    sessionCooldown.reset()
                     rememberSuccessfulUsage(result.usage, source: .webSession, accountID: requestAccountID)
                     return makeFetchOutcome(
                         usage: result.usage,
@@ -1058,12 +714,11 @@ actor ClaudeAPIService {
                     throw CancellationError()
                 } catch let apiError as APIError {
                     sourceErrors[.webSession] = apiError
-                    markAccountValidationFailed(accountID: requestAccountID)
+                    markAccountValidationFailedIfDefinitive(apiError, accountID: requestAccountID)
                     Logger.warning("세션키 경로 실패: \(apiError.localizedDescription)")
                 } catch {
                     let apiError = APIError.unknownError(error.localizedDescription)
                     sourceErrors[.webSession] = apiError
-                    markAccountValidationFailed(accountID: requestAccountID)
                     Logger.warning("세션키 경로 실패: \(error.localizedDescription)")
                 }
 
@@ -1073,14 +728,17 @@ actor ClaudeAPIService {
                     continue
                 }
 
-                // OAuth 경로 예산 보호 1: 최소 호출 간격 내 재요청은 마지막 성공 결과 반환
-                if let cached = lastOAuthSuccess,
-                   Date().timeIntervalSince(cached.at) < Self.minimumOAuthCallInterval {
-                    return makeFetchOutcome(
+                // OAuth 경로 예산 보호 1: 최소 호출 간격 안의 자동 조회는 마지막 성공 결과를 받아 온 시각과 함께 돌려준다.
+                if !bypassOAuthCache, let cached = lastOAuthSuccess,
+                    Self.canReuseOAuthUsage(cached.usage, fetchedAt: cached.at, now: Date())
+                {
+                    var outcome = makeFetchOutcome(
                         usage: cached.usage,
                         source: .oauth,
                         accountID: requestAccountID,
                         attemptedSources: attemptedSources)
+                    outcome.fetchedAt = cached.at
+                    return outcome
                 }
                 // OAuth 경로 예산 보호 2: 429 쿨다운 중이면 이번 사이클은 스킵
                 if let until = oauthPathCooldownUntil {
@@ -1092,8 +750,10 @@ actor ClaudeAPIService {
                     oauthPathCooldownUntil = nil
                 }
 
+                var oauthRequestGeneration = requestClaudeCodeCredentialGeneration
                 do {
-                    let result = try await fetchUsageViaOAuth(accessToken: oauthAccessToken)
+                    let result = try await fetchUsageViaOAuth(
+                        accessToken: oauthAccessToken, requestGeneration: &oauthRequestGeneration)
                     guard result.generation == claudeCodeCredentialGeneration else {
                         throw CancellationError()
                     }
@@ -1117,7 +777,7 @@ actor ClaudeAPIService {
                         accountID: requestAccountID,
                         attemptedSources: attemptedSources)
                 } catch let apiError as APIError {
-                    guard requestClaudeCodeCredentialGeneration == claudeCodeCredentialGeneration else {
+                    guard oauthRequestGeneration == claudeCodeCredentialGeneration else {
                         throw CancellationError()
                     }
                     sourceErrors[.oauth] = apiError
@@ -1127,7 +787,7 @@ actor ClaudeAPIService {
                         oauthPathCooldownUntil = Date().addingTimeInterval(cooldown)
                         Logger.warning("OAuth 경로 429 → \(Int(cooldown))초 쿨다운")
                     }
-                    markAccountValidationFailed(accountID: requestAccountID)
+                    markAccountValidationFailedIfDefinitive(apiError, accountID: requestAccountID)
                     Logger.warning("OAuth 경로 실패: \(apiError.localizedDescription)")
 
                     if plan.shouldAttemptAutomaticFallback {
@@ -1141,7 +801,7 @@ actor ClaudeAPIService {
                                 accessToken: oauthAccessToken,
                                 policy: plan.fallbackPolicy,
                                 currentUsagePercent: lastKnownUsagePercent)
-                            guard requestClaudeCodeCredentialGeneration == claudeCodeCredentialGeneration else {
+                            guard oauthRequestGeneration == claudeCodeCredentialGeneration else {
                                 throw CancellationError()
                             }
                             Logger.warning("OAuth 경로 실패 → Messages 헤더 복구 성공")
@@ -1165,7 +825,6 @@ actor ClaudeAPIService {
                 } catch {
                     let apiError = APIError.unknownError(error.localizedDescription)
                     sourceErrors[.oauth] = apiError
-                    markAccountValidationFailed(accountID: requestAccountID)
                     Logger.warning("OAuth 경로 실패: \(error.localizedDescription)")
                 }
 
@@ -1188,6 +847,14 @@ actor ClaudeAPIService {
         throw APIError.invalidSessionKey
     }
 
+    /// 그사이 한도 초기화 시각이 지났으면 캐시는 초기화 전 값이라 다시 받는다.
+    nonisolated static func canReuseOAuthUsage(_ usage: ClaudeUsageResponse, fetchedAt: Date, now: Date) -> Bool {
+        guard now.timeIntervalSince(fetchedAt) < minimumOAuthCallInterval else { return false }
+        return !UsageLimitCatalog.claude(usage).contains { limit in
+            limit.resetAt.map { $0 > fetchedAt && $0 <= now } ?? false
+        }
+    }
+
     /// 현재 세션 키 기준 organization 목록 조회 (설정 UI 용도)
     func fetchOrganizations() async throws -> [OrganizationSummary] {
         reloadActiveAccount()
@@ -1202,7 +869,8 @@ actor ClaudeAPIService {
         } catch let apiError as APIError {
             if apiError.isTemporaryFailure,
                let cached = loadCachedOrganizations(),
-               !cached.isEmpty {
+                !cached.isEmpty
+            {
                 Logger.warning("Organization 목록 네트워크 조회 실패 → 캐시 fallback 사용(\(cached.count)개)")
                 return cached
             }
@@ -1257,7 +925,8 @@ actor ClaudeAPIService {
             var overage: OverageSpendLimitResponse?
             var usageErrorMessage: String?
             do {
-                usage = try await fetchUsageWithSessionKey(sessionKey, organizationID: organization.id)
+                usage = try await fetchUsageWithSessionKey(
+                    sessionKey, organizationID: organization.id, recordsPathHealth: false)
             } catch let apiError as APIError {
                 usageErrorMessage = apiError.localizedDescription
             } catch {
@@ -1310,10 +979,13 @@ actor ClaudeAPIService {
         return (usage, UsageAccountIdentity(organizationID: orgID, organizationName: organizationName))
     }
 
-    private func fetchUsageWithSessionKey(_ sessionKey: String, organizationID orgID: String) async throws -> ClaudeUsageResponse {
+    /// 조직 미리보기처럼 선택하지 않은 조직을 볼 때는 활성 계정의 경로 기록과 대기 시간을 남기지 않는다.
+    private func fetchUsageWithSessionKey(
+        _ sessionKey: String, organizationID orgID: String, recordsPathHealth: Bool = true
+    ) async throws -> ClaudeUsageResponse {
         let requestAccountID = activeAccount?.id
         let requestRevision = sessionContextRevision
-        recordPathAttempt(.session)
+        if recordsPathHealth { health.recordAttempt(.session) }
 
         let url = ClaudeEndpoints.webUsageURL(organizationID: orgID)
         var request = URLRequest(url: url)
@@ -1322,7 +994,7 @@ actor ClaudeAPIService {
 
         Logger.debug("API 요청: \(url.absoluteString)")
 
-        let (data, response) = try await data(for: request)
+        let (data, response) = try await transport.send(request)
         // 응답을 기다리는 동안 계정이 바뀌면 결과를 새 계정의 경로 상태에 남기지 않는다.
         guard isCurrentRequest(accountID: requestAccountID, sessionKey: sessionKey, revision: requestRevision) else {
             throw CancellationError()
@@ -1331,7 +1003,7 @@ actor ClaudeAPIService {
         guard let httpResponse = response as? HTTPURLResponse else {
             Logger.error("유효하지 않은 응답")
             let apiError = APIError.unknownError("Invalid HTTP response")
-            recordPathFailure(.session, error: apiError)
+            if recordsPathHealth { health.recordFailure(.session, error: apiError) }
             throw apiError
         }
 
@@ -1339,9 +1011,12 @@ actor ClaudeAPIService {
 
         guard (200...299).contains(httpResponse.statusCode) else {
             Logger.error("HTTP 에러: \(httpResponse.statusCode)")
-            let apiError = classifyHTTPError(statusCode: httpResponse.statusCode, data: data, response: httpResponse)
-            updateSessionPathCooldownIfNeeded(with: apiError)
-            recordPathFailure(.session, error: apiError)
+            let apiError = ClaudeHTTPTransport.classify(
+                statusCode: httpResponse.statusCode, data: data, response: httpResponse)
+            if recordsPathHealth {
+                sessionCooldown.apply(after: apiError)
+                health.recordFailure(.session, error: apiError)
+            }
             throw apiError
         }
 
@@ -1355,13 +1030,13 @@ actor ClaudeAPIService {
             let usageResponse = try decoder.decode(ClaudeUsageResponse.self, from: data)
 
             Logger.info("사용량 데이터 수신 성공: \(usageResponse.usageSummaryText)")
-            recordPathSuccess(.session)
+            if recordsPathHealth { health.recordSuccess(.session) }
             return usageResponse
 
         } catch {
             Logger.error("JSON 파싱 실패: \(error)")
             let apiError = APIError.parseError
-            recordPathFailure(.session, error: apiError)
+            if recordsPathHealth { health.recordFailure(.session, error: apiError) }
             throw apiError
         }
     }
@@ -1382,7 +1057,7 @@ actor ClaudeAPIService {
         }
 
         // 추가 사용량 API는 브라우저 로그인 계정에서만 지원합니다.
-        if let cooldownError = currentSessionPathCooldownError() {
+        if let cooldownError = sessionCooldown.currentError() {
             Logger.debug("추가 사용량 조회 스킵: 세션키 경로 쿨다운 중(\(cooldownError.localizedDescription))")
             throw cooldownError
         }
@@ -1412,7 +1087,7 @@ actor ClaudeAPIService {
 
         Logger.debug("Overage API 요청: \(url.absoluteString)")
 
-        let (data, response) = try await data(for: request)
+        let (data, response) = try await transport.send(request)
         guard isCurrentRequest(accountID: requestAccountID, sessionKey: sessionKey, revision: requestRevision) else {
             throw CancellationError()
         }
@@ -1422,7 +1097,8 @@ actor ClaudeAPIService {
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            let apiError = classifyHTTPError(statusCode: httpResponse.statusCode, data: data, response: httpResponse)
+            let apiError = ClaudeHTTPTransport.classify(
+                statusCode: httpResponse.statusCode, data: data, response: httpResponse)
             throw apiError
         }
 
@@ -1580,7 +1256,7 @@ actor ClaudeAPIService {
     }
 
     private func fetchOrganizationsWithSessionKey(_ sessionKey: String) async throws -> [OrganizationSummary] {
-        if let cooldownError = currentSessionPathCooldownError() {
+        if let cooldownError = sessionCooldown.currentError() {
             Logger.debug("Organization 목록 조회 스킵: 세션키 경로 쿨다운 중(\(cooldownError.localizedDescription))")
             throw cooldownError
         }
@@ -1592,7 +1268,7 @@ actor ClaudeAPIService {
 
         let requestAccountID = activeAccount?.id
         let requestRevision = sessionContextRevision
-        let (data, response) = try await data(for: request)
+        let (data, response) = try await transport.send(request)
         guard isCurrentRequest(accountID: requestAccountID, sessionKey: sessionKey, revision: requestRevision) else {
             throw CancellationError()
         }
@@ -1602,8 +1278,9 @@ actor ClaudeAPIService {
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            let apiError = classifyHTTPError(statusCode: httpResponse.statusCode, data: data, response: httpResponse)
-            updateSessionPathCooldownIfNeeded(with: apiError)
+            let apiError = ClaudeHTTPTransport.classify(
+                statusCode: httpResponse.statusCode, data: data, response: httpResponse)
+            sessionCooldown.apply(after: apiError)
             throw apiError
         }
 
@@ -1617,7 +1294,8 @@ actor ClaudeAPIService {
             if organizations.isEmpty {
                 Logger.error("Organization ID를 찾을 수 없음")
             } else {
-                saveCachedOrganizations(organizations)
+                organizationCache.save(
+                    organizations, accountID: activeAccount?.id, sessionFingerprint: currentSessionFingerprint())
             }
             return organizations
         } catch let apiError as APIError {
@@ -1628,49 +1306,12 @@ actor ClaudeAPIService {
         }
     }
 
-    private func saveCachedOrganizations(_ organizations: [OrganizationSummary]) {
-        guard !organizations.isEmpty else { return }
-        let cache = OrganizationCache(
-            savedAt: Date(),
-            organizations: organizations,
-            sessionFingerprint: currentSessionFingerprint()
-        )
-        guard let data = try? JSONEncoder().encode(cache) else { return }
-        cacheStorage.set(data, forKey: organizationCacheDefaultsKey())
-    }
-
     private func loadCachedOrganizations() -> [OrganizationSummary]? {
-        guard let data = cacheStorage.data(forKey: organizationCacheDefaultsKey()),
-              let cache = try? JSONDecoder().decode(OrganizationCache.self, from: data) else {
-            return nil
-        }
-
-        let age = Date().timeIntervalSince(cache.savedAt)
-        guard age <= organizationCacheTTL else { return nil }
-
-        guard let cachedFingerprint = cache.sessionFingerprint else {
-            // 과거 버전 캐시는 세션 식별자가 없어 계정 전환 시 오염 가능성이 있으므로 무시
-            return nil
-        }
-
-        guard let currentFingerprint = currentSessionFingerprint(),
-              currentFingerprint == cachedFingerprint else {
-            Logger.debug("캐시된 Organization 목록 무시: 세션 변경 감지")
-            return nil
-        }
-
-        return cache.organizations
+        organizationCache.load(accountID: activeAccount?.id, sessionFingerprint: currentSessionFingerprint())
     }
 
     private func clearCachedOrganizations() {
-        cacheStorage.removeObject(forKey: organizationCacheDefaultsKey())
-    }
-
-    private func organizationCacheDefaultsKey() -> String {
-        guard let accountID = activeAccount?.id else {
-            return "\(Self.organizationCacheDefaultsKeyPrefix).ephemeral"
-        }
-        return "\(Self.organizationCacheDefaultsKeyPrefix).\(accountID)"
+        organizationCache.clear(accountID: activeAccount?.id)
     }
 
     private func disabledOverageSpendLimitResponse() -> OverageSpendLimitResponse {
@@ -1689,12 +1330,14 @@ actor ClaudeAPIService {
     }
 
     /// provenance를 유지하는 재시도 API. 런타임 refresh는 이 경로만 사용한다.
-    func fetchUsageWithRetryOutcome(maxAttempts: Int = 3) async throws -> ClaudeUsageFetchOutcome {
+    func fetchUsageWithRetryOutcome(
+        maxAttempts: Int = 3, bypassOAuthCache: Bool = false
+    ) async throws -> ClaudeUsageFetchOutcome {
         var lastError: Error?
 
         for attempt in 1...maxAttempts {
             do {
-                return try await fetchUsageOutcome()
+                return try await fetchUsageOutcome(bypassOAuthCache: bypassOAuthCache)
 
             } catch is CancellationError {
                 throw CancellationError()
@@ -1718,7 +1361,7 @@ actor ClaudeAPIService {
                 Logger.warning("시도 \(attempt)/\(maxAttempts) 실패: \(error.localizedDescription)")
 
                 if attempt < maxAttempts {
-                    let delay = retryDelayNanoseconds(for: error, attempt: attempt)
+                    let delay = ClaudeHTTPTransport.retryDelayNanoseconds(for: error, attempt: attempt)
                     try await Task.sleep(nanoseconds: delay)
                 }
             }
@@ -1766,176 +1409,9 @@ actor ClaudeAPIService {
         return usage
     }
 
-    private func retryDelayNanoseconds(for error: Error, attempt: Int) -> UInt64 {
-        let cappedAttempt = max(1, attempt)
-        let seconds: Double
-
-        if let apiError = error as? APIError {
-            switch apiError {
-            case .rateLimited(let retryAfter):
-                if let retryAfter {
-                    seconds = Double(max(5, min(retryAfter, 300)))
-                } else {
-                    seconds = min(60, 6 * pow(1.8, Double(cappedAttempt - 1)))
-                }
-            case .cloudflareBlocked(let retryAfter):
-                if let retryAfter {
-                    seconds = Double(max(5, min(retryAfter, 300)))
-                } else {
-                    seconds = min(75, 8 * pow(1.8, Double(cappedAttempt - 1)))
-                }
-            default:
-                seconds = pow(2.0, Double(cappedAttempt - 1))
-            }
-        } else {
-            seconds = pow(2.0, Double(cappedAttempt - 1))
-        }
-
-        return UInt64(seconds * 1_000_000_000)
-    }
-
-    private func classifyHTTPError(statusCode: Int, data: Data?, response: HTTPURLResponse?) -> APIError {
-        let retryAfter = retryAfterSeconds(from: response)
-        if statusCode == 429 {
-            return .rateLimited(retryAfter: retryAfter)
-        }
-
-        if statusCode == 401 {
-            return .invalidSessionKey
-        }
-
-        if statusCode == 403 {
-            if isLikelyCloudflareChallenge(data) {
-                return .cloudflareBlocked(retryAfter: retryAfter)
-            }
-            return .invalidSessionKey
-        }
-
-        return .serverError(statusCode)
-    }
-
-    private func retryAfterSeconds(from response: HTTPURLResponse?) -> Int? {
-        guard let response, let header = response.value(forHTTPHeaderField: "Retry-After")?.trimmingCharacters(in: .whitespacesAndNewlines), !header.isEmpty else {
-            return nil
-        }
-
-        if let seconds = Int(header), seconds > 0 {
-            return seconds
-        }
-
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
-        guard let retryAt = formatter.date(from: header) else {
-            return nil
-        }
-
-        let remaining = Int(ceil(retryAt.timeIntervalSinceNow))
-        return remaining > 0 ? remaining : nil
-    }
-
-    private func updateSessionPathCooldownIfNeeded(with error: APIError) {
-        switch error {
-        case .rateLimited(let retryAfter):
-            applySessionPathCooldown(kind: .rateLimited, retryAfter: retryAfter)
-        case .cloudflareBlocked(let retryAfter):
-            applySessionPathCooldown(kind: .cloudflareBlocked, retryAfter: retryAfter)
-        default:
-            break
-        }
-    }
-
-    private enum SessionPathCooldownKind {
-        case rateLimited
-        case cloudflareBlocked
-    }
-
-    private func applySessionPathCooldown(kind: SessionPathCooldownKind, retryAfter: Int?) {
-        sessionPathLimitStrike += 1
-
-        let baseSeconds: Double
-        switch kind {
-        case .rateLimited:
-            baseSeconds = 30
-        case .cloudflareBlocked:
-            baseSeconds = 45
-        }
-
-        let calculated = min(300, baseSeconds * pow(1.7, Double(max(0, sessionPathLimitStrike - 1))))
-        let finalSeconds = Int(max(Double(retryAfter ?? 0), calculated))
-        sessionPathCooldownUntil = Date().addingTimeInterval(Double(finalSeconds))
-
-        switch kind {
-        case .rateLimited:
-            sessionPathCooldownReason = .rateLimited(retryAfter: finalSeconds)
-        case .cloudflareBlocked:
-            sessionPathCooldownReason = .cloudflareBlocked(retryAfter: finalSeconds)
-        }
-
-        Logger.warning("세션키 경로 백오프 적용: \(finalSeconds)초 (연속 제한 \(sessionPathLimitStrike)회)")
-    }
-
-    private func currentSessionPathCooldownError() -> APIError? {
-        guard let until = sessionPathCooldownUntil else { return nil }
-
-        let remaining = Int(ceil(until.timeIntervalSinceNow))
-        if remaining <= 0 {
-            sessionPathCooldownUntil = nil
-            sessionPathCooldownReason = nil
-            return nil
-        }
-
-        switch sessionPathCooldownReason {
-        case .cloudflareBlocked(_):
-            return .cloudflareBlocked(retryAfter: remaining)
-        case .rateLimited(_):
-            return .rateLimited(retryAfter: remaining)
-        default:
-            return .rateLimited(retryAfter: remaining)
-        }
-    }
-
-    private func resetSessionPathCooldown() {
-        sessionPathCooldownUntil = nil
-        sessionPathCooldownReason = nil
-        sessionPathLimitStrike = 0
-    }
-
-    private func isLikelyCloudflareChallenge(_ data: Data?) -> Bool {
-        guard let data, let body = String(data: data, encoding: .utf8)?.lowercased() else {
-            return false
-        }
-
-        return body.contains("just a moment") ||
-               body.contains("cloudflare") ||
-               body.contains("cf-ray") ||
-               body.contains("attention required")
-    }
-
-    private func data(for originalRequest: URLRequest) async throws -> (Data, URLResponse) {
-        var request = originalRequest
-        request.timeoutInterval = requestTimeout
-
-        do {
-            try Task.checkCancellation()
-            let result = try await httpRunner(request)
-            try Task.checkCancellation()
-            return result
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch let urlError as URLError {
-            if urlError.code == .cancelled { throw CancellationError() }
-            if urlError.code == .timedOut {
-                throw APIError.networkError("요청 시간 초과 (\(Int(requestTimeout))초)")
-            }
-            throw APIError.networkError(urlError.localizedDescription)
-        } catch {
-            throw APIError.networkError(error.localizedDescription)
-        }
-    }
-
-    private func fetchUsageViaOAuth(accessToken: String) async throws -> (usage: ClaudeUsageResponse, generation: Int) {
+    private func fetchUsageViaOAuth(
+        accessToken: String, requestGeneration: inout Int
+    ) async throws -> (usage: ClaudeUsageResponse, generation: Int) {
         // 첫 시도: 주어진 access token 으로 호출.
         // 401 (unauthorized) 가 오면 토큰이 만료되었을 가능성이 높으므로
         // refresh 를 1회 강제 시도하고 새 토큰으로 재호출한다. 같은 단일 fetchUsage 흐름
@@ -1951,6 +1427,7 @@ actor ClaudeAPIService {
             }
             Logger.info("OAuth 토큰 401 → refresh 성공, 재시도")
             try await synchronizeOAuthIdentityIfNeeded(accessToken: refreshedToken)
+            requestGeneration = claudeCodeCredentialGeneration
             return try await performOAuthUsageRequest(accessToken: refreshedToken)
         }
     }
@@ -1960,36 +1437,45 @@ actor ClaudeAPIService {
     ) {
         let generation = claudeCodeCredentialGeneration
         let requestAccountID = activeAccount?.id
-        recordPathAttempt(.oauth)
+        health.recordAttempt(.oauth)
 
         var request = URLRequest(url: ClaudeEndpoints.oauthUsageURL)
         request.httpMethod = "GET"
         ClaudeEndpoints.applyOAuthHeaders(to: &request, accessToken: accessToken)
 
-        let (data, response) = try await data(for: request)
+        var (data, response) = try await transport.send(request)
         try validateOAuthCredential(accessToken: accessToken, generation: generation)
         guard activeAccount?.id == requestAccountID else { throw CancellationError() }
+        if let status = (response as? HTTPURLResponse)?.statusCode,
+            ClaudeEndpoints.rejectsOptionalUsageQuery(status: status, data: data)
+        {
+            request.url = ClaudeEndpoints.oauthUsageURLWithoutResetCredits
+            (data, response) = try await transport.send(request)
+            try validateOAuthCredential(accessToken: accessToken, generation: generation)
+            guard activeAccount?.id == requestAccountID else { throw CancellationError() }
+        }
 
         guard let httpResponse = response as? HTTPURLResponse else {
             let apiError = APIError.unknownError("Invalid OAuth HTTP response")
-            recordPathFailure(.oauth, error: apiError)
+            health.recordFailure(.oauth, error: apiError)
             throw apiError
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            let apiError = classifyHTTPError(statusCode: httpResponse.statusCode, data: data, response: httpResponse)
-            recordPathFailure(.oauth, error: apiError)
+            let apiError = ClaudeHTTPTransport.classify(
+                statusCode: httpResponse.statusCode, data: data, response: httpResponse)
+            health.recordFailure(.oauth, error: apiError)
             throw apiError
         }
 
         do {
             let decoder = JSONDecoder()
             let usage = try decoder.decode(ClaudeUsageResponse.self, from: data)
-            recordPathSuccess(.oauth)
+            health.recordSuccess(.oauth)
             return (usage, generation)
         } catch {
             let apiError = APIError.parseError
-            recordPathFailure(.oauth, error: apiError)
+            health.recordFailure(.oauth, error: apiError)
             throw apiError
         }
     }
@@ -2003,6 +1489,9 @@ actor ClaudeAPIService {
             throw APIError.claudeCodeReconnectRequired
         } catch ClaudeOAuthCredentialReadError.executableNotFound {
             throw APIError.claudeCodeExecutableNotFound
+        } catch ClaudeOAuthCredentialReadError.refreshUnavailable {
+            // 로그인이 끊긴 것으로 보지 않는다. 마지막 값을 두고 잠시 뒤 다시 시도한다.
+            throw APIError.networkError("Claude Code 로그인을 지금 갱신하지 못했습니다")
         }
     }
 
@@ -2015,6 +1504,9 @@ actor ClaudeAPIService {
             throw APIError.claudeCodeReconnectRequired
         } catch ClaudeOAuthCredentialReadError.executableNotFound {
             throw APIError.claudeCodeExecutableNotFound
+        } catch ClaudeOAuthCredentialReadError.refreshUnavailable {
+            // 로그인이 끊긴 것으로 보지 않는다. 마지막 값을 두고 잠시 뒤 다시 시도한다.
+            throw APIError.networkError("Claude Code 로그인을 지금 갱신하지 못했습니다")
         }
     }
 
@@ -2136,7 +1628,7 @@ actor ClaudeAPIService {
             lastSuccessfulUsageSource = source
         }
         markAccountVerified(accountID: accountID)
-        recordOverallUsageSuccess()
+        health.recordOverallSuccess()
     }
 
     private func markAccountVerified(accountID: String?) {
@@ -2145,56 +1637,16 @@ actor ClaudeAPIService {
         self.activeAccount = accountStore.activeAccount()
     }
 
+    /// 네트워크, 제한, 서버 오류는 자격 증명이 틀렸다는 뜻이 아니므로 검증 상태를 바꾸지 않는다.
+    private func markAccountValidationFailedIfDefinitive(_ error: APIError, accountID: String?) {
+        guard error.isDefinitiveAuthFailure else { return }
+        markAccountValidationFailed(accountID: accountID)
+    }
+
     private func markAccountValidationFailed(accountID: String?) {
         guard usesStoredActiveAccount, let accountID else { return }
         accountStore.updateValidationState(.failed, for: accountID)
         self.activeAccount = accountStore.activeAccount()
-    }
-
-    private func recordOverallUsageSuccess() {
-        authPathHealthStore.lastOverallSuccessAt = Date()
-        persistAuthPathHealthStore()
-    }
-
-    private func recordPathAttempt(_ path: AuthFetchPath) {
-        updateAuthPathState(path) { state in
-            state.lastAttemptAt = Date()
-            state.totalAttempts += 1
-        }
-    }
-
-    private func recordPathSuccess(_ path: AuthFetchPath) {
-        updateAuthPathState(path) { state in
-            state.lastSuccessAt = Date()
-            state.lastErrorMessage = nil
-            state.consecutiveFailures = 0
-        }
-    }
-
-    private func recordPathFailure(_ path: AuthFetchPath, error: APIError) {
-        recordPathFailure(path, message: error.localizedDescription)
-    }
-
-    private func recordPathFailure(_ path: AuthFetchPath, message: String) {
-        updateAuthPathState(path) { state in
-            state.lastFailureAt = Date()
-            state.lastErrorMessage = message
-            state.consecutiveFailures += 1
-            state.totalFailures += 1
-        }
-    }
-
-    private func makeAuthPathSnapshot(for path: AuthFetchPath) -> AuthPathHealthSnapshot {
-        let state = authPathState(for: path)
-        return AuthPathHealthSnapshot(
-            lastAttemptAt: state.lastAttemptAt,
-            lastSuccessAt: state.lastSuccessAt,
-            lastFailureAt: state.lastFailureAt,
-            lastErrorMessage: state.lastErrorMessage,
-            consecutiveFailures: state.consecutiveFailures,
-            totalAttempts: state.totalAttempts,
-            totalFailures: state.totalFailures
-        )
     }
 
     private func makeRuntimeAuthSnapshot(
@@ -2208,11 +1660,7 @@ actor ClaudeAPIService {
             sessionCredentialAvailable: hasSessionCredential,
             oauthCredentialAvailable: hasOAuthCredential || oauthCredentialAvailable
         )
-        let sessionCooldownRemaining: Int? = {
-            guard let until = sessionPathCooldownUntil else { return nil }
-            let remaining = Int(ceil(until.timeIntervalSince(now)))
-            return remaining > 0 ? remaining : nil
-        }()
+        let sessionCooldownRemaining = sessionCooldown.remainingSeconds(now: now)
         let oauthPreferredRemaining: Int? = nil
 
         let activePath: RuntimeAuthSnapshot.ActivePath = {
@@ -2232,7 +1680,7 @@ actor ClaudeAPIService {
         return RuntimeAuthSnapshot(
             activePath: activePath,
             credentialAvailability: credentialAvailability,
-            sessionValidationState: validationState(for: .session, credentialAvailable: hasSessionCredential),
+            sessionValidationState: health.validationState(.session, credentialAvailable: hasSessionCredential),
             oauthValidationState: stableClaudeCodeValidationState(credentialAvailable: oauthCredentialAvailable),
             sessionCooldownRemaining: sessionCooldownRemaining,
             oauthPreferredRemaining: oauthPreferredRemaining,
@@ -2243,7 +1691,7 @@ actor ClaudeAPIService {
     private func stableClaudeCodeValidationState(
         credentialAvailable: Bool
     ) -> ClaudeCredentialValidationState {
-        let measured = validationState(for: .oauth, credentialAvailable: credentialAvailable)
+        let measured = health.validationState(.oauth, credentialAvailable: credentialAvailable)
         guard measured == .detected else { return measured }
         guard let existing = accountStore.accounts().first(where: { $0.id == ClaudeAccountStore.claudeCodeExternalAccountID })?.lastValidationState else {
             return measured
@@ -2255,70 +1703,6 @@ actor ClaudeAPIService {
         case .unavailable, .detected:
             return measured
         }
-    }
-
-    private func validationState(
-        for path: AuthFetchPath,
-        credentialAvailable: Bool
-    ) -> ClaudeCredentialValidationState {
-        guard credentialAvailable else { return .unavailable }
-
-        let state = authPathState(for: path)
-        if let lastFailureAt = state.lastFailureAt,
-           state.lastSuccessAt.map({ lastFailureAt > $0 }) ?? true {
-            return .failed
-        }
-
-        if state.lastSuccessAt != nil {
-            return .verified
-        }
-
-        return .detected
-    }
-
-    private func authPathState(for path: AuthFetchPath) -> AuthPathHealthState {
-        switch path {
-        case .session:
-            return authPathHealthStore.session
-        case .oauth:
-            return authPathHealthStore.oauth
-        }
-    }
-
-    private func updateAuthPathState(_ path: AuthFetchPath, update: (inout AuthPathHealthState) -> Void) {
-        switch path {
-        case .session:
-            update(&authPathHealthStore.session)
-        case .oauth:
-            update(&authPathHealthStore.oauth)
-        }
-        persistAuthPathHealthStore()
-    }
-
-    private func persistAuthPathHealthStore() {
-        guard let data = try? JSONEncoder().encode(authPathHealthStore) else { return }
-        cacheStorage.set(data, forKey: authPathHealthDefaultsKey())
-    }
-
-    private func authPathHealthDefaultsKey() -> String {
-        Self.authPathHealthDefaultsKey(for: activeAccount?.id)
-    }
-
-    private static func loadAuthPathHealthStore(
-        for accountID: String?, cacheStorage: CacheStorage
-    ) -> AuthPathHealthStore {
-        guard let data = cacheStorage.data(forKey: Self.authPathHealthDefaultsKey(for: accountID)),
-              let decoded = try? JSONDecoder().decode(AuthPathHealthStore.self, from: data) else {
-            return AuthPathHealthStore()
-        }
-        return decoded
-    }
-
-    private static func authPathHealthDefaultsKey(for accountID: String?) -> String {
-        guard let accountID else {
-            return "\(Self.authPathHealthDefaultsKeyPrefix).ephemeral"
-        }
-        return "\(Self.authPathHealthDefaultsKeyPrefix).\(accountID)"
     }
 
     private static func normalizeOrganizationID(_ raw: String?) -> String? {

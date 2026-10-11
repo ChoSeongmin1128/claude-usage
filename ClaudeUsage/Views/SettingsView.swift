@@ -23,7 +23,7 @@ struct CodexAuthPresentation: Equatable {
     let command: String?
 
     static func resolve(for status: CodexAuthStatus) -> CodexAuthPresentation {
-        let loginDetail = "터미널에서 `codex login`을 실행한 뒤 다시 확인을 누르세요."
+        let loginDetail = "터미널에서 codex login을 실행한 뒤 다시 확인을 누르세요."
         switch status {
         case .checking:
             return CodexAuthPresentation(statusBadgeTitle: "확인 중", actionDetail: nil, command: nil)
@@ -32,7 +32,7 @@ struct CodexAuthPresentation: Equatable {
         case .notInstalled:
             return CodexAuthPresentation(
                 statusBadgeTitle: "설치 필요",
-                actionDetail: "ChatGPT 앱이나 Codex CLI를 설치한 뒤 `codex login`을 실행하세요.",
+                actionDetail: "ChatGPT 앱이나 Codex CLI를 설치한 뒤 codex login을 실행하세요.",
                 command: "codex login")
         case .notLoggedIn:
             return CodexAuthPresentation(statusBadgeTitle: "로그인 필요", actionDetail: loginDetail, command: "codex login")
@@ -144,11 +144,13 @@ struct SettingsView: View {
     @ObservedObject var notificationManager = NotificationManager.shared
     @ObservedObject var updateRuntimeState: UpdateRuntimeState
     @State var sessionKey: String = ""
-    @State var storedSessionKey: String?
+    @StateObject var storedSessionKey: ClaudeStoredSessionKeyModel
     @State var lastVerifiedSessionKey: String?
     @State var testResult: TestResult?
     @State var isTesting: Bool = false
     @State var organizationPersistTask: Task<Void, Never>?
+    /// 시작하기가 이 창에서 한 번 본 서비스. 그 뒤 사용자가 끈 서비스를 다시 켜지 않는다.
+    @State var onboardingSeenServices: Set<PopoverService> = []
     @State var organizationLoadTask: Task<Void, Never>?
     @State var organizationLoadToken: UUID?
     @State var selectedOrganizationID: String = ""
@@ -256,6 +258,9 @@ struct SettingsView: View {
         _requestedSection = State(initialValue: initialSection)
         _isPopoverSettingsExpanded = State(initialValue: initialSection == .popover)
         _antigravitySettings = StateObject(wrappedValue: antigravitySettings)
+        _storedSessionKey = StateObject(
+            wrappedValue: ClaudeStoredSessionKeyModel(
+                accountStore: claudeAccountStore, sessionKeyLoader: sessionKeyLoader))
         self.claudeOAuthMigrationCoordinator = claudeOAuthMigrationCoordinator
         self.onOpenLogin = onOpenLogin
         self.onReconnectClaudeCode = onReconnectClaudeCode

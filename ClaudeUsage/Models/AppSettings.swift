@@ -9,7 +9,7 @@ import Foundation
 import Combine
 import SwiftUI
 
-struct NotificationPreset: Codable, Identifiable, Hashable, Sendable {
+nonisolated struct NotificationPreset: Codable, Identifiable, Hashable, Sendable {
     let id: String
     /// Canonical used percentage, independent of the display basis.
     var threshold: Int
@@ -211,14 +211,22 @@ class AppSettings: ObservableObject {
     nonisolated static let minimumRefreshInterval: TimeInterval = 15
     nonisolated static let maximumRefreshInterval: TimeInterval = 3600
 
-    /// v2 전환 이후 더 읽지 않는 AGY 키. 초기화 경로에서 지우기만 해서
+    /// AGY 설정이 typed 설정으로 옮겨진 뒤 더 읽지 않는 키. 초기화 경로에서 지우기만 해서
     /// 이전 값이 되살아나지 않게 한다.
-    private static let legacyAntigravityModelKeys = [
-        "antigravityUsageDataSource",
-        "antigravityHiddenModelIDs",
-        "antigravityMenuBarPrimaryModelID",
-        "antigravityMenuBarSecondaryModelID",
-    ]
+    private static let legacyAntigravityKeys =
+        [
+            "antigravityUsageDataSource",
+            "antigravityHiddenModelIDs",
+            "antigravityMenuBarPrimaryModelID",
+            "antigravityMenuBarSecondaryModelID",
+            "antigravityPopoverPinned",
+            "antigravityPopoverCompact",
+            "antigravitySettingsLastTab",
+        ]
+        + [
+            "showIcon", "alertEnabled", "menuBarStyle", "percentageDisplay", "resetTimeDisplay", "timeFormat",
+            "showBatteryPercent", "circularDisplayMode", "iconMetric",
+        ].map { "antigravity.\($0)" }
 
     static func defaultPopoverItemsDict() -> [String: [PopoverItemConfig]] {
         PopoverDisplayPreferencesStore
@@ -271,11 +279,6 @@ class AppSettings: ObservableObject {
         PopoverDisplayPreferencesStore
     private let providerSelectionPreferencesStore:
         ProviderSelectionPreferencesStore
-
-    var loadedProviderStatesFromDisk: Bool {
-        providerSelectionPreferencesStore
-            .loadedProviderStatesFromDisk
-    }
 
     // MARK: - Published Properties
 
@@ -360,7 +363,10 @@ class AppSettings: ObservableObject {
     func setDisplayedNotificationThreshold(_ value: Int, id: String, basis: UsageValueBasis? = nil) {
         guard let index = notificationPresets.firstIndex(where: { $0.id == id }) else { return }
         let used = (basis ?? notificationValueBasis) == .remaining ? 100 - value : value
-        notificationPresets[index].threshold = max(1, min(used, 100))
+        let threshold = max(1, min(used, 100))
+        // 편집기는 사라질 때 모든 칸을 다시 넣는다. 값이 같으면 저장하지 않아 열기만으로 기록하지 않는다.
+        guard notificationPresets[index].threshold != threshold else { return }
+        notificationPresets[index].threshold = threshold
     }
     @Published var alertRemainingMode: Bool {
         didSet { defaults.set(alertRemainingMode, forKey: "alertRemainingMode") }
@@ -502,7 +508,6 @@ class AppSettings: ObservableObject {
     }
     @Published private(set) var providerSelectionRevision:
         Int = 0
-    @Published private(set) var runtimeProviderDisplayRevision: Int = 0
     @Published var codexPercentageDisplay: PercentageDisplay {
         didSet { defaults.set(codexPercentageDisplay.rawValue, forKey: "codexPercentageDisplay") }
     }
@@ -774,10 +779,7 @@ class AppSettings: ObservableObject {
 
     /// density에 맞춰 실제로 사용할 항목 배열.
     func effectivePopoverItems(for service: PopoverService, density: PopoverDensity) -> [PopoverItemConfig] {
-        if density == .compact && separateCompactConfig {
-            return compactPopoverItems(for: service)
-        }
-        return popoverItems(for: service)
+        density == .compact ? compactPopoverItems(for: service) : popoverItems(for: service)
     }
 
     /// provider의 항목 배열 업데이트 (정규화 적용).
@@ -864,64 +866,6 @@ class AppSettings: ObservableObject {
         [75, 90, 95].map { NotificationPreset(threshold: $0, isEnabled: true) }
     }
 
-    private static func legacyAlertThresholds(from defaults: UserDefaults) -> [Int] {
-        if let saved = defaults.array(forKey: "alertThresholds") as? [Int], !saved.isEmpty {
-            return saved
-        }
-
-        var migrated: [Int] = []
-        let e1 = defaults.object(forKey: "alert1Enabled") as? Bool ?? true
-        let e2 = defaults.object(forKey: "alert2Enabled") as? Bool ?? true
-        let e3 = defaults.object(forKey: "alert3Enabled") as? Bool ?? true
-        if e1 { migrated.append(defaults.object(forKey: "alert1Threshold") as? Int ?? 75) }
-        if e2 { migrated.append(defaults.object(forKey: "alert2Threshold") as? Int ?? 90) }
-        if e3 { migrated.append(defaults.object(forKey: "alert3Threshold") as? Int ?? 95) }
-        return migrated.isEmpty ? [75, 90, 95] : migrated
-    }
-
-    private static func migrateNotificationPresets(from defaults: UserDefaults, commonRemainingMode: Bool) -> [NotificationPreset] {
-        if let presets = NotificationThresholdStorage.load(from: defaults) { return presets }
-        let legacy = legacyNotificationPresets(from: defaults, commonRemainingMode: commonRemainingMode)
-        let canonical = NotificationThresholdStorage.importLegacy(legacy, remaining: commonRemainingMode)
-        NotificationThresholdStorage.save(canonical, to: defaults)
-        return canonical
-    }
-
-    private static func legacyNotificationPresets(from defaults: UserDefaults, commonRemainingMode: Bool)
-        -> [NotificationPreset]
-    {
-        if let data = defaults.data(forKey: "notificationPresets"),
-           let decoded = try? JSONDecoder().decode([NotificationPreset].self, from: data),
-           !decoded.isEmpty {
-            return decoded
-        }
-
-        let claudeThresholds = legacyAlertThresholds(from: defaults)
-        let codexThresholds = defaults.array(forKey: "codexAlertThresholds") as? [Int] ?? claudeThresholds
-        let codexRemainingMode = defaults.object(forKey: "codexAlertRemainingMode") as? Bool ?? commonRemainingMode
-
-        func actualUsageThresholds(_ values: [Int], remainingMode: Bool) -> [Int] {
-            values.map { value in
-                let normalized = max(1, min(value, 100))
-                return remainingMode ? max(1, min(100 - normalized, 99)) : normalized
-            }
-        }
-
-        func storedThreshold(from actualThreshold: Int) -> Int {
-            if commonRemainingMode {
-                return max(1, min(100 - actualThreshold, 99))
-            }
-            return max(1, min(actualThreshold, 100))
-        }
-
-        let merged = Set(
-            actualUsageThresholds(claudeThresholds, remainingMode: commonRemainingMode)
-                + actualUsageThresholds(codexThresholds, remainingMode: codexRemainingMode)
-        )
-        let resolved = merged.isEmpty ? [75, 90, 95] : merged.sorted()
-        return resolved.map { NotificationPreset(threshold: storedThreshold(from: $0), isEnabled: true) }
-    }
-
     var activeProviderKind: AppProviderKind? {
         guard let active = providerStates.activeProviderKind,
               isProviderExposed(active) else {
@@ -1004,12 +948,7 @@ class AppSettings: ObservableObject {
             $codexIconMetric.map { _ in () }.eraseToAnyPublisher(),
             $codexShowBatteryPercent.map { _ in () }.eraseToAnyPublisher(),
         ]
-
-        return Publishers.Merge(
-            Publishers.MergeMany(basePublishers).eraseToAnyPublisher(),
-            $runtimeProviderDisplayRevision.map { _ in () }.eraseToAnyPublisher()
-        )
-        .eraseToAnyPublisher()
+        return Publishers.MergeMany(basePublishers).eraseToAnyPublisher()
     }
 
     func providerState(for kind: AppProviderKind) -> AppProviderState {
@@ -1291,14 +1230,6 @@ class AppSettings: ObservableObject {
         }
     }
 
-    private func providerDefaultsKey(_ kind: AppProviderKind, suffix: String) -> String {
-        "\(kind.rawValue).\(suffix)"
-    }
-
-    private func bumpRuntimeProviderDisplayRevision() {
-        runtimeProviderDisplayRevision &+= 1
-    }
-
     private func isMenuBarConfigVisible(_ config: ProviderMenuBarDisplayConfig) -> Bool {
         let gaugeVisible =
             config.style != .none
@@ -1325,10 +1256,8 @@ class AppSettings: ObservableObject {
                 || defaults.object(forKey: "codexResetTimeDisplay") != nil
                 || defaults.object(forKey: "codexMenuBarStyle") != nil
         case .antigravity:
-            return defaults.object(forKey: providerDefaultsKey(kind, suffix: "showIcon")) != nil
-                || defaults.object(forKey: providerDefaultsKey(kind, suffix: "percentageDisplay")) != nil
-                || defaults.object(forKey: providerDefaultsKey(kind, suffix: "resetTimeDisplay")) != nil
-                || defaults.object(forKey: providerDefaultsKey(kind, suffix: "menuBarStyle")) != nil
+            // 메뉴바 표시를 AGY typed 설정이 소유해 이 경로에서 기본 표시를 적용하지 않는다.
+            return true
         }
     }
 
@@ -1360,7 +1289,6 @@ class AppSettings: ObservableObject {
         timeFormat = .h24
         circularDisplayMode = .usage
         iconMetric = .fiveHour
-        Self.legacyAntigravityModelKeys.forEach(defaults.removeObject(forKey:))
         autoRefresh = true
         notificationsEnabled = false
         notificationPresets = Self.defaultNotificationPresets
@@ -1392,31 +1320,8 @@ class AppSettings: ObservableObject {
         codexIconMetric = .fiveHour
         codexShowBatteryPercent = true
         codexAlertEnabled = false
-        clearRuntimeProviderDefaults(for: .antigravity)
+        Self.legacyAntigravityKeys.forEach(defaults.removeObject(forKey:))
         settingsLastTab = "common"
-    }
-
-    private func clearRuntimeProviderDefaults(for kind: AppProviderKind) {
-        guard kind == .antigravity else { return }
-
-        [
-            "showIcon",
-            "alertEnabled",
-            "menuBarStyle",
-            "percentageDisplay",
-            "resetTimeDisplay",
-            "timeFormat",
-            "showBatteryPercent",
-            "circularDisplayMode",
-            "iconMetric",
-        ].forEach { suffix in
-            defaults.removeObject(forKey: providerDefaultsKey(kind, suffix: suffix))
-        }
-        defaults.removeObject(forKey: "\(kind.rawValue)PopoverPinned")
-        defaults.removeObject(forKey: "\(kind.rawValue)PopoverCompact")
-        defaults.removeObject(forKey: "\(kind.rawValue)SettingsLastTab")
-        Self.legacyAntigravityModelKeys.forEach(defaults.removeObject(forKey:))
-        bumpRuntimeProviderDisplayRevision()
     }
 
     // MARK: - Launch at Login
@@ -1434,7 +1339,10 @@ class AppSettings: ObservableObject {
     private func applyLaunchAtLoginState(_ state: LaunchAtLoginState) {
         if launchAtLoginState != state { launchAtLoginState = state }
         // Keep the legacy saved Boolean as actual authorization, not a pending request.
-        defaults.set(state.isEnabled, forKey: "launchAtLogin")
+        // 설정을 열거나 앱으로 돌아올 때마다 같은 값을 다시 쓰지 않는다.
+        if defaults.object(forKey: "launchAtLogin") as? Bool != state.isEnabled {
+            defaults.set(state.isEnabled, forKey: "launchAtLogin")
+        }
         guard launchAtLogin != state.isEnabled else { return }
         isReconcilingLaunchAtLogin = true
         launchAtLogin = state.isEnabled
@@ -1458,20 +1366,15 @@ class AppSettings: ObservableObject {
             hasAccountStorage: hasExistingAccountStorage
                 ?? (defaults === UserDefaults.standard && !AppRuntimeEnvironment.isRunningUnitTests
                     && AppExperiencePreferences.hasLocalAccountStorage))
-        let displayMode =
-            defaults.string(forKey: "usageDisplayMode").flatMap(UsageDisplayMode.init(rawValue:))
-            ?? (experience.isExistingInstall ? .legacy : .remaining)
-        self.usageDisplayMode = displayMode
-        defaults.set(displayMode.rawValue, forKey: "usageDisplayMode")
-        WhatsNewState.prepare(
-            defaults: defaults, isExistingInstall: experience.isExistingInstall,
-            currentVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0")
+        AppSettingsMigration.run(defaults: defaults, isExistingInstall: experience.isExistingInstall)
+        self.usageDisplayMode =
+            defaults.string(forKey: AppSettingsMigration.usageDisplayModeKey).flatMap(UsageDisplayMode.init(rawValue:))
+            ?? .remaining
         self.menuBarDesign = experience.design
         self.menuBarDesignIntroductionDismissed = experience.designIntroductionDismissed
         self.welcomeState = experience.welcomeState
         self.welcomeStep = experience.welcomeStep
         self.defaults = defaults
-        if defaults === UserDefaults.standard { _ = AntigravityApplicationBootstrap.prepareSettings() }
         self.popoverDisplayPreferencesStore =
             PopoverDisplayPreferencesStore(
                 defaults: defaults
@@ -1486,58 +1389,30 @@ class AppSettings: ObservableObject {
         let colorMode = defaults.string(forKey: "menuBarColorMode") ?? MenuBarColorMode.always.rawValue
         self.menuBarColorMode = MenuBarColorMode(rawValue: colorMode) ?? .always
 
-        // 마이그레이션: showPercentage/showDualPercentage → percentageDisplay
-        if let pd = defaults.string(forKey: "percentageDisplay") {
-            self.percentageDisplay = PercentageDisplay(rawValue: pd) ?? .fiveHour
-        } else {
-            let showPct = defaults.object(forKey: "showPercentage") as? Bool ?? true
-            let showDual = defaults.object(forKey: "showDualPercentage") as? Bool ?? false
-            if !showPct {
-                self.percentageDisplay = .none
-            } else if showDual {
-                self.percentageDisplay = .dual
-            } else {
-                self.percentageDisplay = .fiveHour
-            }
-        }
+        self.percentageDisplay = AppSettingsMigration.percentageDisplay(from: defaults)
 
         self.showBatteryPercent = defaults.object(forKey: "showBatteryPercent") as? Bool ?? true
         let rtd = defaults.string(forKey: "resetTimeDisplay") ?? ResetTimeDisplay.none.rawValue
         self.resetTimeDisplay = ResetTimeDisplay(rawValue: rtd) ?? .none
-        let tf = defaults.string(forKey: "timeFormat") ?? TimeFormatStyle.h24.rawValue
-        let resolvedTimeFormat = TimeFormatStyle(rawValue: tf) ?? .h24
-        self.timeFormat = resolvedTimeFormat
+        self.timeFormat = defaults.string(forKey: "timeFormat").flatMap(TimeFormatStyle.init(rawValue:)) ?? .h24
         self.autoRefresh = defaults.object(forKey: "autoRefresh") as? Bool ?? true
         self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? false
-        let storedAlertRemainingMode = defaults.object(forKey: "alertRemainingMode") as? Bool ?? false
-        self.alertRemainingMode = storedAlertRemainingMode
+        self.alertRemainingMode = defaults.object(forKey: "alertRemainingMode") as? Bool ?? false
         self.notificationTargets = NotificationTargetPreferences.load(from: defaults)
         self.menuBarQuotaPreferences = MenuBarQuotaPreferences.load(from: defaults)
-        // 기존 사용자는 끔, 새 사용자는 항상으로 시작한다. 처음 정한 값을 저장해 두지 않으면 다음 실행부터
-        // 기존 설치로 판정돼 끔으로 바뀐다.
-        if let stored = defaults.dictionary(forKey: Self.resetCreditMenuBarKey) as? [String: String] {
-            self.resetCreditMenuBarModes = stored
-        } else {
-            let initial = Dictionary(
-                uniqueKeysWithValues: [AppProviderKind.claude, .codex].map {
-                    ($0.rawValue, (experience.isExistingInstall ? ResetCreditMenuBarMode.off : .always).rawValue)
-                })
-            self.resetCreditMenuBarModes = initial
-            defaults.set(initial, forKey: Self.resetCreditMenuBarKey)
-        }
-        self.notificationPresets = Self.migrateNotificationPresets(from: defaults, commonRemainingMode: storedAlertRemainingMode)
+        self.resetCreditMenuBarModes =
+            defaults.dictionary(forKey: Self.resetCreditMenuBarKey) as? [String: String] ?? [:]
+        self.notificationPresets = AppSettingsMigration.notificationPresets(from: defaults)
         let cdm = defaults.string(forKey: "circularDisplayMode") ?? CircularDisplayMode.usage.rawValue
         self.circularDisplayMode = CircularDisplayMode(rawValue: cdm) ?? .usage
         let iconMetricRaw = defaults.string(forKey: "iconMetric") ?? IconMetric.fiveHour.rawValue
         self.iconMetric = IconMetric(rawValue: iconMetricRaw) ?? .fiveHour
         self.showClaudeIcon = defaults.object(forKey: "showClaudeIcon") as? Bool ?? true
         self.menuBarTextHighContrast = defaults.object(forKey: "menuBarTextHighContrast") as? Bool ?? false
-        let uci = defaults.string(forKey: "updateCheckInterval") ?? UpdateCheckInterval.enforced.rawValue
-        let resolvedUpdateInterval = UpdateCheckInterval(rawValue: uci)?.normalizedForAutomaticChecks ?? .enforced
-        self.updateCheckInterval = resolvedUpdateInterval
-        if uci != resolvedUpdateInterval.rawValue {
-            defaults.set(resolvedUpdateInterval.rawValue, forKey: "updateCheckInterval")
-        }
+        self.updateCheckInterval =
+            defaults.string(forKey: AppSettingsMigration.updateCheckIntervalKey).flatMap(
+                UpdateCheckInterval.init(rawValue:))
+            ?? .enforced
         if let storedClaudeAlertEnabled = defaults.object(forKey: "claudeAlertEnabled") as? Bool {
             self.claudeAlertEnabled = storedClaudeAlertEnabled
         } else {
@@ -1548,17 +1423,11 @@ class AppSettings: ObservableObject {
         self.claudeMessagesFallbackPolicy = ClaudeMessagesFallbackPolicy(rawValue: fallbackPolicyRaw) ?? .off
         let storedFallbackThreshold = defaults.object(forKey: "claudeMessagesFallbackAutoDisableBelowPercent") as? Int ?? 20
         self.claudeMessagesFallbackAutoDisableBelowPercent = Self.normalizedMessagesFallbackThreshold(storedFallbackThreshold)
-        // 이전 버전의 교차 계정 OAuth 우선 설정은 계정 귀속을 깨뜨릴 수 있어 폐기한다.
-        defaults.removeObject(forKey: "claudePreferOAuth")
         self.alertFiveHourEnabled = defaults.object(forKey: "alertFiveHourEnabled") as? Bool ?? true
         self.alertWeeklyEnabled = defaults.object(forKey: "alertWeeklyEnabled") as? Bool ?? false
-        let legacyPinned = Self.normalizedGlobalPopoverPinned(from: defaults)
-        let normalizedCompact = Self.normalizedGlobalPopoverCompact(from: defaults)
-        self.popoverPinned = legacyPinned
-        self.popoverCompact = normalizedCompact
+        self.popoverPinned = defaults.object(forKey: "popoverPinned") as? Bool ?? false
+        self.popoverCompact = defaults.object(forKey: "popoverCompact") as? Bool ?? false
         self.motion = AppMotionPreferences.load(from: defaults)
-        defaults.set(legacyPinned, forKey: "popoverPinned")
-        defaults.set(normalizedCompact, forKey: "popoverCompact")
         // 시스템 상태에서 실제 등록 여부 확인
         self.launchAtLoginState = loginState
         self.launchAtLogin = loginState.isEnabled
@@ -1577,26 +1446,8 @@ class AppSettings: ObservableObject {
         self.codexIconMetric = IconMetric(rawValue: codexIconMetricRaw) ?? .fiveHour
         self.codexShowBatteryPercent = defaults.object(forKey: "codexShowBatteryPercent") as? Bool ?? true
         self.codexAlertEnabled = defaults.object(forKey: "codexAlertEnabled") as? Bool ?? false
-        let legacySettingsLastTab = defaults.string(forKey: "settingsLastTab") ?? "common"
-        self.settingsLastTab = legacySettingsLastTab
-        TimeFormatUnification.migrate(defaults: defaults)
-        defaults.set(timeFormat.rawValue, forKey: "timeFormat")
+        self.settingsLastTab = defaults.string(forKey: "settingsLastTab") ?? "common"
+        // 각 저장소가 이전 키를 옮긴 뒤에 지운다.
         RetiredAppDefaults.remove(from: defaults)
-    }
-
-    static func normalizedGlobalPopoverPinned(from defaults: UserDefaults) -> Bool {
-        (defaults.object(forKey: "popoverPinned") as? Bool)
-            ?? (defaults.object(forKey: "claudePopoverPinned") as? Bool)
-            ?? (defaults.object(forKey: "codexPopoverPinned") as? Bool)
-            ?? (defaults.object(forKey: "\(AppProviderKind.antigravity.rawValue)PopoverPinned") as? Bool)
-            ?? false
-    }
-
-    static func normalizedGlobalPopoverCompact(from defaults: UserDefaults) -> Bool {
-        (defaults.object(forKey: "popoverCompact") as? Bool)
-            ?? (defaults.object(forKey: "claudePopoverCompact") as? Bool)
-            ?? (defaults.object(forKey: "codexPopoverCompact") as? Bool)
-            ?? (defaults.object(forKey: "\(AppProviderKind.antigravity.rawValue)PopoverCompact") as? Bool)
-            ?? false
     }
 }

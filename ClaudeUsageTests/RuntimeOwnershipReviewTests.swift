@@ -80,9 +80,7 @@ final class RuntimeOwnershipReviewTests: XCTestCase {
                     scope: .gemini, cadence: .weekly, remainingFraction: 0.05,
                     resetAt: reset, resetDescription: nil, availability: .available)
             ], decodeIssues: [],
-            provenance: .init(
-                transport: .cliUsageReport, endpointOwner: .managed,
-                accountIdentity: nil, capability: .groupedQuotaSummary, processIdentity: nil), fetchedAt: now)
+            provenance: AntigravityQuotaProvenance(transport: .cliUsageReport, accountIdentity: nil), fetchedAt: now)
         for state in [
             AntigravityPresentationState.ready(quota), .partial(quota, issues: []), .refreshing(previous: quota),
         ] {
@@ -146,7 +144,8 @@ extension RuntimeOwnershipReviewTests {
                 service: .claude,
                 payload: .claude(.init(fiveHour: .init(utilization: 20, resetsAt: nil), sevenDay: nil)),
                 error: error, lastUpdated: Date(), credentialState: .usable,
-                isDetected: true, canAttemptRefresh: true, hasAuthError: false)
+                isDetected: true, canAttemptRefresh: true, hasAuthError: false,
+                consecutiveFailures: StaleDataPolicy.consecutiveFailures)
             XCTAssertEqual(snapshot.freshness, .stale)
             XCTAssertEqual(snapshot.accountRowStatus(hasUsage: true), .stale)
             XCTAssertEqual(snapshot.claudeUsage?.fiveHour?.utilization, 20)

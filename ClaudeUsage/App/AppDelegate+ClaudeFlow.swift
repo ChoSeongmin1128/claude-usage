@@ -4,18 +4,6 @@ import SwiftUI
 extension AppDelegate {
     // MARK: - Claude Flow
 
-    func showInitialClaudeSetupFlow() {
-        if shouldShowStandaloneSetupWizard {
-            showSetupWizardWindow()
-        } else {
-            showSettingsWindow()
-        }
-    }
-
-    var shouldShowStandaloneSetupWizard: Bool {
-        claudeSetupPresentation.shouldShowWizard
-    }
-
     var hasReadyClaudeCredential: Bool {
         SetupCompletionPolicy.hasReadyCredential(
             sessionCredentialAvailable: KeychainManager.shared.hasSessionKey || claudeCredentialAvailability.sessionCredentialAvailable,
@@ -27,21 +15,12 @@ extension AppDelegate {
         lastUpdated != nil
     }
 
-    var currentSetupWizardStep: SetupWizardView.Step {
-        claudeSetupPresentation.credentialStep
-    }
-
-    var setupWizardProgress: SetupCompletionPolicy.WizardProgress {
-        claudeSetupPresentation.progress
-    }
-
-    var claudeSetupPresentation: ClaudeSetupPresentation {
-        SetupCompletionPolicy.resolvePresentation(
+    var claudeSetupProgress: SetupCompletionPolicy.SetupProgress {
+        SetupCompletionPolicy.resolveProgress(
             hasReadyCredential: hasReadyClaudeCredential,
             hasSuccessfulFetch: hasSuccessfulClaudeFetch,
             preferredOrganizationID: activeClaudePreferredOrganizationID,
-            cachedMetadata: currentClaudeProfileMetadata,
-            credentialStepOverride: setupWizardCredentialStepOverride
+            cachedMetadata: currentClaudeProfileMetadata
         )
     }
 
@@ -59,7 +38,7 @@ extension AppDelegate {
     }
 
     func applyClaudeSetupLandingTabsIfNeeded() {
-        guard shouldShowStandaloneSetupWizard else { return }
+        guard claudeSetupProgress.stage != .complete else { return }
 
         AppSettings.shared.settingsLastTab = ServiceSelectionHelper.settingsRootTab(for: .claude)
     }
@@ -159,8 +138,6 @@ extension AppDelegate {
     }
 
     func showSettingsWindow(settingsPanelRawValue: String? = nil, section: SettingsSection? = nil) {
-        setupWizardWindowCoordinator.close()
-        if setupWizardCredentialStepOverride == .manualSessionKey { setupWizardCredentialStepOverride = nil }
         let settings = AppSettings.shared
         if settingsPanelRawValue == nil && settings.welcomeState == .pending {
             settings.settingsLastTab = SettingsProviderPanel.welcome.rawValue
@@ -241,8 +218,6 @@ extension AppDelegate {
         startEmbeddedWebOnOpen: Bool = false,
         importFamily: ClaudeBrowserFamily? = nil
     ) {
-        setupWizardWindowCoordinator.close()
-
         if loginWindowCoordinator.focusIfVisible() {
             if clearCookies || startChromeImportOnOpen || startCLIActivationOnOpen || startEmbeddedWebOnOpen {
                 loginWindowCoordinator.close()
@@ -330,78 +305,6 @@ extension AppDelegate {
 
         // 로그인 창은 창마다 임시 세션을 써서 앱 쪽에서 지울 웹 데이터가 없다.
         presentLoginWindow()
-    }
-
-    func showSetupWizardWindow() {
-        if setupWizardWindowCoordinator.focusIfVisible() {
-            return
-        }
-
-        let rootView = SetupWizardWindowView(
-            currentStep: currentSetupWizardStep,
-            progress: setupWizardProgress,
-            isVerifyingFetch: isLoading,
-            onImportFromBrowser: { [weak self] in
-                self?.setupWizardCredentialStepOverride = .browserImport
-                self?.showLoginWindow(startChromeImportOnOpen: true)
-            },
-            onOpenWebLogin: { [weak self] in
-                self?.setupWizardCredentialStepOverride = .webLogin
-                self?.setupWizardWindowCoordinator.close()
-                self?.showLoginWindow(clearCookies: true)
-            },
-            onOpenAdvancedSettings: { [weak self] in
-                self?.setupWizardCredentialStepOverride = nil
-                AppSettings.shared.settingsLastTab = ServiceSelectionHelper.settingsRootTab(for: .claude)
-                AppSettings.shared.shouldRevealClaudeAdvancedAuth = true
-                self?.setupWizardWindowCoordinator.close()
-                self?.showSettingsWindow()
-            },
-            onOpenOrganizations: { [weak self] in
-                AppSettings.shared.settingsLastTab = ServiceSelectionHelper.settingsRootTab(for: .claude)
-                self?.setupWizardWindowCoordinator.close()
-                self?.showSettingsWindow()
-            },
-            onUseAutomaticOrganization: { [weak self] in
-                guard let self else { return }
-                Task {
-                    // 자동 선택으로 되돌릴 때는 store(단일 진실의 출처)를 비우고,
-                    // service 의 in-memory 캐시는 store 알림 + reloadActiveAccount 가
-                    // 자동으로 동기화하도록 둔다.
-                    if let activeWebAccountID = ClaudeAccountStore.shared.activeWebAccount()?.id {
-                        ClaudeAccountStore.shared.updatePreferredOrganizationID("", for: activeWebAccountID)
-                    }
-                    await self.apiService.reloadActiveAccount()
-                    let snapshot = await self.apiService.fetchUsageHealthSnapshot()
-                    let cachedMetadata = await self.apiService.fetchCachedProfileMetadata()
-                    await MainActor.run {
-                        self.setupWizardCredentialStepOverride = nil
-                        self.currentClaudeProfileMetadata = cachedMetadata
-                        self.applyUsageHealthSnapshot(snapshot)
-                        if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared),
-                           self.hasRefreshableService {
-                            self.refreshUsage(force: true)
-                        } else {
-                            self.updateMenuBar()
-                            self.updatePopoverViewModel()
-                        }
-                        self.setupWizardWindowCoordinator.close()
-                    }
-                }
-            },
-            onVerifyFetch: { [weak self] in
-                self?.refreshUsage(force: true)
-            },
-            onComplete: { [weak self] in
-                self?.setupWizardCredentialStepOverride = nil
-                self?.setupWizardWindowCoordinator.close()
-            },
-            onDismiss: { [weak self] in
-                self?.setupWizardCredentialStepOverride = nil
-                self?.setupWizardWindowCoordinator.close()
-            }
-        )
-        setupWizardWindowCoordinator.present(rootView: rootView)
     }
 
     // MARK: - LoginWindow CLI Bridge

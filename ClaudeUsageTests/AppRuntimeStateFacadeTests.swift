@@ -35,6 +35,21 @@ final class AppRuntimeStateFacadeTests: XCTestCase {
         }
     }
 
+    func testUnreadableAntigravitySettingsStayRefreshableSoTheNextRefreshCanRecover() {
+        let facade = AppRuntimeStateFacade()
+        func snapshot(_ readiness: AntigravityRuntimeReadiness) -> AntigravityRuntimeSnapshot {
+            AntigravityRuntimeSnapshot(
+                readiness: readiness, settings: nil, presentationState: .failed(.invalidRefreshContext),
+                quotaPresentation: .unavailable(.failed(.invalidRefreshContext)),
+                managedRuntimeAvailability: .unavailable(reason: .executableNotFound),
+                lastAttemptAt: nil, lastSuccessfulAt: nil)
+        }
+        facade.antigravityRuntimeSnapshot = snapshot(.blocked(.typedSettings))
+        XCTAssertTrue(facade.snapshot(for: .antigravity, codexAuthenticated: false).canAttemptRefresh)
+        facade.antigravityRuntimeSnapshot = snapshot(.blocked(.settingsMigration))
+        XCTAssertFalse(facade.snapshot(for: .antigravity, codexAuthenticated: false).canAttemptRefresh)
+    }
+
     func testFailedOverageFetchCountsTowardTheInterval() {
         let facade = AppRuntimeStateFacade()
         facade.activeClaudeAccountID = "account"

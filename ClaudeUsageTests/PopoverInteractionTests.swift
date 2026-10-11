@@ -112,6 +112,29 @@ final class PopoverInteractionTests: XCTestCase {
         XCTAssertEqual(requests, [.claude, .codex, .claude])
     }
 
+    func testFailedRequestReleasesTheManualRefreshButton() {
+        let base = Date()
+        let viewModel = PopoverViewModel(now: { base })
+        var requests: [PopoverService] = []
+        viewModel.onRefreshService = { requests.append($0) }
+        viewModel.refresh(service: .claude)
+
+        var state = RuntimeProviderState()
+        RuntimeProviderRefreshCoordinator.applySuccess(
+            state: &state,
+            payload: .claude(ClaudeUsageResponse(fiveHour: UsageWindow(utilization: 8, resetsAt: nil), sevenDay: nil)),
+            metadata: fixtureClaudeMetadata(accountID: "A"), updatedAt: base.addingTimeInterval(-600))
+        _ = RuntimeProviderRefreshCoordinator.applyFailure(
+            state: &state, error: .serverError(404), minimumInterval: 120)
+        let facade = AppRuntimeStateFacade()
+        facade[.claude] = state
+        viewModel.update(snapshots: [facade.snapshot(for: .claude, codexAuthenticated: false)])
+
+        XCTAssertNotEqual(viewModel.refreshHelp(for: .claude, isLoading: false), "사용량 갱신 중")
+        viewModel.refresh(service: .claude)
+        XCTAssertEqual(requests, [.claude, .claude])
+    }
+
     func testRetryAfterBlocksManualRefreshWithCountdown() {
         let base = Date()
         let viewModel = PopoverViewModel(now: { base })

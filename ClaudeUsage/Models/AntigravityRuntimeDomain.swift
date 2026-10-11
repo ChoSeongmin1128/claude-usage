@@ -1,44 +1,5 @@
 import Foundation
 
-nonisolated struct AntigravityUserID:
-    RawRepresentable,
-    Hashable,
-    Sendable
-{
-    let rawValue: UInt32
-
-    init(rawValue: UInt32) {
-        self.rawValue = rawValue
-    }
-}
-
-nonisolated struct AntigravityProcessStartTime:
-    Hashable,
-    Sendable,
-    Comparable
-{
-    let seconds: Int64
-    let microseconds: Int32
-
-    init?(seconds: Int64, microseconds: Int32) {
-        guard seconds >= 0, (0..<1_000_000).contains(microseconds) else {
-            return nil
-        }
-        self.seconds = seconds
-        self.microseconds = microseconds
-    }
-
-    static func < (
-        lhs: AntigravityProcessStartTime,
-        rhs: AntigravityProcessStartTime
-    ) -> Bool {
-        if lhs.seconds != rhs.seconds {
-            return lhs.seconds < rhs.seconds
-        }
-        return lhs.microseconds < rhs.microseconds
-    }
-}
-
 nonisolated enum AntigravityExecutableRole: String, Codable, Sendable {
     case appLanguageServer
     case agyCLI
@@ -117,39 +78,4 @@ nonisolated struct AntigravityCanonicalExecutable: Hashable, Sendable {
         self.appBundle = appBundle
         self.fileIdentity = fileIdentity
     }
-}
-
-/// A process identity after UID, start time, and executable catalog validation.
-///
-/// PID alone is never sufficient because the operating system may reuse it.
-nonisolated struct AntigravityVerifiedProcessIdentity: Hashable, Sendable {
-    let processID: Int32
-    let effectiveUserID: AntigravityUserID
-    let realUserID: AntigravityUserID
-    let startedAt: AntigravityProcessStartTime
-    let executable: AntigravityCanonicalExecutable
-
-    init?(
-        processID: Int32,
-        effectiveUserID: AntigravityUserID,
-        realUserID: AntigravityUserID,
-        startedAt: AntigravityProcessStartTime,
-        executable: AntigravityCanonicalExecutable
-    ) {
-        guard processID > 0 else {
-            return nil
-        }
-        self.processID = processID
-        self.effectiveUserID = effectiveUserID
-        self.realUserID = realUserID
-        self.startedAt = startedAt
-        self.executable = executable
-    }
-}
-
-/// Local RPC authentication, separate from the user's Google credentials.
-nonisolated enum AntigravityCSRFProblem: String, Error, Sendable, Equatable {
-    case required
-    case rejected
-    case unavailable
 }

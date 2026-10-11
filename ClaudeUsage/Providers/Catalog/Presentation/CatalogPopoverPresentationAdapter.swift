@@ -97,7 +97,7 @@ nonisolated enum CatalogPopoverPresentationAdapter {
                 tone: .warning,
                 title: "Claude Code 로그인 만료",
                 message:
-                    "터미널에서 `claude auth login`을 실행한 뒤 다시 연결하세요.",
+                    "터미널에서 claude auth login을 실행한 뒤 다시 연결하세요.",
                 actionTitle: "다시 연결",
                 action: .startClaudeLogin,
                 actionIsProminent: true
@@ -132,7 +132,7 @@ nonisolated enum CatalogPopoverPresentationAdapter {
                     title:
                         "Claude Code 로그인 만료",
                     message:
-                        "터미널에서 `claude auth login`을 실행한 뒤 새로고침하세요."
+                        "터미널에서 claude auth login을 실행한 뒤 새로고침하세요."
                 )
             case .claude:
                 return summary(
@@ -153,7 +153,7 @@ nonisolated enum CatalogPopoverPresentationAdapter {
                     title:
                         "Codex 로그인 만료",
                     message:
-                        "터미널에서 `codex login`을 실행한 뒤 새로고침하세요."
+                        "터미널에서 codex login을 실행한 뒤 새로고침하세요."
                 )
             case .antigravity:
                 return settingsFailure(
@@ -168,14 +168,14 @@ nonisolated enum CatalogPopoverPresentationAdapter {
                 title:
                     "Claude Code 로그인 없음",
                 message:
-                    "터미널에서 `claude auth login`을 실행하세요."
+                    "터미널에서 claude auth login을 실행하세요."
             )
         case .claudeCodeReauthenticationRequired:
             return settingsFailure(
                 title:
                     "Claude Code 로그인 만료",
                 message:
-                    "터미널에서 `claude auth login`을 실행하세요."
+                    "터미널에서 claude auth login을 실행하세요."
             )
         case .claudeCodeReconnectRequired:
             return settingsFailure(
@@ -191,7 +191,7 @@ nonisolated enum CatalogPopoverPresentationAdapter {
                 title:
                     "Codex 로그인 만료",
                 message:
-                    "터미널에서 `codex login`을 실행하세요."
+                    "터미널에서 codex login을 실행하세요."
             )
         case .codexTokenRefreshTemporary:
             return retryFailure(

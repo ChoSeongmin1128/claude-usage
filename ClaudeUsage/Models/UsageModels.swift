@@ -16,6 +16,10 @@ nonisolated struct ClaudeUsageResponse: Codable, Sendable {
     let scopedLimits: [ClaudeScopedLimit]
     let extraUsage: OverageSpendLimitResponse?
     let resetGrants: ClaudeResetGrants?
+    /// 5시간 창이 왔지만 읽지 못한 경우. 이때는 주간 값으로 대신 채우지 않는다.
+    let hasMalformedSessionWindow: Bool
+    /// 추가 사용량 항목이 왔지만 읽지 못한 경우. 항목이 없을 때와 달리 '꺼짐'으로 보지 않는다.
+    let hasMalformedExtraUsage: Bool
 
     enum CodingKeys: String, CodingKey {
         case fiveHour = "five_hour"
@@ -34,11 +38,11 @@ nonisolated struct ClaudeUsageResponse: Codable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         // 없거나 null인 창은 그 요금제에 없는 창이다(사용량 기반 Enterprise 등).
         // 형식이 깨진 창은 그 창만 버리고, 그릴 창이 하나도 안 남을 때만 형식 오류로 본다.
-        var hasMalformedWindow = false
+        var malformedKeys: Set<CodingKeys> = []
         func window(_ key: CodingKeys) -> UsageWindow? {
             guard container.contains(key), (try? container.decodeNil(forKey: key)) != true else { return nil }
             if let decoded = try? container.decode(UsageWindow.self, forKey: key) { return decoded }
-            hasMalformedWindow = true
+            malformedKeys.insert(key)
             return nil
         }
         let limits = Self.decodeScopedLimits(from: container)
@@ -50,8 +54,13 @@ nonisolated struct ClaudeUsageResponse: Codable, Sendable {
         scopedLimits = limits
         let extra = try? decoder.container(keyedBy: ExtraUsageKeys.self)
         extraUsage = extra.flatMap { try? $0.decodeIfPresent(ClaudeExtraUsage.self, forKey: .extraUsage) }?.overage
+        hasMalformedExtraUsage =
+            extraUsage == nil
+            && extra.map { $0.contains(.extraUsage) && (try? $0.decodeNil(forKey: .extraUsage)) != true }
+                == true
         resetGrants = extra.flatMap { try? $0.decodeIfPresent(ClaudeResetGrants.self, forKey: .resetGrants) } ?? nil
-        if hasMalformedWindow, fiveHour == nil, sevenDay == nil, sevenDaySonnet == nil, sevenDayOpus == nil,
+        hasMalformedSessionWindow = fiveHour == nil && malformedKeys.contains(.fiveHour)
+        if !malformedKeys.isEmpty, fiveHour == nil, sevenDay == nil, sevenDaySonnet == nil, sevenDayOpus == nil,
             scopedLimits.isEmpty
         {
             throw DecodingError.dataCorrupted(
@@ -66,8 +75,12 @@ nonisolated struct ClaudeUsageResponse: Codable, Sendable {
         sevenDayOpus: UsageWindow? = nil,
         scopedLimits: [ClaudeScopedLimit] = [],
         extraUsage: OverageSpendLimitResponse? = nil,
-        resetGrants: ClaudeResetGrants? = nil
+        resetGrants: ClaudeResetGrants? = nil,
+        hasMalformedSessionWindow: Bool = false,
+        hasMalformedExtraUsage: Bool = false
     ) {
+        self.hasMalformedSessionWindow = hasMalformedSessionWindow
+        self.hasMalformedExtraUsage = hasMalformedExtraUsage
         self.fiveHour = fiveHour
         self.sevenDay = sevenDay
         self.sevenDaySonnet = sevenDaySonnet
@@ -312,8 +325,10 @@ extension ClaudeUsageResponse {
     }
 
     /// 메뉴바 색상과 단일 퍼센트 기준. 5시간 창이 없으면 0% 대신 주간 창을 쓴다.
+    /// 5시간 창을 읽지 못했으면 주간 값을 5시간 자리에 보이지 않게 비운다.
     nonisolated var gaugePercentage: Double? {
-        fiveHour?.utilization ?? sevenDay?.utilization
+        if hasMalformedSessionWindow { return nil }
+        return fiveHour?.utilization ?? sevenDay?.utilization
     }
 
     /// "현재 3% · 주간 41%" 요약. 없는 창은 빼고, 둘 다 없으면 "데이터 없음".

@@ -583,7 +583,7 @@ fi
 # Builds before 20415 were published without canonical note files. Keep their
 # existing artifact verification so they remain valid upgrade baselines.
 if (( EXPECTED_BUILD >= 20415 )); then
-    curl -fsSL "https://raw.githubusercontent.com/$REPOSITORY/$TAG/docs/release-notes/$EXPECTED_VERSION.md" \
+    curl -fsSL --max-time 60 "https://raw.githubusercontent.com/$REPOSITORY/$TAG/docs/release-notes/$EXPECTED_VERSION.md" \
         -o "$DOWNLOAD_DIR/release-notes.md"
     printf '%s' "$RELEASE_JSON" > "$DOWNLOAD_DIR/release-metadata.json"
     python3 "$ROOT_DIR/Scripts/lib/release_metadata.py" verify-notes \
@@ -592,14 +592,14 @@ if (( EXPECTED_BUILD >= 20415 )); then
 fi
 if (( EXPECTED_BUILD >= 20500 )); then
     for NOTICE_NAME in LICENSE THIRD_PARTY_NOTICES.md; do
-        curl -fsSL "https://raw.githubusercontent.com/$REPOSITORY/$TAG/$NOTICE_NAME" \
+        curl -fsSL --max-time 60 "https://raw.githubusercontent.com/$REPOSITORY/$TAG/$NOTICE_NAME" \
             -o "$DOWNLOAD_DIR/$NOTICE_NAME"
         [[ -s "$DOWNLOAD_DIR/$NOTICE_NAME" ]] || die "배포 태그의 $NOTICE_NAME 고지가 비어 있습니다."
     done
 fi
 
 if [[ "$VERIFY_PUBLIC_FEED" == "1" ]]; then
-    curl -fsSL "$EXPECTED_FEED_URL" -o "$PUBLIC_APPCAST_PATH"
+    curl -fsSL --max-time 60 "$EXPECTED_FEED_URL" -o "$PUBLIC_APPCAST_PATH"
     PUBLIC_APPCAST_SHA256="$(shasum -a 256 "$PUBLIC_APPCAST_PATH" | awk '{print $1}')"
     [[ "$PUBLIC_APPCAST_SHA256" == "$APPCAST_SHA256" ]] \
         || die "public appcast가 Release appcast asset과 byte-for-byte 일치하지 않습니다."

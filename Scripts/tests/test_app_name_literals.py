@@ -34,9 +34,6 @@ class AppNameLiteralTests(unittest.TestCase):
         self.assertEqual(offending_lines(), [], "AppDistribution 또는 AppIdentifiers를 쓰세요")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class AppIdentityConsistencyTests(unittest.TestCase):
     def test_shell_and_python_identity_files_agree(self):
@@ -56,3 +53,7 @@ class AppIdentityConsistencyTests(unittest.TestCase):
         zip_name = re.search(r'releaseAssetZipName = "([^"]+)"', swift).group(1)
         product = re.search(r'^APP_PRODUCT_NAME="([^"]+)"$', shell, re.MULTILINE).group(1)
         self.assertEqual(zip_name, f"{product}.zip")
+
+
+if __name__ == "__main__":
+    unittest.main()

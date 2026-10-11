@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 @testable import ClaudeUsage
 
@@ -134,6 +135,21 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
         )
         XCTAssertEqual(result, .imported(credentialChanged: false))
         XCTAssertEqual(interactive.calls.map(\.service), [expectedService])
+    }
+
+    func testScopedServiceNameHashesTheNFCPathLikeClaudeCode() {
+        let home = URL(fileURLWithPath: "/tmp/claude-home", isDirectory: true)
+        let composed = "/tmp/claude-home/\u{D55C}\u{AE00}"
+        let decomposed = composed.decomposedStringWithCanonicalMapping
+        XCTAssertNotEqual(Array(composed.utf8), Array(decomposed.utf8))
+        let digest = SHA256.hash(data: Data(composed.utf8)).prefix(4).map { String(format: "%02x", $0) }.joined()
+
+        for path in [composed, decomposed] {
+            XCTAssertEqual(
+                ClaudeCodeCredentialReader.keychainServiceName(
+                    for: URL(fileURLWithPath: path, isDirectory: true), homeDirectory: home),
+                "Claude Code-credentials-" + digest)
+        }
     }
 
     func testConcurrentCredentialRequestsShareOneLookup() async throws {
@@ -437,9 +453,29 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
             cliRefresher: { _ in .unavailable }
         )
 
-        let token = try await reader.readAccessToken()
+        do {
+            _ = try await reader.readAccessToken()
+            XCTFail("갱신하지 못한 만료 토큰은 로그인 없음이 아니라 일시 실패여야 합니다")
+        } catch let error as ClaudeOAuthCredentialReadError {
+            XCTAssertEqual(error, .refreshUnavailable)
+        }
+    }
 
-        XCTAssertNil(token)
+    func testExpiredKeychainCredentialIsATemporaryFailureWhenClaudeCodeCannotRefresh() async throws {
+        let payload = Self.credentialJSON(
+            token: "expired", refreshToken: "kept-refresh", expiresAt: #""2000-01-01T00:00:00Z""#)
+        let vault = OAuthVaultStub(payload: payload)
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: try makeTemporaryHome(), appCredentialVault: vault,
+            cliKeychainPayloadReader: { _ in .payload(payload) }, cliRefresher: { _ in .unavailable })
+
+        do {
+            _ = try await reader.refreshCredentialInventoryWithoutUI()
+            XCTFail("갱신하지 못한 만료 토큰은 일시 실패로 알려야 합니다")
+        } catch let error as ClaudeOAuthCredentialReadError {
+            XCTAssertEqual(error, .refreshUnavailable)
+        }
+        XCTAssertEqual(vault.payload, payload)
     }
 
     func testFresherClaudeCodeKeychainWinsOverStaleCredentialFile() async throws {
@@ -900,18 +936,31 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
     func testResetDropsAVaultCopyWhoseTokenTheCredentialFileHolds() async throws {
         let home = try makeTemporaryHome()
         try writeCredentialFile(home: home, refreshToken: "shared-refresh")
-        let vault = OAuthVaultStub(payload: Self.credentialJSON(token: "vault-access", refreshToken: "shared-refresh"))
+        let vault = OAuthVaultStub(payload: Self.appManagedJSON(token: "vault-access", refreshToken: "shared-refresh"))
 
         let canDiscard = await makeResetReader(home: home, vault: vault).canDiscardAppVaultCopy()
 
         XCTAssertTrue(canDiscard)
     }
 
+    func testResetAlwaysDropsAMirrorOfClaudeCodeLogin() async throws {
+        let mirror = ClaudeOAuthCredentialVaultPayload.encode(
+            credentialPayload: Self.credentialJSON(token: "vault-access", refreshToken: "mirrored"),
+            ownership: .cliMirror)
+        for payload in [mirror, Self.credentialJSON(token: "vault-access", refreshToken: "unmarked")] {
+            let vault = OAuthVaultStub(payload: try XCTUnwrap(payload))
+
+            let canDiscard = await makeResetReader(home: try makeTemporaryHome(), vault: vault).canDiscardAppVaultCopy()
+
+            XCTAssertTrue(canDiscard)
+        }
+    }
+
     func testResetKeepsAVaultCopyUnlessTheCredentialFileHoldsItsToken() async throws {
         let rotatedFileHome = try makeTemporaryHome()
         try writeCredentialFile(home: rotatedFileHome, refreshToken: "older")
         for home in [rotatedFileHome, try makeTemporaryHome()] {
-            let vault = OAuthVaultStub(payload: Self.credentialJSON(token: "vault-access", refreshToken: "only-copy"))
+            let vault = OAuthVaultStub(payload: Self.appManagedJSON(token: "vault-access", refreshToken: "only-copy"))
 
             let canDiscard = await makeResetReader(home: home, vault: vault).canDiscardAppVaultCopy()
 
@@ -933,6 +982,11 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
 
             XCTAssertTrue(canDiscard)
         }
+    }
+
+    private static func appManagedJSON(token: String, refreshToken: String) -> String {
+        ClaudeOAuthCredentialVaultPayload.encode(
+            credentialPayload: credentialJSON(token: token, refreshToken: refreshToken), ownership: .appManaged)!
     }
 
     private func makeResetReader(home: URL, vault: OAuthVaultStub) -> ClaudeCodeCredentialReader {

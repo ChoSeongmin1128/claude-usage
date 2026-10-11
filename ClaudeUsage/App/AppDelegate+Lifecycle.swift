@@ -10,32 +10,7 @@ extension AppDelegate {
     func applicationWillFinishLaunching(
         _ notification: Notification
     ) {
-        if isRunningUnitTests {
-            return
-        }
-
-        let supportDirectory =
-            AntigravityStoragePaths
-                .applicationSupportDirectoryURL()
-        let instanceGuard = AppSingleInstanceGuard.shared
-        let result = instanceGuard.acquire(
-            applicationSupportDirectoryURL: supportDirectory
-        )
-        switch result {
-        case .acquired:
-            ownsSingleInstanceLease = true
-        case .alreadyRunning:
-            Logger.warning(
-                "\(AppDistribution.current.appName) 동일 채널 인스턴스가 이미 실행 중입니다."
-            )
-            activateExistingChannelInstance()
-            NSApplication.shared.terminate(nil)
-        case .failed(let code):
-            Logger.error(
-                "단일 인스턴스 잠금을 만들지 못했습니다: \(code)"
-            )
-            NSApplication.shared.terminate(nil)
-        }
+        ownsSingleInstanceLease = AppLaunchGate.ownsLease
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -63,9 +38,10 @@ extension AppDelegate {
         startSessionActivityMonitoring()
         bootstrapUsageAccounts()
 
-        let claudeAccountIDs = Set(ClaudeAccountStore.shared.accounts().map(\.id))
+        let claudeAccountIDs = ClaudeAccountStore.shared.storedAccountIDs()
         Task.detached(priority: .utility) {
             ClaudeAccountLocalData.removeOrphans(keeping: claudeAccountIDs)
+            ClaudeEndpoints.removeStoredWebCookies()
         }
 
         bootstrapAntigravityRuntime()
@@ -121,11 +97,23 @@ extension AppDelegate {
         }
     }
 
+    /// 종료를 시작하면 새 조회와 타이머를 받지 않는다. 진행 중인 조회는 각 소유자의 종료가 정리한다.
+    func stopAcceptingWork() {
+        isTerminating = true
+        refreshScheduler.stop()
+        stopAdaptiveRefresh()
+        usageAccountsTimer?.invalidate()
+        usageAccountsTimer = nil
+        usageAccountsController.stop()
+        claudeCredentialRefreshTask?.cancel()
+        claudeRefreshController.cancel()
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         Logger.info(
             "\(AppDistribution.current.appName) 앱 종료"
         )
-        refreshScheduler.stop()
+        stopAcceptingWork()
         updateCoordinator.invalidate()
         statusTimer?.invalidate()
         if let observer = accessibilityDisplayObservation {
@@ -168,15 +156,14 @@ extension AppDelegate {
             return .terminateLater
         }
 
-        Logger.info("\(AppDistribution.current.appName) 앱 종료 전 Antigravity owned runtime 정리")
-        refreshScheduler.stop()
+        Logger.info("\(AppDistribution.current.appName) 앱 종료 전 외부 프로세스 정리")
+        stopAcceptingWork()
         antigravityTerminationTask = Task { [weak self] in
             guard let self else { return }
-            await codexRefreshController.shutdown()
-            let runtime =
-                await antigravityRuntimeTask.value
-            await runtime
-                .runtimeController.shutdown()
+            // Codex와 AGY 정리는 서로 기다리지 않고 같은 제한 시간 안에서 함께 끝낸다.
+            async let codex: Void = self.codexRefreshController.shutdown()
+            async let antigravity: Void = self.antigravityRuntimeTask.value.runtimeController.shutdown()
+            _ = await (codex, antigravity)
             await recheckPendingDataReset()
             finishDeferredTermination(
                 timedOut: false
@@ -231,29 +218,6 @@ extension AppDelegate {
         return false
     }
 
-    private func activateExistingChannelInstance() {
-        guard let bundleIdentifier =
-                Bundle.main.bundleIdentifier
-        else {
-            return
-        }
-        let currentProcessIdentifier =
-            ProcessInfo.processInfo
-                .processIdentifier
-        let existing =
-            NSRunningApplication
-                .runningApplications(
-                    withBundleIdentifier:
-                        bundleIdentifier
-                )
-                .first {
-                    $0.processIdentifier
-                        != currentProcessIdentifier
-                    && !$0.isTerminated
-                }
-        existing?.activate()
-    }
-
     @MainActor
     private func recheckPendingDataReset() async {
         guard let plan = AppDataResetRequest.pending else { return }
@@ -269,14 +233,12 @@ extension AppDelegate {
         hasRepliedToTermination = true
         if timedOut {
             Logger.warning(
-                "Antigravity 종료 정리 제한 시간을 초과했습니다. durable ledger를 유지한 채 앱 종료를 계속합니다."
+                "외부 프로세스 정리 제한 시간을 초과했습니다. 앱 종료를 계속합니다."
             )
         } else {
             antigravityTerminationTimeoutTask?
                 .cancel()
-            Logger.info(
-                "Antigravity owned runtime 정리 완료"
-            )
+            Logger.info("외부 프로세스 정리 완료")
         }
         StatusItemDiagnosticsLog.record("termination reply timedOut=\(timedOut)")
         NSApplication.shared.reply(
@@ -346,6 +308,8 @@ extension AppDelegate {
     }
 
     func bootstrapRefreshState() {
+        // 시작 확인 중에 계정 전환 흐름이 시작되면 그쪽 결과가 맞으므로 이 결과는 상태에 쓰지 않는다.
+        let generation = claudeCredentialRefreshGeneration
         Task {
             await apiService.reloadActiveAccount()
             let activeAccount = ClaudeAccountStore.shared.state().activeAccount
@@ -358,9 +322,14 @@ extension AppDelegate {
             )
             let cachedProfileMetadata = await apiService.fetchCachedProfileMetadata()
             await MainActor.run {
-                self.currentClaudeProfileMetadata = cachedProfileMetadata
-                self.currentClaudeNotificationPolicy = cachedProfileMetadata.map(ClaudeNotificationPolicy.init(metadata:))
-                self.applyUsageHealthSnapshot(snapshot)
+                if generation == self.claudeCredentialRefreshGeneration,
+                    snapshot.activeAccountID == ClaudeAccountStore.shared.state().activeAccountID
+                {
+                    self.currentClaudeProfileMetadata = cachedProfileMetadata
+                    self.currentClaudeNotificationPolicy = cachedProfileMetadata.map(
+                        ClaudeNotificationPolicy.init(metadata:))
+                    self.applyUsageHealthSnapshot(snapshot)
+                }
                 self.finishBootstrap()
             }
         }
@@ -408,8 +377,7 @@ extension AppDelegate {
 
     func startStatusTimer() {
         statusTimer?.invalidate()
-        statusTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
-            // scheduledTimer was registered on MainActor's main run loop.
+        statusTimer = Timer.scheduledOnMainRunLoop(interval: 300, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.refreshSystemStatus()
             }

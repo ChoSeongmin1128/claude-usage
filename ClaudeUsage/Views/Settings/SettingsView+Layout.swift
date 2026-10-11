@@ -291,7 +291,10 @@ extension SettingsView {
                 schedulePreferredOrganizationPersistence()
             }
             .onChange(of: selectedPanel, initial: true) { _, panel in
-                if settings.settingsLastTab != panel.rawValue {
+                // 이전 이름으로 저장된 같은 패널은 열기만으로 다시 쓰지 않는다.
+                let stored = SettingsProviderPanel.resolve(
+                    storedValue: settings.settingsLastTab, fallbackProvider: settings.activeProviderKind ?? .claude)
+                if stored?.panel != panel {
                     settings.settingsLastTab = panel.rawValue
                 }
             }
@@ -424,13 +427,14 @@ extension SettingsView {
     private func prepareSettingsData(for provider: AppProviderKind) async {
         switch provider {
         case .claude:
-            syncStoredSessionKeyState()
+            let storedKeyLoad = syncStoredSessionKeyState()
             syncClaudeAccountsState()
             selectedOrganizationID = appliedPreferredOrganizationID
             loadUsageHealthSnapshot()
             inspectClaudeOAuthMigration()
             await usageHealthLoadTask?.value
             await claudeOAuthMigrationTask?.value
+            await storedKeyLoad.value
         case .codex:
             checkCodexAuth()
             await codexAuthCheckTask?.value

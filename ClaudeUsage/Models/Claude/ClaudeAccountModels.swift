@@ -936,15 +936,30 @@ final class ClaudeAccountStore: @unchecked Sendable {
     }
 
     private nonisolated func loadRawAccounts() -> [ClaudeAccount] {
-        guard let data = defaults.data(forKey: Self.accountsDefaultsKey),
-              let decoded = try? JSONDecoder().decode([ClaudeAccount].self, from: data) else {
-            return []
+        loadStoredAccounts()?.elements ?? []
+    }
+
+    /// 읽지 못한 계정(새 버전이 추가한 값)도 함께 돌려준다. 계정별 자료 정리가 그 계정을 지우지 않게 한다.
+    nonisolated func storedAccountIDs() -> Set<String> {
+        guard let stored = loadStoredAccounts() else { return [] }
+        let unreadable = stored.unreadable.compactMap { ($0 as? [String: Any])?["id"] as? String }
+        return Set(stored.elements.map(\.id) + unreadable)
+    }
+
+    private nonisolated func loadStoredAccounts() -> PreservingJSONArray.Decoded<ClaudeAccount>? {
+        defaults.data(forKey: Self.accountsDefaultsKey).flatMap {
+            PreservingJSONArray.decode(ClaudeAccount.self, from: $0)
         }
-        return decoded
     }
 
     private nonisolated func saveRaw(accounts: [ClaudeAccount], activeAccountID: String?) {
-        if let data = try? JSONEncoder().encode(accounts) {
+        // 읽지 못한 계정은 다시 저장할 때 그대로 남긴다. 같은 ID의 계정을 지금 버전이 새로 쓰면 그쪽을 쓴다.
+        let ids = Set(accounts.map(\.id))
+        let unreadable = (loadStoredAccounts()?.unreadable ?? []).filter { item in
+            guard let id = (item as? [String: Any])?["id"] as? String else { return true }
+            return !ids.contains(id)
+        }
+        if let data = PreservingJSONArray.encode(accounts, preserving: unreadable) {
             defaults.set(data, forKey: Self.accountsDefaultsKey)
         }
         if let activeAccountID {

@@ -8,9 +8,8 @@ final class AntigravityRuntimeControllerTests:
     func testDisplayBasisReprojectsWithoutQuotaRefreshSettingsWriteOrProcessRecovery() async {
         let fixture = makeFixture()
         let initial = await fixture.controller.bootstrap(performInitialRefresh: true)
-        // 레거시 정리는 bootstrap 뒤에 비동기로 끝난다. 그 기록이 비교 사이에 끼지 않게 먼저 기다린다.
-        await fixture.lifecycle.waitUntilCleanupFinished()
-        await fixture.accountCleanup.waitUntilFinished()
+        // 이전 자료 정리는 bootstrap 뒤에 비동기로 끝난다. 그 기록이 비교 사이에 끼지 않게 먼저 기다린다.
+        await fixture.legacyDataCleanup.waitUntilFinished()
         let events = await fixture.events.snapshot()
         let requests = await fixture.refresh.requests()
         let writes = await fixture.settings.displaySaveCount()
@@ -37,8 +36,7 @@ final class AntigravityRuntimeControllerTests:
     func testTimeFormatReprojectsWithoutQueryOrSettingsWrite() async {
         let fixture = makeFixture()
         _ = await fixture.controller.bootstrap(performInitialRefresh: true)
-        await fixture.lifecycle.waitUntilCleanupFinished()
-        await fixture.accountCleanup.waitUntilFinished()
+        await fixture.legacyDataCleanup.waitUntilFinished()
         let clock = await fixture.controller.setTimeFormat(.h24)
         let requests = await fixture.refresh.requests()
         let writes = await fixture.settings.displaySaveCount()
@@ -57,15 +55,36 @@ final class AntigravityRuntimeControllerTests:
         await fixture.controller.shutdown()
     }
 
-    func testAccountMismatchClearsThePreviousSuccessfulTimestamp() async {
+    func testFailureClearsThePreviousSuccessfulTimestamp() async {
         let fixture = makeFixture()
         let first = await fixture.controller.bootstrap(performInitialRefresh: true)
         XCTAssertNotNil(first.lastSuccessfulAt)
-        await fixture.refresh.setResult(
-            .accountMismatch(
-                expected: .init(email: "a@example.com"), received: .init(email: "b@example.com")))
-        let mismatched = await fixture.controller.refresh(trigger: .scheduled)
-        XCTAssertNil(mismatched.lastSuccessfulAt)
+        await fixture.refresh.setResult(.failed(.cliReportFailed))
+        let failed = await fixture.controller.refresh(trigger: .scheduled)
+        XCTAssertNil(failed.lastSuccessfulAt)
+    }
+
+    func testPreviousValueIsMarkedOnlyAfterConsecutiveFailures() async {
+        let fixture = makeFixture()
+        _ = await fixture.controller.bootstrap(performInitialRefresh: true)
+        await fixture.refresh.setResult(.stale(Self.oldQuotaSnapshot, failure: .transportUnavailable(.cliReport)))
+
+        let first = await fixture.controller.refresh(trigger: .scheduled)
+        XCTAssertFalse(first.showsPreviousValue)
+        if case .content(let presentation) = first.quotaPresentation {
+            XCTAssertEqual(presentation.context.phase, .current)
+        }
+
+        let second = await fixture.controller.refresh(trigger: .scheduled)
+        XCTAssertTrue(second.showsPreviousValue)
+        if case .content(let presentation) = second.quotaPresentation {
+            XCTAssertEqual(presentation.context.phase, .stale(.transportUnavailable(.cliReport)))
+        }
+
+        await fixture.refresh.setResult(.ready(Self.newQuotaSnapshot))
+        let recovered = await fixture.controller.refresh(trigger: .scheduled)
+        XCTAssertEqual(recovered.consecutiveFailures, 0)
+        await fixture.controller.shutdown()
     }
 
     func testPersistedAppSelectionRefreshesTheCLIWithoutRewritingIt() async {
@@ -76,43 +95,15 @@ final class AntigravityRuntimeControllerTests:
         let requests = await fixture.refresh.requests()
         let writes = await fixture.settings.connectionSaveCount()
         XCTAssertEqual(result.settings?.connection.usageTarget, .app)
-        XCTAssertEqual(requests.last?.target, .cli)
+        XCTAssertEqual(requests.count, 1)
         XCTAssertEqual(writes, 0)
     }
 
-    func testLegacyCleanupNeverBlocksTheInitialRefresh()
-        async throws
-    {
-        let cleanupGate = ControllerSuspensionGate()
-        let fixture = makeFixture(legacyCleanupGate: cleanupGate)
-
-        let snapshot = await fixture.controller.bootstrap(
-            performInitialRefresh: true
-        )
-        await cleanupGate.waitUntilEntered()
-        let requests = await fixture.refresh.requests()
-
-        XCTAssertEqual(snapshot.readiness, .ready)
-        XCTAssertEqual(
-            snapshot.managedRuntimeAvailability,
-            .available(
-                displayPath:
-                    "~/.local/bin/agy"
-            )
-        )
-        XCTAssertEqual(requests.count, 1)
-
-        await cleanupGate.resume()
-        await fixture.lifecycle.waitUntilCleanupFinished()
-        let cleanupCount = await fixture.lifecycle.cleanupCount()
-        XCTAssertEqual(cleanupCount, 1)
-    }
-
-    func testLegacyAccountCleanupRunsOnceWithoutBlockingTheInitialRefresh()
+    func testLegacyDataCleanupRunsOnceWithoutBlockingTheInitialRefresh()
         async
     {
         let cleanupGate = ControllerSuspensionGate()
-        let fixture = makeFixture(accountCleanupGate: cleanupGate)
+        let fixture = makeFixture(legacyDataCleanupGate: cleanupGate)
 
         let snapshot = await fixture.controller.bootstrap(
             performInitialRefresh: true
@@ -126,9 +117,23 @@ final class AntigravityRuntimeControllerTests:
         _ = await fixture.controller.bootstrap(performInitialRefresh: true)
         _ = await fixture.controller.refresh(trigger: .manual)
         await cleanupGate.resume()
-        await fixture.accountCleanup.waitUntilFinished()
-        let runCount = await fixture.accountCleanup.runCount()
+        await fixture.legacyDataCleanup.waitUntilFinished()
+        let runCount = await fixture.legacyDataCleanup.runCount()
         XCTAssertEqual(runCount, 1)
+    }
+
+    func testLegacyDataCleanupRunsWhenSettingsMigrationIsBlocked()
+        async
+    {
+        let fixture = makeFixture(
+            settingsBootstrap: .blocked(.init(reason: .invalidMigrationMarker, rollbackCompleted: true)))
+
+        _ = await fixture.controller.bootstrap(performInitialRefresh: true)
+        await fixture.legacyDataCleanup.waitUntilFinished()
+        let runCount = await fixture.legacyDataCleanup.runCount()
+        let requests = await fixture.refresh.requests()
+        XCTAssertEqual(runCount, 1)
+        XCTAssertTrue(requests.isEmpty)
     }
 
     func testNewerRefreshRejectsTheLateResultOfAnOlderRefresh()
@@ -460,38 +465,11 @@ final class AntigravityRuntimeControllerTests:
         )
     }
 
-    func testAmbientModeWithoutLocalSessionKeepsSetupRequirement()
-        async
-    {
-        let fixture = makeFixture(
-            refreshResult:
-                .setupRequired(
-                    .noAmbientLocalSession
-                )
-        )
-
-        let snapshot = await fixture.controller.bootstrap(
-            performInitialRefresh: true
-        )
-        let requests = await fixture.refresh.requests()
-
-        XCTAssertEqual(
-            requests.first?.target,
-            .cli
-        )
-        XCTAssertEqual(
-            snapshot.presentationState,
-            .setupRequired(
-                .noAmbientLocalSession
-            )
-        )
-    }
-
     private func makeFixture(
         connection:
             AntigravityConnectionSettings = .default,
-        legacyCleanupGate: ControllerSuspensionGate? = nil,
-        accountCleanupGate: ControllerSuspensionGate? = nil,
+        legacyDataCleanupGate: ControllerSuspensionGate? = nil,
+        settingsBootstrap: AntigravitySettingsBootstrapResult = .ready(.alreadyCurrent),
         refreshResult:
             AntigravityPresentationState? = nil,
         refreshGate:
@@ -518,28 +496,20 @@ final class AntigravityRuntimeControllerTests:
                 refreshGate: refreshGate
             )
         let lifecycle =
-            ControllerRuntimeLifecycleDouble(
-                cleanupGate: legacyCleanupGate,
-                events: events
-            )
-        let accountCleanup =
-            ControllerAccountCleanupDouble(
-                gate: accountCleanupGate,
+            ControllerRuntimeLifecycleDouble(events: events)
+        let legacyDataCleanup =
+            ControllerLegacyDataCleanupDouble(
+                gate: legacyDataCleanupGate,
                 events: events
             )
         let controller = AntigravityRuntimeController(
             settingsStore: settings,
             refreshCoordinator: refresh,
             runtimeLifecycle: lifecycle,
-            settingsBootstrap:
-                .ready(.alreadyCurrent),
-            agyExecutableStatus:
-                .verified(
-                    displayPath:
-                        "~/.local/bin/agy"
-                ),
-            legacyAccountCleanup: {
-                await accountCleanup.run()
+            settingsBootstrap: settingsBootstrap,
+            initialManagedAvailability: .available(displayPath: "~/.local/bin/agy"),
+            legacyDataCleanup: {
+                await legacyDataCleanup.run()
             },
             now: {
                 Date(
@@ -553,7 +523,7 @@ final class AntigravityRuntimeControllerTests:
             settings: settings,
             refresh: refresh,
             lifecycle: lifecycle,
-            accountCleanup: accountCleanup,
+            legacyDataCleanup: legacyDataCleanup,
             events: events
         )
     }
@@ -565,14 +535,7 @@ final class AntigravityRuntimeControllerTests:
             lanes: [],
             decodeIssues: [],
             provenance:
-                AntigravityQuotaProvenance(
-                    transport: .cliUsageReport,
-                    endpointOwner: .managed,
-                    accountIdentity: nil,
-                    capability:
-                        .groupedQuotaSummary,
-                    processIdentity: nil
-                ),
+                AntigravityQuotaProvenance(transport: .cliUsageReport, accountIdentity: nil),
             fetchedAt: Date(
                 timeIntervalSince1970:
                     1_900_000_000
@@ -594,14 +557,7 @@ final class AntigravityRuntimeControllerTests:
             lanes: [],
             decodeIssues: [],
             provenance:
-                AntigravityQuotaProvenance(
-                    transport: .cliUsageReport,
-                    endpointOwner: .managed,
-                    accountIdentity: nil,
-                    capability:
-                        .groupedQuotaSummary,
-                    processIdentity: nil
-                ),
+                AntigravityQuotaProvenance(transport: .cliUsageReport, accountIdentity: nil),
             fetchedAt: Date(
                 timeIntervalSince1970: timestamp
             )
@@ -614,7 +570,7 @@ private struct ControllerFixture {
     let settings: ControllerSettingsStoreDouble
     let refresh: ControllerRefreshCoordinatorDouble
     let lifecycle: ControllerRuntimeLifecycleDouble
-    let accountCleanup: ControllerAccountCleanupDouble
+    let legacyDataCleanup: ControllerLegacyDataCleanupDouble
     let events: ControllerEventRecorder
 }
 
@@ -875,28 +831,11 @@ private actor ControllerSuspensionGate {
 private actor ControllerRuntimeLifecycleDouble:
     AntigravityRuntimeLifecycling
 {
-    private let cleanupGate: ControllerSuspensionGate?
     private let events: ControllerEventRecorder
-    private var cleanups = 0
-    private var finishedCleanups = 0
-    private var cleanupWaiters: [CheckedContinuation<Void, Never>] = []
     private var shutdowns = 0
 
-    init(
-        cleanupGate: ControllerSuspensionGate?,
-        events: ControllerEventRecorder
-    ) {
-        self.cleanupGate = cleanupGate
+    init(events: ControllerEventRecorder) {
         self.events = events
-    }
-
-    func cleanUpLegacyManagedProcesses() async {
-        cleanups += 1
-        await events.record("runtime.legacyCleanup")
-        await cleanupGate?.suspend()
-        finishedCleanups += 1
-        cleanupWaiters.forEach { $0.resume() }
-        cleanupWaiters.removeAll()
     }
 
     func shutdown() async {
@@ -904,21 +843,12 @@ private actor ControllerRuntimeLifecycleDouble:
         await events.record("runtime.shutdown")
     }
 
-    func cleanupCount() -> Int {
-        cleanups
-    }
-
-    func waitUntilCleanupFinished() async {
-        guard finishedCleanups == 0 else { return }
-        await withCheckedContinuation { cleanupWaiters.append($0) }
-    }
-
     func shutdownCount() -> Int {
         shutdowns
     }
 }
 
-private actor ControllerAccountCleanupDouble {
+private actor ControllerLegacyDataCleanupDouble {
     private let gate: ControllerSuspensionGate?
     private let events: ControllerEventRecorder
     private var runs = 0
@@ -935,7 +865,7 @@ private actor ControllerAccountCleanupDouble {
 
     func run() async {
         runs += 1
-        await events.record("runtime.legacyAccountCleanup")
+        await events.record("runtime.legacyDataCleanup")
         await gate?.suspend()
         finishedRuns += 1
         finishWaiters.forEach { $0.resume() }

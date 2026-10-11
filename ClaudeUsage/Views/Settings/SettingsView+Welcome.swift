@@ -67,7 +67,9 @@ extension SettingsView {
         if detection.claudeCode, ClaudeCodeLoginDetector.credentialFileExists() { services.append(.claude) }
         if detection.codex == .authenticated { services.append(.codex) }
         if case .verified = detection.agy { services.append(.antigravity) }
-        for service in services where !settings.isProviderEnabled(service.providerKind) {
+        // 패널을 다시 열 때마다 이 함수가 돈다. 처음 찾은 서비스만 켜야 그사이 사용자가 끈 서비스를 다시 켜지 않는다.
+        for service in services where onboardingSeenServices.insert(service).inserted {
+            guard !settings.isProviderEnabled(service.providerKind) else { continue }
             settings.setProviderEnabled(true, for: service.providerKind)
             onVerifyService?(service)
         }

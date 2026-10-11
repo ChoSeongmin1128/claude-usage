@@ -49,10 +49,8 @@ actor AntigravityRuntimeController {
     private let runtimeLifecycle: any AntigravityRuntimeLifecycling
     private let settingsBootstrap:
         AntigravitySettingsBootstrapResult
-    private let agyExecutableStatus:
-        AntigravityAGYExecutableDiscoveryStatus
     private let runtimeEnvironment: AntigravityRuntimeEnvironment?
-    private let legacyAccountCleanup: @Sendable () async -> Void
+    private let legacyDataCleanup: @Sendable () async -> Void
     private let now: @Sendable () -> Date
     private let operationGate =
         AntigravityRuntimeOperationGate()
@@ -79,6 +77,7 @@ actor AntigravityRuntimeController {
     private var shutdownTask: Task<Void, Never>?
     private var lastAttemptAt: Date?
     private var lastSuccessfulAt: Date?
+    private var consecutiveFailures = 0
     private var usageDisplayBasis: UsageValueBasis?
     private var commonTimeFormat: TimeFormatStyle?
     private var usageDisplayRevision: UInt64 = 0
@@ -92,10 +91,9 @@ actor AntigravityRuntimeController {
             any AntigravityRuntimeLifecycling,
         settingsBootstrap:
             AntigravitySettingsBootstrapResult,
-        agyExecutableStatus:
-            AntigravityAGYExecutableDiscoveryStatus,
+        initialManagedAvailability: AntigravityManagedRuntimeAvailability = .notChecked,
         runtimeEnvironment: AntigravityRuntimeEnvironment? = nil,
-        legacyAccountCleanup: @escaping @Sendable () async -> Void = {},
+        legacyDataCleanup: @escaping @Sendable () async -> Void = {},
         now:
             @escaping @Sendable () -> Date =
                 Date.init
@@ -105,13 +103,9 @@ actor AntigravityRuntimeController {
         self.refreshCoordinator = refreshCoordinator
         self.runtimeLifecycle = runtimeLifecycle
         self.settingsBootstrap = settingsBootstrap
-        self.agyExecutableStatus =
-            agyExecutableStatus
-        self.legacyAccountCleanup = legacyAccountCleanup
+        self.legacyDataCleanup = legacyDataCleanup
         self.now = now
-        managedAvailability = Self.managedAvailability(
-            for: agyExecutableStatus
-        )
+        managedAvailability = initialManagedAvailability
     }
 
     /// Reprojects verified data only. Never restarts a process or refreshes quota.
@@ -167,6 +161,11 @@ actor AntigravityRuntimeController {
                 return nil
             }
             didBootstrap = true
+            // 이전 버전이 남긴 자료 정리는 설정 이전 결과와 무관하므로 먼저 시작한다.
+            let legacyDataCleanup = self.legacyDataCleanup
+            Task.detached(priority: .utility) {
+                await legacyDataCleanup()
+            }
             guard settingsBootstrap.isReady else {
                 _ = publishBlocked(
                     .settingsMigration
@@ -179,16 +178,6 @@ actor AntigravityRuntimeController {
                 readiness: .bootstrapping
             )
 
-            // Nothing current depends on the legacy ledger or the retired
-            // account store, so their cleanup runs beside the first refresh.
-            let runtimeLifecycle = self.runtimeLifecycle
-            Task.detached(priority: .utility) {
-                await runtimeLifecycle.cleanUpLegacyManagedProcesses()
-            }
-            let legacyAccountCleanup = self.legacyAccountCleanup
-            Task.detached(priority: .utility) {
-                await legacyAccountCleanup()
-            }
             if let runtimeEnvironment {
                 managedAvailability = await runtimeEnvironment.managedAvailability()
             }
@@ -474,26 +463,6 @@ actor AntigravityRuntimeController {
         )
     }
 
-    private static func managedAvailability(
-        for status:
-            AntigravityAGYExecutableDiscoveryStatus
-    ) -> AntigravityManagedRuntimeAvailability {
-        switch status {
-        case .verified(let displayPath):
-            return .available(
-                displayPath: displayPath
-            )
-        case .notFound:
-            return .unavailable(
-                reason: .executableNotFound
-            )
-        case .rejected:
-            return .unavailable(
-                reason: .signatureRejected
-            )
-        }
-    }
-
     private func executeRefresh(_ transaction: RefreshTransaction) async -> AntigravityRuntimeSnapshot {
         let presentation = await refreshCoordinator.refresh(transaction.request)
         guard isCurrent(transaction) else { return currentSnapshot }
@@ -518,9 +487,10 @@ actor AntigravityRuntimeController {
             let acceptedPresentation = presentation
             if Self.isSuccessful(acceptedPresentation) { lastSuccessfulAt = now() }
             switch acceptedPresentation {
-            case .accountMismatch, .failed, .setupRequired: lastSuccessfulAt = nil
+            case .failed: lastSuccessfulAt = nil
             default: break
             }
+            consecutiveFailures = Self.consecutiveFailures(after: acceptedPresentation, previous: consecutiveFailures)
             return publish(
                 readiness: .ready, settings: latestSettings,
                 presentationState: acceptedPresentation)
@@ -574,6 +544,7 @@ actor AntigravityRuntimeController {
                 state: resolvedPresentation,
                 settings: Self.applyingCommonTimeFormat(
                     commonTimeFormat, to: resolvedSettings?.display ?? .default),
+                marksStale: StaleDataPolicy.showsPreviousValue(afterConsecutiveFailures: consecutiveFailures),
                 basisOverride: usageDisplayBasis,
                 now: now()
             ),
@@ -582,7 +553,8 @@ actor AntigravityRuntimeController {
             lastAttemptAt: lastAttemptAt,
             lastSuccessfulAt:
                 lastSuccessfulAt,
-            publicationRevision: currentSnapshot.publicationRevision + 1
+            publicationRevision: currentSnapshot.publicationRevision + 1,
+            consecutiveFailures: consecutiveFailures
         )
         currentSnapshot = snapshot
         for continuation in continuations.values {
@@ -595,6 +567,19 @@ actor AntigravityRuntimeController {
         continuations.removeValue(forKey: id)
     }
 
+    /// 취소와 종료는 조회 실패가 아니라 이어진 실패 횟수를 바꾸지 않는다.
+    private nonisolated static func consecutiveFailures(
+        after state: AntigravityPresentationState, previous: Int
+    ) -> Int {
+        switch state {
+        case .ready, .partial: 0
+        case .stale(_, .cancelled), .stale(_, .appShuttingDown), .failed(.cancelled), .failed(.appShuttingDown):
+            previous
+        case .stale, .failed: previous + 1
+        case .disabled, .refreshing: previous
+        }
+    }
+
     private nonisolated static func snapshot(
         from state: AntigravityPresentationState
     ) -> AntigravityQuotaSnapshot? {
@@ -605,11 +590,7 @@ actor AntigravityRuntimeController {
              .refreshing(previous: let snapshot?):
             return snapshot
         case .disabled,
-             .setupRequired,
              .refreshing(previous: nil),
-             .accountMismatch,
-             .limited,
-             .identityOnly,
              .failed:
             return nil
         }
@@ -619,13 +600,11 @@ actor AntigravityRuntimeController {
         _ state: AntigravityPresentationState
     ) -> Bool {
         switch state {
-        case .ready, .partial, .limited, .identityOnly:
+        case .ready, .partial:
             true
         case .disabled,
-             .setupRequired,
              .refreshing,
              .stale,
-             .accountMismatch,
              .failed:
             false
         }

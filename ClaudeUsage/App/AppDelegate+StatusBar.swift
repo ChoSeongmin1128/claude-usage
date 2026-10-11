@@ -294,8 +294,8 @@ extension AppDelegate {
         let autosaveName =
             AppDistribution.current.channel
                 == .staging
-            ? "claudeusage-staging"
-            : "claudeusage"
+            ? AppIdentifiers.stagingStatusItemAutosaveName
+            : AppIdentifiers.productionStatusItemAutosaveName
         let repairedKeys =
             StatusItemPlacementRecoveryPolicy
                 .clearInvalidPreferredPosition(
@@ -648,6 +648,7 @@ extension AppDelegate {
             guard let config = AppSettings.shared.menuBarDisplayConfig(for: .claude) else { return nil }
             return MenuBarStatusComposer.claudeSnapshot(
                 config: config,
+                isStale: runtimeSnapshot.freshness == .stale,
                 usage: runtimeSnapshot.claudeUsage,
                 error: runtimeSnapshot.error,
                 hasAuthError: runtimeSnapshot.hasAuthError,
@@ -669,6 +670,7 @@ extension AppDelegate {
             guard let config = AppSettings.shared.menuBarDisplayConfig(for: .codex) else { return nil }
             return MenuBarStatusComposer.codexSnapshot(
                 config: config,
+                isStale: runtimeSnapshot.freshness == .stale,
                 usage: runtimeSnapshot.codexUsage,
                 error: runtimeSnapshot.error,
                 hasAuthError: runtimeSnapshot.hasAuthError,
@@ -879,11 +881,7 @@ extension AppDelegate {
     }
 
     @objc func refreshClicked() {
-        if shouldPollRuntimeProviders {
-            refreshAll(force: true)
-        } else {
-            showInitialClaudeSetupFlow()
-        }
+        refreshAll(force: true)
     }
 
     @objc func openProviderExternalActionClicked(

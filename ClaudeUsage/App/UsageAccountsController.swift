@@ -29,8 +29,12 @@ final class UsageAccountsController: ObservableObject {
     private let isServiceEnabled: (PopoverService) -> Bool
     private let notifyAccountChange: @MainActor (String, String) -> Void
     private var refreshTask: Task<Void, Never>?
+    private var isStopped = false
     /// 조회를 기다리거나 조회 중인 계정. 같은 계정을 겹쳐 조회하지 않는다.
     private var queued: Set<String> = []
+    private var lastAttempts: [String: Date] = [:]
+    /// 서버가 기다리라고 한 계정은 이 시각 전에는 다시 조회하지 않는다.
+    private var retryNotBefore: [String: Date] = [:]
     /// 사용자가 "허용"을 누른 계정. 다음 조회 한 번만 macOS 확인 창을 띄운다.
     private var interactiveOnce: Set<String> = []
     private var discoveryTask: Task<Void, Never>?
@@ -352,13 +356,20 @@ final class UsageAccountsController: ObservableObject {
 
     // MARK: - 조회
 
+    /// 앱 종료 중에는 다른 계정 조회(CLI 실행 포함)를 새로 시작하지 않는다.
+    func stop() {
+        isStopped = true
+        refreshTask?.cancel()
+    }
+
     func refreshIfNeeded(force: Bool = false) {
+        guard !isStopped else { return }
         let now = Date()
         let due = activeProviders.filter { preferences[$0.service].isMultiAccountEnabled }.flatMap { provider in
             (accounts[provider.service] ?? []).filter { account in
                 !preferences.hidden.contains(account.id) && !preferences.archived.contains(account.id)
                     && !provider.isRuntime(account) && !queued.contains(account.id)
-                    && (force || isDue(states[account.id], now: now))
+                    && (force || isDue(account.id, now: now))
             }
         }
         guard !due.isEmpty else { return }
@@ -373,8 +384,9 @@ final class UsageAccountsController: ObservableObject {
         }
     }
 
-    private func isDue(_ state: UsageAccountState?, now: Date) -> Bool {
-        guard let attempted = state?.attemptedAt else { return true }
+    private func isDue(_ id: String, now: Date) -> Bool {
+        if let notBefore = retryNotBefore[id], now < notBefore { return false }
+        guard let attempted = [states[id]?.attemptedAt, lastAttempts[id]].compactMap({ $0 }).max() else { return true }
         return now.timeIntervalSince(attempted) >= Self.refreshInterval - Self.refreshTolerance
     }
 
@@ -401,6 +413,8 @@ final class UsageAccountsController: ObservableObject {
         let interactive = interactiveOnce.remove(account.id) != nil
         var state = states[account.id] ?? UsageAccountState()
         state.attemptedAt = Date()
+        // 계정 불일치나 전환으로 끝나 상태를 남기지 않아도 다음 주기 전에는 다시 조회하지 않는다.
+        lastAttempts[account.id] = state.attemptedAt
         do {
             let result = try await provider.fetchUsage(for: account, interactive: interactive)
             try Task.checkCancellation()
@@ -446,6 +460,10 @@ final class UsageAccountsController: ObservableObject {
         } catch UsageAccountFetchError.executableNotFound {
             state.consecutiveFailures += 1
             state.issue = .executableNotFound
+        } catch UsageAccountFetchError.rateLimited(let retryAfter) {
+            state.consecutiveFailures += 1
+            state.issue = nil
+            if let retryAfter { retryNotBefore[account.id] = Date().addingTimeInterval(TimeInterval(retryAfter)) }
         } catch is CancellationError {
             return
         } catch {
@@ -623,6 +641,9 @@ final class UsageAccountsController: ObservableObject {
         case .runningAppsNotTerminated: return "실행 중인 \(cliName)를 종료하지 못했습니다. 직접 종료한 뒤 다시 시도하세요."
         case .runningAppsStarted: return "그사이 \(cliName)가 실행됐습니다. 다시 시도하세요."
         case .unavailable, .writeFailed: return "전환하지 못했습니다. 로그인은 바뀌지 않았습니다."
+        case .ownerUnverified: return "계정을 확인하지 못해 전환하지 않았습니다. 네트워크 연결을 확인한 뒤 다시 시도하세요."
+        case .ownerMismatch:
+            return "이 폴더의 로그인 토큰이 다른 계정의 것이라 전환하지 않았습니다. 그 폴더에서 \(cliName)에 다시 로그인하세요."
         }
     }
 
@@ -632,7 +653,7 @@ final class UsageAccountsController: ObservableObject {
             let service = provider.service
             guard let expected = preferences[service].expectedDefault,
                 let current = discovered[service]?.first(where: \.isDefaultLogin)?.identity,
-                !expected.isSameAccount(as: current)
+                expected.isKnownDifferent(from: current)
             else { continue }
             preferences[service].expectedDefault = nil
             let message =

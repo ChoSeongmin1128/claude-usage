@@ -54,8 +54,8 @@ extension AppDelegate {
                     controller?.refreshIfNeeded()
                 }
             }
-        usageAccountsTimer = Timer.scheduledTimer(
-            withTimeInterval: UsageAccountsController.refreshInterval, repeats: true
+        usageAccountsTimer = Timer.scheduledOnMainRunLoop(
+            interval: UsageAccountsController.refreshInterval, repeats: true
         ) { [weak controller] _ in
             MainActor.assumeIsolated { controller?.refreshIfNeeded() }
         }

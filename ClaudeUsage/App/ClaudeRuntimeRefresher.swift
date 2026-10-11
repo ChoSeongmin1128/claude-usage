@@ -7,6 +7,7 @@ struct ClaudeRuntimeRefreshSuccess {
     let supplementalUsage: ClaudeSupplementalRefreshResult
     let sessionContextRevision: Int
     let credentialGeneration: Int?
+    let fetchedAt: Date
 }
 
 enum ClaudeRuntimeRefresher {
@@ -14,10 +15,11 @@ enum ClaudeRuntimeRefresher {
         apiService: ClaudeAPIService,
         lastOverageAttemptAt: Date?,
         lastOverageOwnerKey: String? = nil,
-        knownIdentities: [String: UsageAccountIdentity] = [:]
+        knownIdentities: [String: UsageAccountIdentity] = [:],
+        bypassOAuthCache: Bool = false
     ) async throws -> ClaudeRuntimeRefreshSuccess {
         let contextRevision = await apiService.currentSessionContextRevision()
-        let outcome = try await apiService.fetchUsageWithRetryOutcome()
+        let outcome = try await apiService.fetchUsageWithRetryOutcome(bypassOAuthCache: bypassOAuthCache)
         guard contextRevision == (await apiService.currentSessionContextRevision()) else { throw CancellationError() }
         let metadata = RuntimeProviderFetchMetadata(
             sourceLabel: outcome.provenance.source.displayName, accountID: outcome.provenance.accountID,
@@ -27,7 +29,8 @@ enum ClaudeRuntimeRefresher {
                 resolvedOrganizationID: outcome.identity?.organizationID, knownIdentities: knownIdentities))
         let sameOwner = metadata.supplementalAccountKey != nil && metadata.supplementalAccountKey == lastOverageOwnerKey
         let supplementalUsage = try await ClaudeSupplementalRefreshResult.refresh(
-            embeddedUsage: outcome.usage.extraUsage, source: outcome.provenance.source,
+            embeddedUsage: outcome.usage.extraUsage, embeddedUsageIsMalformed: outcome.usage.hasMalformedExtraUsage,
+            source: outcome.provenance.source,
             lastAttemptAt: sameOwner ? lastOverageAttemptAt : nil
         ) {
             try await apiService.fetchOverageSpendLimit(
@@ -47,7 +50,8 @@ enum ClaudeRuntimeRefresher {
             provenance: outcome.provenance,
             metadata: metadata,
             supplementalUsage: supplementalUsage,
-            sessionContextRevision: contextRevision, credentialGeneration: outcome.credentialGeneration
+            sessionContextRevision: contextRevision, credentialGeneration: outcome.credentialGeneration,
+            fetchedAt: outcome.fetchedAt
         )
     }
 }

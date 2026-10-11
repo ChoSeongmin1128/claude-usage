@@ -136,16 +136,19 @@ struct ClaudeAccountSettingsPresentation: Equatable {
         }
     }
 
-    private static func statusPresentation(
-        for state: ClaudeCredentialValidationState
+    /// 계정 줄과 설정 진단이 같은 검증 상태를 같은 이름으로 부른다. 자격 증명이 없는 진단만 '없음'으로 적는다.
+    static func statusPresentation(
+        for state: ClaudeCredentialValidationState, unavailableText: String = "확인 전"
     ) -> (text: String, tone: ClaudeAccountStatusTone) {
         switch state {
         case .verified:
             return ("연결됨", .success)
         case .failed:
             return ("다시 로그인 필요", .warning)
-        case .unavailable, .detected:
+        case .detected:
             return ("확인 전", .neutral)
+        case .unavailable:
+            return (unavailableText, .neutral)
         }
     }
 

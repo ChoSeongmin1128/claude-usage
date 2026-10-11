@@ -193,12 +193,9 @@ extension PopoverViewModel {
             switch antigravityRuntimeSnapshot.presentationState {
             case .refreshing:
                 return .loading
-            case .accountMismatch,
-                 .limited,
-                 .identityOnly,
-                 .failed:
+            case .failed:
                 return .error
-            case .disabled, .setupRequired:
+            case .disabled:
                 return .empty
             case .ready, .partial, .stale:
                 return .empty

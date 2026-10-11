@@ -686,9 +686,15 @@ private func writeAuthJSON(
     accessToken: String,
     refreshToken: String?,
     to path: URL,
-    accountID: String = "account-a"
+    accountID: String = "account-a",
+    email: String? = nil
 ) throws {
     var tokens: [String: Any] = ["access_token": accessToken, "account_id": accountID]
+    if let email {
+        let header = try base64URLJSONObject(["alg": "none", "typ": "JWT"])
+        let payload = try base64URLJSONObject(["email": email])
+        tokens["id_token"] = "\(header).\(payload).signature"
+    }
     if let refreshToken {
         tokens["refresh_token"] = refreshToken
     }
@@ -1220,6 +1226,36 @@ extension CodexTokenRefreshRecoveryTests {
         await fulfillment(of: [detailShown], timeout: 2)
         XCTAssertEqual(basicCalls, 1)
         XCTAssertEqual(detailCalls, 1)
+        await controller.shutdown()
+    }
+
+    func testTokenRotationOfTheSameLoginKeepsTheShownQuota() async throws {
+        let (path, manager) = try fixture()
+        try writeAuthJSON(accessToken: "access-a", refreshToken: "refresh-a", to: path, email: "a@example.com")
+        let service = service(manager) { request in
+            httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: 0))
+        }
+        var clears = 0
+        var shown = 0
+        let controller = CodexRefreshController(
+            authManager: manager, apiService: service, isEnabled: { true }, prepare: { _ in true },
+            clearPresentation: { clears += 1 },
+            applySuccess: { _ in shown += 1 }, applyFailure: { _ in XCTFail("fixture usage must load") },
+            applyDetails: { _ in })
+        func refreshAndWait(_ expected: Int) async {
+            controller.refresh(force: true)
+            for _ in 0..<200 where shown < expected { try? await Task.sleep(for: .milliseconds(10)) }
+            XCTAssertEqual(shown, expected)
+        }
+
+        await refreshAndWait(1)
+        XCTAssertEqual(clears, 1, "The first login is new")
+        try writeAuthJSON(accessToken: "access-a2", refreshToken: "refresh-a2", to: path, email: "A@example.com")
+        await refreshAndWait(2)
+        XCTAssertEqual(clears, 1, "A rotated token of the same login keeps the shown quota")
+        try writeAuthJSON(accessToken: "access-b", refreshToken: "refresh-b", to: path, email: "b@example.com")
+        await refreshAndWait(3)
+        XCTAssertEqual(clears, 2, "Another user in the same workspace is a different login")
         await controller.shutdown()
     }
 

@@ -53,6 +53,26 @@ nonisolated enum ClaudeCodeKeychainCLI {
         return String(line[start..<end])
     }
 
+    /// 로그인 Keychain에 있는 Claude Code 로그인 항목 이름. `dump-keychain`을 `-d` 없이 써서 비밀 값은 풀지 않고
+    /// 확인 창도 뜨지 않는다(2026-10-11 시험 항목으로 실측). 확인하지 못하면 nil이다.
+    static func credentialServiceNames() async -> [String]? {
+        guard
+            let output = await ExternalCommand.run(
+                executable, arguments: ["dump-keychain"], environment: environment, timeout: timeout),
+            output.succeeded, let text = String(data: output.data, encoding: .utf8)
+        else { return nil }
+        let marker = "\"svce\"<blob>=\""
+        let prefix = ClaudeCodeCredentialReader.defaultKeychainService
+        var names: [String] = []
+        for line in text.split(separator: "\n") {
+            guard let start = line.range(of: marker)?.upperBound, let end = line[start...].lastIndex(of: "\"")
+            else { continue }
+            let name = String(line[start..<end])
+            if name.hasPrefix(prefix), !names.contains(name) { names.append(name) }
+        }
+        return names
+    }
+
     /// 기존 항목의 값만 바꾼다. 명령을 표준 입력으로 넘겨 값이 프로세스 인자에 드러나지 않게 한다.
     /// 대화형 모드의 종료 코드는 명령 성공 여부를 보장하지 않아 다시 읽어 확인한다.
     static func update(service: String, account: String, payload: Data) async -> Bool {

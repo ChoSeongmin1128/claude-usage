@@ -28,7 +28,7 @@ final class CodexOwnerCLITests: XCTestCase {
         }
     }
 
-    func testTimeoutAndCancellationStopOnlyOwnedHelper() async throws {
+    func testTimeoutStopsOnlyOwnedHelperAndCancellationWaitsForTheDeadline() async throws {
         let fixture = try makeFixture(quota: "{}", sleep: true)
         let began = ContinuousClock.now
         do {
@@ -42,17 +42,20 @@ final class CodexOwnerCLITests: XCTestCase {
         try? FileManager.default.removeItem(at: ready)
         let task = Task {
             try await fixture.owner.refresh(
-                sourceURL: fixture.auth, expectedAccountID: "account-a", budget: CodexRequestBudget())
+                sourceURL: fixture.auth, expectedAccountID: "account-a", budget: CodexRequestBudget(timeout: 2))
         }
         for _ in 0..<200 {
             if FileManager.default.fileExists(atPath: ready.path) { break }
             try await Task.sleep(for: .milliseconds(10))
         }
         XCTAssertTrue(FileManager.default.fileExists(atPath: ready.path))
+        let cancelledAt = ContinuousClock.now
         task.cancel()
-        do { try await task.value; XCTFail("cancellation must propagate") } catch {
-            XCTAssertTrue(error is CancellationError)
+        // 토큰을 회전해 저장하는 중일 수 있어 취소로 끊지 않고 시간 예산으로만 끝낸다.
+        do { try await task.value; XCTFail("a silent helper must still end at the deadline") } catch {
+            XCTAssertEqual(error as? CodexOwnerError, .timedOut)
         }
+        XCTAssertGreaterThan(cancelledAt.duration(to: .now), .milliseconds(500))
         try assertStopped(fixture.auth)
         XCTAssertEqual(kill(getpid(), 0), 0)
     }
@@ -143,7 +146,7 @@ extension CodexOwnerCLITests {
         let fixture = try ownedFixture(before: "a@example.com", after: "a@example.com", silent: true)
         do {
             _ = try await fixture.owner.readOwnedRateLimits(
-                sourceURL: fixture.auth, expectedAccountID: "team", budget: CodexRequestBudget(timeout: 0.1))
+                sourceURL: fixture.auth, expectedAccountID: "team", budget: CodexRequestBudget(timeout: 0.5))
             XCTFail("A silent helper must exhaust the same request budget")
         } catch { XCTAssertEqual(error as? CodexOwnerError, .timedOut) }
         try assertStopped(fixture.auth)

@@ -69,17 +69,9 @@ nonisolated enum AntigravitySettingsNoticePresenter {
             return nil
         case .partial:
             return warning(title: "일부 한도만 읽었습니다", message: "읽지 못한 한도는 비워 두었습니다.")
-        case .limited, .identityOnly:
-            return warning(title: "사용량 수치가 없습니다", message: "AGY CLI가 이 계정의 사용량 수치를 주지 않았습니다.")
         case .stale(_, let reason):
             let summary = AntigravityPopoverPresentationAdapter.failureSummary(reason)
             return warning(title: "이전 값을 보여줍니다", message: summary.message ?? summary.title)
-        case .setupRequired(.ambiguousLocalSessions):
-            return warning(title: "실행 중인 AGY의 계정이 서로 다릅니다", message: "AGY를 하나만 남긴 뒤 새로고침하세요.")
-        case .setupRequired:
-            return warning(title: "AGY CLI 로그인이 필요합니다", message: login)
-        case .accountMismatch:
-            return failure(title: "조회 중 계정이 바뀌었습니다", message: "다른 계정의 수치는 숨겼습니다. 새로고침하세요.")
         case .failed(let reason):
             let summary = AntigravityPopoverPresentationAdapter.failureSummary(reason)
             return failure(title: summary.title, message: summary.message ?? summary.title)

@@ -69,6 +69,9 @@ final class MenuBarQuotaPreviewCanvas: NSView {
         if drag == nil { currentUnits = layout.units }
         invalidateIntrinsicContentSize()
         needsDisplay = true
+        // 직접 그리는 뷰라 요소로 알려야 VoiceOver가 이름과 값을 읽는다.
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
         setAccessibilityLabel("메뉴바 미리보기")
         setAccessibilityValue(layout.units.map(\.title).joined(separator: ", "))
         setAccessibilityHelp("아이콘을 가로로 끌어 순서를 바꾸고, 눌러 표시 방식을 편집합니다.")

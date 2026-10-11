@@ -2,29 +2,19 @@ import XCTest
 @testable import ClaudeUsage
 
 final class AntigravityRefreshCoordinatorTests: XCTestCase {
-    func testUnavailableCLIReportNamesTheReportSource() async {
-        let appScript = RefreshSourceScript(outcomes: [.failure(.unavailable)])
-        let coordinator = AntigravityRefreshCoordinator(
-            sources: [
-                ScriptedRefreshSource(id: .localApp, script: appScript),
-                ScriptedRefreshSource(
-                    id: .cliReport,
-                    script: RefreshSourceScript(outcomes: [.failure(.unavailable)])),
-            ]
-        )
+    func testMissingCLIReportSourceNamesTheReportSource() async {
+        let coordinator = AntigravityRefreshCoordinator(sources: [])
 
         let result = await coordinator.refresh(selectedRequest(target: .cli))
 
         XCTAssertEqual(result, .failed(.sourceUnavailable(.cliReport)))
-        let appCalls = await appScript.callCount()
-        XCTAssertEqual(appCalls, 0)
     }
 
     func testChangedConnectionSnapshotSupersedesInFlightRefresh() async {
         let snapshot = makeReportSnapshot()
         let sourceScript =
             ConnectionSnapshotRefreshSourceScript(
-                response: .init(payload: .grouped(snapshot))
+                response: .init(snapshot: snapshot)
             )
         let coordinator = AntigravityRefreshCoordinator(
             sources: [
@@ -68,40 +58,6 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         XCTAssertEqual(completedFirst, .failed(.cancelled))
     }
 
-    func testCLISelectionReadsOnlyTheUsageReport() async throws {
-        let localScript = RefreshSourceScript(outcomes: [
-            .success(
-                .init(
-                    payload: .grouped(
-                        makeSnapshot(
-                            identity: .init(
-                                stableAccountID: "subject-b",
-                                email: "b@example.com"
-                            ),
-                            source: .localApp
-                        )
-                    )))
-        ])
-        let report = makeReportSnapshot()
-        let reportScript = RefreshSourceScript(outcomes: [
-            .success(.init(payload: .grouped(report)))
-        ])
-        let coordinator = AntigravityRefreshCoordinator(
-            sources: [
-                ScriptedRefreshSource(id: .localApp, script: localScript),
-                ScriptedRefreshSource(id: .cliReport, script: reportScript),
-            ]
-        )
-
-        let result = await coordinator.refresh(selectedRequest(target: .cli))
-
-        XCTAssertEqual(result, .ready(report))
-        let localCallCount = await localScript.callCount()
-        let reportCallCount = await reportScript.callCount()
-        XCTAssertEqual(localCallCount, 0)
-        XCTAssertEqual(reportCallCount, 1)
-    }
-
     func testRecoverableCLIReportFailuresKeepTheLastReport() async {
         let report = makeReportSnapshot()
         let coordinator = AntigravityRefreshCoordinator(
@@ -109,7 +65,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
                 ScriptedRefreshSource(
                     id: .cliReport,
                     script: RefreshSourceScript(outcomes: [
-                        .success(.init(payload: .grouped(report))),
+                        .success(.init(snapshot: report)),
                         .failure(.runtimeUnavailable(.reportDisabled)),
                         .failure(.transportFailure),
                     ]))
@@ -134,7 +90,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
                 ScriptedRefreshSource(
                     id: .cliReport,
                     script: RefreshSourceScript(outcomes: [
-                        .success(.init(payload: .grouped(report))),
+                        .success(.init(snapshot: report)),
                         .failure(.reportFailed),
                         .failure(.transportFailure),
                     ]))
@@ -171,15 +127,8 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         }
     }
 
-    func testCLIReportMustComeFromAReportWithoutAProcessEndpointOrIdentity() async {
+    func testCLIReportMustHaveQuotaWithoutIdentity() async {
         let base = makeReportSnapshot()
-        let endpointBacked = AntigravityQuotaSnapshot(
-            identity: nil, plan: nil, lanes: base.lanes, decodeIssues: [],
-            provenance: AntigravityQuotaProvenance(
-                transport: .cliUsageReport, endpointOwner: .managed, accountIdentity: nil,
-                capability: .groupedQuotaSummary, processIdentity: ProcessIdentity(processID: 42)),
-            fetchedAt: base.fetchedAt)
-        let appTransport = makeSnapshot(identity: nil, source: .localApp)
         let empty = AntigravityQuotaSnapshot(
             identity: nil, plan: nil, lanes: [], decodeIssues: [],
             provenance: base.provenance, fetchedAt: base.fetchedAt)
@@ -189,17 +138,15 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
             provenance: base.provenance, fetchedAt: base.fetchedAt)
         let withProvenanceIdentity = AntigravityQuotaSnapshot(
             identity: nil, plan: nil, lanes: base.lanes, decodeIssues: [],
-            provenance: AntigravityQuotaProvenance(
-                transport: .cliUsageReport, endpointOwner: .managed, accountIdentity: identity,
-                capability: .groupedQuotaSummary, processIdentity: nil),
+            provenance: AntigravityQuotaProvenance(transport: .cliUsageReport, accountIdentity: identity),
             fetchedAt: base.fetchedAt)
 
-        for invalid in [endpointBacked, appTransport, empty, withIdentity, withProvenanceIdentity] {
+        for invalid in [empty, withIdentity, withProvenanceIdentity] {
             let coordinator = AntigravityRefreshCoordinator(
                 sources: [
                     ScriptedRefreshSource(
                         id: .cliReport,
-                        script: RefreshSourceScript(outcomes: [.success(.init(payload: .grouped(invalid)))]))
+                        script: RefreshSourceScript(outcomes: [.success(.init(snapshot: invalid))]))
                 ]
             )
 
@@ -209,30 +156,9 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         }
     }
 
-    func testCLIReportCannotBeAnIdentityOnlyOrLimitedPayload() async {
-        let identity = ProviderAccountIdentity(email: "a@example.com")
-        let payloads: [AntigravityUsageSourcePayload] = [
-            .identityOnly(makeIdentityOnlyUsage(identity: identity, source: .cliReport)),
-            .limited(makeLocalLimitedCapability(identity: identity)),
-        ]
-        for payload in payloads {
-            let coordinator = AntigravityRefreshCoordinator(
-                sources: [
-                    ScriptedRefreshSource(
-                        id: .cliReport,
-                        script: RefreshSourceScript(outcomes: [.success(.init(payload: payload))]))
-                ]
-            )
-
-            let result = await coordinator.refresh(selectedRequest(target: .cli))
-
-            XCTAssertEqual(result, .failed(.sourceContractViolation(.cliReport)))
-        }
-    }
-
-    func testManualRefreshDoesNotJoinScheduledFlight() async throws {
-        let snapshot = makeSnapshot(identity: nil, source: .cliReport)
-        let source = DiscoveryPolicySource(snapshot: snapshot)
+    func testManualRefreshJoinsScheduledFlight() async throws {
+        let snapshot = makeReportSnapshot()
+        let source = SlowFirstReportSource(snapshot: snapshot)
         let coordinator = AntigravityRefreshCoordinator(sources: [source])
         let scheduled = AntigravityRefreshRequest(
             trigger: .scheduled, connection: makeConnectionSettings(target: .cli))
@@ -242,15 +168,12 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         let result = await coordinator.refresh(manual)
         _ = await first.value
         let calls = await source.calls
-        XCTAssertEqual(calls, 2)
+        XCTAssertEqual(calls, 1)
         XCTAssertEqual(result, .ready(snapshot))
     }
 
     func testConcurrentEquivalentRequestsUseOneSourceFetch() async throws {
-        let snapshot = makeSnapshot(
-            identity: nil,
-            source: .cliReport
-        )
+        let snapshot = makeReportSnapshot()
         let gate = BlockingRefreshSourceScript()
         let coordinator = AntigravityRefreshCoordinator(
             sources: [
@@ -266,7 +189,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         await gate.waitUntilStarted()
         async let second = coordinator.refresh(request)
         await gate.resume(
-            with: .init(payload: .grouped(snapshot))
+            with: .init(snapshot: snapshot)
         )
 
         let values = await [first, second]
@@ -276,10 +199,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
     }
 
     func testCancelledWaiterDetachesWithoutCancellingSharedFlight() async throws {
-        let snapshot = makeSnapshot(
-            identity: nil,
-            source: .cliReport
-        )
+        let snapshot = makeReportSnapshot()
         let gate = BlockingRefreshSourceScript()
         let coordinator = AntigravityRefreshCoordinator(
             sources: [
@@ -310,7 +230,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         XCTAssertEqual(callCount, 1)
 
         await gate.resume(
-            with: .init(payload: .grouped(snapshot))
+            with: .init(snapshot: snapshot)
         )
         let survivorResult = await survivor.value
         let presentation =
@@ -320,10 +240,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
     }
 
     func testCancellingOnlyWaiterCancelsSourceAndRejectsLateUsage() async throws {
-        let snapshot = makeSnapshot(
-            identity: nil,
-            source: .cliReport
-        )
+        let snapshot = makeReportSnapshot()
         let gate = BlockingRefreshSourceScript()
         let coordinator = AntigravityRefreshCoordinator(
             sources: [
@@ -355,9 +272,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         )
 
         await gate.resume(
-            with: .init(
-                payload: .grouped(snapshot)
-            )
+            with: .init(snapshot: snapshot)
         )
         await gate.waitUntilFinished()
         await Task.yield()
@@ -371,10 +286,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
     }
 
     func testQuiesceCancelsNoncooperativeFlightAndRejectsFutureRefresh() async {
-        let snapshot = makeSnapshot(
-            identity: nil,
-            source: .cliReport
-        )
+        let snapshot = makeReportSnapshot()
         let sourceGate = BlockingRefreshSourceScript()
         let coordinator = AntigravityRefreshCoordinator(
             sources: [
@@ -412,7 +324,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         XCTAssertEqual(sourceCallCount, 1)
 
         await sourceGate.resume(
-            with: .init(payload: .grouped(snapshot))
+            with: .init(snapshot: snapshot)
         )
         await sourceGate.waitUntilFinished()
         let completedCaller = await caller.value
@@ -455,7 +367,7 @@ private actor RefreshSourceScript {
     ) throws -> AntigravityUsageSourceResponse {
         calls += 1
         guard !outcomes.isEmpty else {
-            throw AntigravityUsageSourceError.unavailable
+            throw AntigravityUsageSourceError.transportFailure
         }
         return try outcomes.removeFirst().get()
     }
@@ -646,7 +558,7 @@ private struct BlockingRefreshSource:
 }
 
 private func selectedRequest(
-    target: AntigravityUsageTarget = .app
+    target: AntigravityUsageTarget = .cli
 ) -> AntigravityRefreshRequest {
     return AntigravityRefreshRequest(
         trigger: .manual,
@@ -663,20 +575,11 @@ private func makeConnectionSettings(
     )
 }
 
-private func makeSnapshot(
-    identity: ProviderAccountIdentity?,
-    source: AntigravityUsageSourceID,
-    fraction: Double = 0.75
-) -> AntigravityQuotaSnapshot {
-    let provenance = makeProvenance(
-        identity: identity,
-        source: source,
-        capability: .groupedQuotaSummary
-    )
-
-    return AntigravityQuotaSnapshot(
-        identity: identity,
-        plan: "Pro",
+/// Mirrors a decoded `agy -p /usage` report: no account identity or plan.
+private func makeReportSnapshot(fraction: Double = 0.75) -> AntigravityQuotaSnapshot {
+    AntigravityQuotaSnapshot(
+        identity: nil,
+        plan: nil,
         lanes: [
             AntigravityQuotaLane(
                 id: .geminiFiveHour,
@@ -691,100 +594,12 @@ private func makeSnapshot(
             ),
         ],
         decodeIssues: [],
-        provenance: provenance,
+        provenance: AntigravityQuotaProvenance(transport: .cliUsageReport, accountIdentity: nil),
         fetchedAt: Date(timeIntervalSince1970: 1_900_000_000)
     )
 }
 
-/// Mirrors a decoded `agy -p /usage` report: no account identity or plan.
-private func makeReportSnapshot(fraction: Double = 0.75) -> AntigravityQuotaSnapshot {
-    let snapshot = makeSnapshot(identity: nil, source: .cliReport, fraction: fraction)
-    return AntigravityQuotaSnapshot(
-        identity: nil,
-        plan: nil,
-        lanes: snapshot.lanes,
-        decodeIssues: [],
-        provenance: snapshot.provenance,
-        fetchedAt: snapshot.fetchedAt
-    )
-}
-
-private func makeIdentityOnlyUsage(
-    identity: ProviderAccountIdentity,
-    source: AntigravityUsageSourceID
-) -> AntigravityIdentityOnlyUsage {
-    AntigravityIdentityOnlyUsage(
-        identity: identity,
-        plan: "Pro",
-        provenance: makeProvenance(
-            identity: identity,
-            source: source,
-            capability: .groupedQuotaSummary
-        ),
-        fetchedAt: Date(timeIntervalSince1970: 1_900_000_001)
-    )
-}
-
-private func makeLocalLimitedCapability(
-    identity: ProviderAccountIdentity
-) -> AntigravityLimitedQuotaCapability {
-    .localLegacy(
-        evidence:
-            AntigravityLegacyCapabilityEvidence(
-                method: .getUserStatus,
-                identity: identity,
-                plan: "Pro",
-                modelConfigCount: 2
-            ),
-        fallbackReason: .groupedQuotaUnavailable,
-        provenance: makeProvenance(
-            identity: identity,
-            source: .localApp,
-            capability: .limitedQuota
-        ),
-        fetchedAt: Date(
-            timeIntervalSince1970: 1_900_000_002
-        )
-    )
-}
-
-private func makeProvenance(
-    identity: ProviderAccountIdentity?,
-    source: AntigravityUsageSourceID,
-    capability: AntigravityQuotaProvenance.Capability
-) -> AntigravityQuotaProvenance {
-    let transport: AntigravityQuotaProvenance.Transport
-    let owner: AntigravityQuotaProvenance.EndpointOwner
-    let processIdentity: ProcessIdentity?
-    switch source {
-    case .localApp:
-        transport = .localAppRPC
-        owner = .external
-        processIdentity = ProcessIdentity(
-            processID: 101,
-            startedAt: Date(timeIntervalSince1970: 100),
-            executablePath: "/Applications/Antigravity.app/agy"
-        )
-    case .cliReport:
-        transport = .cliUsageReport
-        owner = .managed
-        processIdentity = nil
-    case .googleOAuth:
-        transport = .googleOAuth
-        owner = .external
-        processIdentity = nil
-    }
-
-    return AntigravityQuotaProvenance(
-        transport: transport,
-        endpointOwner: owner,
-        accountIdentity: identity,
-        capability: capability,
-        processIdentity: processIdentity
-    )
-}
-
-private actor DiscoveryPolicySource: AntigravityUsageSource {
+private actor SlowFirstReportSource: AntigravityUsageSource {
     nonisolated let id = AntigravityUsageSourceID.cliReport
     let snapshot: AntigravityQuotaSnapshot
     var calls = 0
@@ -793,6 +608,6 @@ private actor DiscoveryPolicySource: AntigravityUsageSource {
     func fetch(_ request: AntigravityUsageSourceRequest) async throws -> AntigravityUsageSourceResponse {
         calls += 1
         if calls == 1 { try await Task.sleep(for: .seconds(2)) }
-        return .init(payload: .grouped(snapshot))
+        return .init(snapshot: snapshot)
     }
 }

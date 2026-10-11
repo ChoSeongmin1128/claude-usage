@@ -461,7 +461,7 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
             fetchedAt: now
         )
         let failure = AntigravityFailure.sourceUnavailable(
-            .googleOAuth
+            .cliReport
         )
         let staleState = AntigravityPresentationState.stale(
             snapshot,
@@ -497,7 +497,7 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
         )
 
         let failedState = AntigravityPresentationState.failed(
-            .noEligibleSource
+            .cliReportFailed
         )
         XCTAssertEqual(
             AntigravityQuotaPresentationMapper.map(
@@ -507,65 +507,6 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
                 timeZone: utc
             ),
             .unavailable(failedState)
-        )
-
-        let identity = ProviderAccountIdentity(
-            stableAccountID: "subject-a",
-            email: "a@example.com"
-        )
-        let provenance = AntigravityQuotaProvenance(
-            transport: .googleOAuth,
-            endpointOwner: .external,
-            accountIdentity: identity,
-            capability: .limitedQuota,
-            processIdentity: nil
-        )
-        let limitedState = AntigravityPresentationState
-            .limited(
-                .googleOAuth(
-                    evidence:
-                        AntigravityGoogleOAuthLimitedQuotaEvidence(
-                            identity: identity,
-                            plan: "Pro",
-                            modelQuotaCount: 2
-                        ),
-                    provenance: provenance,
-                    fetchedAt: now
-                )
-            )
-        XCTAssertEqual(
-            AntigravityQuotaPresentationMapper.map(
-                state: limitedState,
-                settings: .default,
-                now: now,
-                timeZone: utc
-            ),
-            .unavailable(limitedState)
-        )
-
-        let identityOnlyState = AntigravityPresentationState
-            .identityOnly(
-                AntigravityIdentityOnlyUsage(
-                    identity: identity,
-                    plan: "Pro",
-                    provenance: AntigravityQuotaProvenance(
-                        transport: .googleOAuth,
-                        endpointOwner: .external,
-                        accountIdentity: identity,
-                        capability: .groupedQuotaSummary,
-                        processIdentity: nil
-                    ),
-                    fetchedAt: now
-                )
-            )
-        XCTAssertEqual(
-            AntigravityQuotaPresentationMapper.map(
-                state: identityOnlyState,
-                settings: .default,
-                now: now,
-                timeZone: utc
-            ),
-            .unavailable(identityOnlyState)
         )
     }
 
@@ -927,7 +868,6 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
                 stableAccountID: "subject-1",
                 email: "nathan@example.com"
             ),
-            transport: .googleOAuth,
             fetchedAt: now.addingTimeInterval(-125)
         )
 
@@ -940,7 +880,7 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
 
         XCTAssertEqual(
             presentation.identityRail.visibleSegments,
-            ["nathan@…", "Google 계정", "2분 전 갱신"]
+            ["nathan@…", "AGY CLI", "2분 전 갱신"]
         )
         XCTAssertFalse(
             presentation.identityRail.accessibilityValue.contains(
@@ -949,7 +889,7 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
         )
         XCTAssertEqual(presentation.menuBar.condensedText, "90%")
         XCTAssertTrue(presentation.menuBar.tooltip.contains("계정: nathan@…"))
-        XCTAssertTrue(presentation.menuBar.tooltip.contains("조회: Google 계정"))
+        XCTAssertTrue(presentation.menuBar.tooltip.contains("조회: AGY CLI"))
         XCTAssertTrue(presentation.menuBar.tooltip.contains("Gemini"))
         XCTAssertTrue(presentation.menuBar.tooltip.contains("Claude · GPT"))
         XCTAssertTrue(presentation.menuBar.tooltip.contains("5시간: 75% 사용"))
@@ -957,7 +897,7 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
         XCTAssertTrue(presentation.menuBar.tooltip.contains("3시간 12분 후"))
         XCTAssertTrue(
             presentation.menuBar.accessibilityValue.contains(
-                "조회 경로 Google 계정"
+                "조회 경로 AGY CLI"
             )
         )
     }
@@ -1007,26 +947,20 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
     func testCLIReportWithoutIdentityNamesTheCLILoginInsteadOfAnUnknownAccount() {
         let lane = makeLane(
             id: AntigravityQuotaLaneID.geminiWeekly.rawValue, scope: .gemini, cadence: .weekly, remaining: 0.5)
-        let report = makeSnapshot(lanes: [lane], transport: .cliUsageReport, fetchedAt: now)
-        let appWithoutIdentity = makeSnapshot(lanes: [lane], transport: .localAppRPC, fetchedAt: now)
+        let report = makeSnapshot(lanes: [lane], fetchedAt: now)
 
         let reportRail = AntigravityQuotaPresentationMapper.map(
             snapshot: report, settings: .default, now: now, timeZone: utc
-        ).identityRail
-        let appRail = AntigravityQuotaPresentationMapper.map(
-            snapshot: appWithoutIdentity, settings: .default, now: now, timeZone: utc
         ).identityRail
 
         XCTAssertEqual(reportRail.accountLabel, "AGY CLI 로그인 계정")
         XCTAssertEqual(reportRail.sourceLabel, "AGY CLI")
         XCTAssertTrue(reportRail.tooltip.contains("조회 계정: AGY CLI 로그인 계정"))
-        XCTAssertEqual(appRail.accountLabel, "계정 미확인")
     }
 
     private func makeSnapshot(
         lanes: [AntigravityQuotaLane],
         identity: ProviderAccountIdentity? = nil,
-        transport: AntigravityQuotaProvenance.Transport = .localAppRPC,
         fetchedAt: Date,
         decodeIssues: [AntigravityQuotaDecodeIssue] = []
     ) -> AntigravityQuotaSnapshot {
@@ -1035,13 +969,7 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
             plan: "test",
             lanes: lanes,
             decodeIssues: decodeIssues,
-            provenance: AntigravityQuotaProvenance(
-                transport: transport,
-                endpointOwner: .external,
-                accountIdentity: identity,
-                capability: .groupedQuotaSummary,
-                processIdentity: nil
-            ),
+            provenance: AntigravityQuotaProvenance(transport: .cliUsageReport, accountIdentity: identity),
             fetchedAt: fetchedAt
         )
     }

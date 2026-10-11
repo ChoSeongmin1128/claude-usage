@@ -293,14 +293,7 @@ final class AntigravityDisplayAdapterTests:
                 lanes: lanes,
                 decodeIssues: [],
                 provenance:
-                    AntigravityQuotaProvenance(
-                        transport: .cliUsageReport,
-                        endpointOwner: .managed,
-                        accountIdentity: nil,
-                        capability:
-                            .groupedQuotaSummary,
-                        processIdentity: nil
-                    ),
+                    AntigravityQuotaProvenance(transport: .cliUsageReport, accountIdentity: nil),
                 fetchedAt: now
             ),
             settings: settings,

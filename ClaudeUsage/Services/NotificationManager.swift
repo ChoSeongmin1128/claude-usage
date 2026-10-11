@@ -19,6 +19,8 @@ final class NotificationManager: ObservableObject {
 
     func hasIdentifiedAccount(for provider: PopoverService) -> Bool { owners[provider] != nil }
 
+    static let antigravityCLILoginOwner = "agy-cli-login"
+
     func deliverAccountNotice(title: String, body: String) { deliverer.deliver(title: title, body: body) }
 
     func updateAccountBoundary(_ provider: PopoverService, accountID: String?) {
@@ -64,12 +66,10 @@ final class NotificationManager: ObservableObject {
             return
         }
         guard let display = snapshot.settings?.display else { return }
-        let identity = quota.identity ?? quota.provenance.accountIdentity
-        let parts = [identity?.stableAccountID, identity?.email?.lowercased()]
-            .map { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.compactMap { $0 }.filter { !$0.isEmpty }
-        let owner = parts.isEmpty ? nil : String(data: (try? JSONEncoder().encode(parts)) ?? Data(), encoding: .utf8)
+        // CLI 보고에는 계정 정보가 없어 현재 AGY CLI 로그인 하나를 알림 주체로 본다.
         check(
-            provider: .antigravity, accountID: owner, limits: UsageLimitCatalog.antigravity(quota),
+            provider: .antigravity, accountID: Self.antigravityCLILoginOwner,
+            limits: UsageLimitCatalog.antigravity(quota),
             isEnabled: display.notifications.isEnabled
         ) { limit in
             guard let raw = limit.legacyKey else { return false }

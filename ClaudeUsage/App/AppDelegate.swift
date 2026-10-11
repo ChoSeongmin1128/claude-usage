@@ -47,7 +47,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let runtimeObservationCoordinator = AppRuntimeObservationCoordinator()
     let settingsWindowCoordinator = SettingsWindowCoordinator()
     let loginWindowCoordinator = LoginWindowCoordinator()
-    let setupWizardWindowCoordinator = SetupWizardWindowCoordinator()
     let whatsNewWindowCoordinator = WhatsNewWindowCoordinator()
     let runtimeState = AppRuntimeStateFacade()
 
@@ -66,7 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var globalClickMonitor: Any?
     var isPresentingPopover = false
     var claudeCredentialRefreshTask: Task<Void, Never>?
-    var claudeUsageRefreshTask: Task<Void, Never>?
+    lazy var claudeRefreshController = makeClaudeRefreshController()
     var claudeCredentialRefreshGeneration = 0
     var claudeCredentialRefreshRequest: ClaudeCredentialRefreshRequest?
     var antigravityRuntimeObservationTask:
@@ -81,6 +80,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task<Void, Never>?
     var pendingSettingsSection: SettingsSection?
     var hasRepliedToTermination = false
+    /// 종료를 시작한 뒤에는 조회와 타이머를 새로 시작하지 않는다.
+    var isTerminating = false
 
     var popover: NSPopover? { popoverCoordinator.popover }
     var popoverViewModel: PopoverViewModel { popoverCoordinator.viewModel }

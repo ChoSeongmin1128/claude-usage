@@ -198,6 +198,8 @@ struct AppProviderState: Codable, Equatable, Sendable {
 
 struct AppProviderStateCatalog: Codable, Equatable, Sendable {
     var states: [AppProviderKind: AppProviderState]
+    // 이 버전이 모르는 서비스의 상태. 이전 버전으로 되돌려 쓰다가 다시 올려도 그 서비스 설정이 남도록 그대로 다시 쓴다.
+    private var unknownStates: [String: AppProviderState] = [:]
 
     private enum CodingKeys: String, CodingKey {
         case states
@@ -229,15 +231,15 @@ struct AppProviderStateCatalog: Codable, Equatable, Sendable {
             }
         )
         self.init(states: decodedStates)
+        unknownStates = rawStates.filter { AppProviderKind(rawValue: $0.key) == nil }
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        let rawStates = Dictionary(
-            uniqueKeysWithValues: states.map { kind, state in
-                (kind.rawValue, state)
-            }
-        )
+        var rawStates = unknownStates
+        for (kind, state) in states {
+            rawStates[kind.rawValue] = state
+        }
         try container.encode(rawStates, forKey: .states)
     }
 
@@ -281,6 +283,9 @@ struct AppProviderStateCatalog: Codable, Equatable, Sendable {
             var state = self[provider]
             state.isActive = provider == kind
             self[provider] = state
+        }
+        for key in unknownStates.keys {
+            unknownStates[key]?.isActive = false
         }
     }
 

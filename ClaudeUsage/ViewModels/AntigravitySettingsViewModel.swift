@@ -93,9 +93,7 @@ nonisolated struct AntigravitySettingsViewState:
         display: nil,
         presentation: .disabled,
         quotaPresentation: .unavailable(.disabled),
-        managedRuntimeAvailability: .unavailable(
-            reason: .executableNotFound
-        ),
+        managedRuntimeAvailability: .notChecked,
         notice: nil
     )
 }
@@ -112,6 +110,8 @@ nonisolated struct AntigravityManagedRuntimeSettingsPresentation:
         _ availability: AntigravityManagedRuntimeAvailability
     ) -> Self {
         switch availability {
+        case .notChecked:
+            return Self(diagnosticTitle: "확인 전")
         case .available(let displayPath):
             return Self(
                 diagnosticTitle:

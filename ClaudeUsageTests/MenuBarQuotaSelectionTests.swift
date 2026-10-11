@@ -51,6 +51,23 @@ final class MenuBarQuotaSelectionTests: XCTestCase {
         XCTAssertNotEqual(actual.renderKey, updated.renderKey)
     }
 
+    func testEveryDisplayConfigFieldTakesPartInTheRenderKey() throws {
+        let usage = try usage()
+        let model = try XCTUnwrap(UsageLimitCatalog.claude(usage).first(where: \.isModelScoped))
+        let selection = MenuBarQuotaSelection(
+            percentageIDs: [model.id], resetIDs: [model.id], gaugeIDs: [model.id], titles: [model.id: model.title])
+        var renamed = selection
+        renamed.titles[model.id] = "다른 이름"
+        func key(_ selection: MenuBarQuotaSelection) -> MenuBarProviderRenderKey {
+            MenuBarStatusComposer.claudeSnapshot(
+                config: config(selection), usage: usage, error: nil, hasAuthError: false, hasCredential: true,
+                secondaryColor: .secondaryLabelColor, icon: nil, renderImages: false
+            ).renderKey
+        }
+        XCTAssertEqual(key(selection), key(selection))
+        XCTAssertNotEqual(key(selection), key(renamed))
+    }
+
     func testMissingSelectedModelNeverSubstitutesBaseWindowOrZero() throws {
         let model = try XCTUnwrap(UsageLimitCatalog.claude(try usage()).first(where: \.isModelScoped))
         let selection = MenuBarQuotaSelection(

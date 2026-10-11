@@ -61,11 +61,6 @@ extension AppDelegate {
         withRuntimeState { $0.setSystemStatus(status, for: kind) }
     }
 
-    var setupWizardCredentialStepOverride: SetupWizardView.Step? {
-        get { withRuntimeState { $0.setupWizardCredentialStepOverride } }
-        set { withRuntimeState { $0.setupWizardCredentialStepOverride = newValue } }
-    }
-
     var claudeCredentialAvailability: ClaudeCredentialAvailability {
         get { withRuntimeState { $0.claudeCredentialAvailability } }
         set { withRuntimeState { $0.claudeCredentialAvailability = newValue } }

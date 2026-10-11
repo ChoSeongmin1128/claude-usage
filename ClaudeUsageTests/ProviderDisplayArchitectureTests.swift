@@ -374,7 +374,7 @@ final class ProviderDisplayArchitectureTests:
                         presentation:
                             .failed(
                                 .deadlineExceeded(
-                                    .googleOAuth
+                                .cliReport
                                 )
                             )
                     )
@@ -487,14 +487,7 @@ final class ProviderDisplayArchitectureTests:
             },
             decodeIssues: [],
             provenance:
-                AntigravityQuotaProvenance(
-                    transport: .cliUsageReport,
-                    endpointOwner: .managed,
-                    accountIdentity: nil,
-                    capability:
-                        .groupedQuotaSummary,
-                    processIdentity: nil
-                ),
+                AntigravityQuotaProvenance(transport: .cliUsageReport, accountIdentity: nil),
             fetchedAt: now
         )
     }

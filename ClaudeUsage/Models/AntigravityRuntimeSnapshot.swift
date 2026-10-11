@@ -32,6 +32,8 @@ nonisolated enum AntigravityManagedRuntimeAvailability:
         case signatureRejected
     }
 
+    /// 아직 실행 파일을 찾아보지 않았다. 첫 조회가 확인한다.
+    case notChecked
     case unavailable(reason: UnavailableReason)
     case available(displayPath: String)
 }
@@ -56,6 +58,12 @@ nonisolated struct AntigravityRuntimeSnapshot:
     let lastAttemptAt: Date?
     let lastSuccessfulAt: Date?
     var publicationRevision: UInt64 = 0
+    var consecutiveFailures = 0
+
+    var showsPreviousValue: Bool {
+        guard case .stale = presentationState else { return false }
+        return StaleDataPolicy.showsPreviousValue(afterConsecutiveFailures: consecutiveFailures)
+    }
 
     static let idle = AntigravityRuntimeSnapshot(
         readiness: .idle,

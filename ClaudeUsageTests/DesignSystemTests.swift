@@ -549,9 +549,7 @@ final class DesignSystemTests: XCTestCase {
                     id: id, upstreamGroupID: nil, upstreamBucketID: id.rawValue, scope: scope, cadence: cadence,
                     remainingFraction: remaining / 100, resetAt: reset, resetDescription: nil, availability: .available)
             }, decodeIssues: [],
-            provenance: .init(
-                transport: .cliUsageReport, endpointOwner: .managed, accountIdentity: nil,
-                capability: .groupedQuotaSummary, processIdentity: nil), fetchedAt: now)
+            provenance: AntigravityQuotaProvenance(transport: .cliUsageReport, accountIdentity: nil), fetchedAt: now)
         let agy = AntigravityQuotaPresentationMapper.map(
             snapshot: quota, settings: .default, basisOverride: .remaining, now: now)
         for density in [PopoverDensity.standard, .compact] {
@@ -1864,13 +1862,7 @@ private nonisolated func settingsGalleryAGYSnapshot() -> AntigravityRuntimeSnaps
         plan: nil,
         lanes: lanes,
         decodeIssues: [],
-        provenance: .init(
-            transport: .cliUsageReport,
-            endpointOwner: .managed,
-            accountIdentity: nil,
-            capability: .groupedQuotaSummary,
-            processIdentity: nil
-        ),
+        provenance: AntigravityQuotaProvenance(transport: .cliUsageReport, accountIdentity: nil),
         fetchedAt: now
     )
     return AntigravityRuntimeSnapshot(

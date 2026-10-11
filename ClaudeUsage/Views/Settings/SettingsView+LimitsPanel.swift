@@ -5,15 +5,7 @@ extension SettingsView {
         VStack(alignment: .leading, spacing: AppDesign.Space.content) {
             Text("알림").font(AppDesign.Typography.headline)
             settingsToggleRow("\(provider.displayName) 알림 받기", isOn: serviceAlertBinding(provider))
-                .disabled(
-                    !settings.notificationsEnabled
-                        || (provider == .antigravity && !notificationManager.hasIdentifiedAccount(for: .antigravity)))
-            if provider == .antigravity, !notificationManager.hasIdentifiedAccount(for: .antigravity),
-                !(notificationManager.inventories[.antigravity] ?? []).isEmpty
-            {
-                Text("계정을 확인할 수 없어 알림을 보낼 수 없습니다.")
-                    .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
-            }
+                .disabled(!settings.notificationsEnabled)
             if !settings.notificationsEnabled {
                 Button("알림 설정 열기") { navigate(to: SettingsDestination(panel: .common)) }
                     .buttonStyle(.link).controlSize(.small)
@@ -61,15 +53,12 @@ extension SettingsView {
             let selected = isNotificationSelected(limit)
             limitsCell(
                 Binding(get: { selected }, set: { settings.notificationTargets.setSelected($0, limit: limit) }),
-                help: provider == .antigravity && !notificationManager.hasIdentifiedAccount(for: .antigravity)
-                    ? "계정을 확인할 수 없어 알림을 보낼 수 없습니다"
-                    : !limit.isIdentifiable
+                help: !limit.isIdentifiable
                     ? "구분할 수 없는 한도라 고를 수 없습니다" : limit.usedPercentage == nil ? "데이터 없음" : "알림 받기",
                 row: row.title
             )
             .disabled(
                 !settings.notificationsEnabled || !serviceAlertBinding(provider).wrappedValue || !limit.isIdentifiable
-                    || (provider == .antigravity && !notificationManager.hasIdentifiedAccount(for: .antigravity))
                     || (!limit.canNotify && !selected))
         } else if row.takesNotification {
             Text("—").foregroundStyle(.tertiary).gridColumnAlignment(.center)

@@ -11,67 +11,28 @@ final class ProviderSelectionPreferencesStore {
 
     private let defaults: UserDefaults
 
-    let loadedProviderStatesFromDisk: Bool
-    private(set) var providerStates:
-        AppProviderStateCatalog
-    private(set) var menuBarActiveServiceRawValue:
-        String
+    private(set) var providerStates: AppProviderStateCatalog
+    private(set) var menuBarActiveServiceRawValue: String
 
     init(defaults: UserDefaults) {
         self.defaults = defaults
 
-        let legacyClaudeEnabled =
-            defaults.object(
-                forKey: "claudeEnabled"
-            ) as? Bool ?? true
-        let legacyCodexEnabled =
-            defaults.object(
-                forKey: "codexEnabled"
-            ) as? Bool ?? false
-        let storedActiveService =
-            defaults.string(
-                forKey: "menuBarActiveService"
-            ) ?? PopoverService.claude.rawValue
+        let storedActiveService = defaults.string(forKey: "menuBarActiveService") ?? PopoverService.claude.rawValue
         let normalizedActiveService =
-            PopoverService(
-                rawValue:
-                    storedActiveService
-                        .trimmingCharacters(
-                            in:
-                                .whitespacesAndNewlines
-                        )
-                        .lowercased()
-            )?.rawValue
-            ?? PopoverService.claude.rawValue
+            PopoverService(rawValue: storedActiveService.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())?
+            .rawValue ?? PopoverService.claude.rawValue
+        let legacyStates = AppProviderStateCatalog.fromLegacy(
+            claudeEnabled: defaults.object(forKey: "claudeEnabled") as? Bool ?? true,
+            codexEnabled: defaults.object(forKey: "codexEnabled") as? Bool ?? false,
+            activeService: normalizedActiveService)
 
-        let persistedData = defaults.data(
-            forKey: "providerStates"
-        )
-        loadedProviderStatesFromDisk =
-            persistedData != nil
-        let decoded = persistedData.flatMap {
-            try? JSONDecoder().decode(
-                AppProviderStateCatalog.self,
-                from: $0
-            )
-        }
-        let resolvedStates =
-            decoded
-            ?? AppProviderStateCatalog.fromLegacy(
-                claudeEnabled:
-                    legacyClaudeEnabled,
-                codexEnabled:
-                    legacyCodexEnabled,
-                activeService:
-                    normalizedActiveService
-            )
-        providerStates = resolvedStates
-        menuBarActiveServiceRawValue =
-            normalizedActiveService
-        persistProviderStates(resolvedStates)
-        migrateLegacyFieldsIfNeeded(
-            from: resolvedStates
-        )
+        let storedData = defaults.data(forKey: "providerStates")
+        // 읽지 못한 저장값은 새 버전이 쓴 것일 수 있어 덮어쓰지 않는다. 사용자가 서비스 설정을 바꿀 때만 다시 쓴다.
+        providerStates =
+            storedData.flatMap { try? JSONDecoder().decode(AppProviderStateCatalog.self, from: $0) } ?? legacyStates
+        menuBarActiveServiceRawValue = normalizedActiveService
+        if storedData == nil { persistProviderStates(providerStates) }
+        migrateLegacyFieldsIfNeeded(from: providerStates)
     }
 
     func setProviderStates(
