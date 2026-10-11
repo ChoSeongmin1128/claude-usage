@@ -1295,15 +1295,18 @@ final class DesignSystemTests: XCTestCase {
                             dependencies.updates.engineStatus != nil
                                 && (panel != .codex || dependencies.codex.calls > codexCalls)
                                 && (panel != .claude || dependencies.reader.readCountSync > claudeReads)
+                                && (panel != .updates || dependencies.updateEngine.backgroundChecks > 0)
                                 && dependencies.antigravity.state.activity == .idle
                         })
                     XCTAssertEqual(settings.settingsLastTab, panel.rawValue)
+                    if panel != .updates { XCTAssertEqual(dependencies.updateEngine.checks, 0, panel.rawValue) }
                     attach(image, "Settings-entity-\(panel.rawValue)-\(Int(size.width))-\(scheme)")
                 }
             }
         }
         XCTAssertGreaterThan(dependencies.codex.calls, 0)
-        XCTAssertEqual(dependencies.updateEngine.checks, 0)
+        XCTAssertGreaterThan(dependencies.updateEngine.backgroundChecks, 0)
+        XCTAssertEqual(dependencies.updateEngine.interactiveChecks, 0)
         XCTAssertEqual(settings.welcomeState, .completed)
         XCTAssertEqual(settings.settingsLastTab, "updates")
     }
@@ -1388,7 +1391,8 @@ final class DesignSystemTests: XCTestCase {
         XCTAssertNil(quota.identity)
         XCTAssertNil(quota.provenance.accountIdentity)
         XCTAssertEqual(settingsGalleryAGYWelcomeStatuses()[.antigravity], .verified)
-        XCTAssertEqual(dependencies.updateEngine.checks, 0)
+        XCTAssertGreaterThan(dependencies.updateEngine.backgroundChecks, 0)
+        XCTAssertEqual(dependencies.updateEngine.interactiveChecks, 0)
     }
 
     func testServiceSectionDestinationsRenderInsideTheSameSettingsLayout() async throws {
@@ -1926,14 +1930,16 @@ private final class SettingsGalleryCodexReader {
 
 @MainActor
 private final class SettingsGalleryUpdateEngine: AppUpdateEngine {
-    private(set) var checks = 0
+    private(set) var backgroundChecks = 0
+    private(set) var interactiveChecks = 0
+    var checks: Int { backgroundChecks + interactiveChecks }
 
     func modeSummary() async -> String { "가상 업데이트" }
-    func checkForUpdates() async -> UpdateCheckResult { checks += 1; return .upToDate(message: nil) }
+    func checkForUpdates() async -> UpdateCheckResult { backgroundChecks += 1; return .upToDate(message: nil) }
     func latestDownloadURL() async -> URL { URL(string: "https://example.com/fixture.zip")! }
     func usesExternalScheduler() async -> Bool { true }
     func supportsInteractiveCheck() async -> Bool { false }
-    func performInteractiveCheck() async -> String? { checks += 1; return nil }
+    func performInteractiveCheck() async -> String? { interactiveChecks += 1; return nil }
     func presentPreparedUpdate() async -> Bool { false }
     func synchronizeScheduler(interval: UpdateCheckInterval, runImmediate: Bool) async {}
     func installPreparedUpdate() async -> Bool { false }

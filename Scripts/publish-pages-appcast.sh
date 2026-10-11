@@ -4,6 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=Scripts/lib/release-driver-common.sh
 source "$ROOT_DIR/Scripts/lib/release-driver-common.sh"
+# shellcheck source=Scripts/lib/github-cli-token.sh
+source "$ROOT_DIR/Scripts/lib/github-cli-token.sh"
+scope_github_cli_token
 APPCAST_SOURCE="${APPCAST_SOURCE:-$ROOT_DIR/build/release/appcast.xml}"
 GHPAGES_BRANCH="${GHPAGES_BRANCH:-gh-pages}"
 
@@ -222,7 +225,7 @@ cleanup() {
         echo "gh-pages 임시 worktree 정리가 완료되지 않았습니다: $WORKTREE_DIR" >&2
         cleanup_failed=1
     fi
-    exit "$(release_cleanup_exit_code "$exit_code" "$cleanup_failed" 0)"
+    exit "$(release_cleanup_exit_code "$exit_code" "$cleanup_failed")"
 }
 trap cleanup EXIT
 trap 'exit 130' INT

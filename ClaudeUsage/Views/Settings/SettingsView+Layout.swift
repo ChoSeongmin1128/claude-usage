@@ -422,6 +422,10 @@ extension SettingsView {
         requestedSection = destination.section
         isPopoverSettingsExpanded = destination.section == .popover
         navigationRevision &+= 1
+        // 이미 열린 업데이트 패널을 메뉴에서 다시 요청해도 확인하도록 패널 전환이 아니라 이동 요청에서 시작한다.
+        if destination.panel == .updates {
+            updateRuntimeState.checkWhenPanelShown()
+        }
     }
 
     private func prepareSettingsData(for provider: AppProviderKind) async {

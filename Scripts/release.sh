@@ -10,6 +10,8 @@ set -euo pipefail
 # `git -C`보다 우선하는 caller repository context를 release driver에
 # 유입시키지 않는다. 이 unset은 현재 driver process와 child에만 적용된다.
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR
+# caller의 GitHub 토큰도 쓰지 않는다. gh 호출은 시작 때 고정한 release 계정 토큰만 받는다.
+unset GH_TOKEN GITHUB_TOKEN
 
 SCRIPT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if [[ "${RELEASE_DRIVER_TEST_MODE:-0}" == "1" ]]; then
@@ -23,10 +25,11 @@ else
 fi
 # shellcheck source=Scripts/lib/release-driver-common.sh
 source "$SCRIPT_ROOT/Scripts/lib/release-driver-common.sh"
+# shellcheck source=Scripts/lib/github-cli-token.sh
+source "$SCRIPT_ROOT/Scripts/lib/github-cli-token.sh"
 
 REPOSITORY="ChoSeongmin1128/claude-usage"
 RELEASE_GH_ACCOUNT="ChoSeongmin1128"
-RESTORE_GH_ACCOUNT="nathan-glorang"
 EXPECTED_ORIGIN_URL="git@github-seongmin:ChoSeongmin1128/claude-usage.git"
 export GH_HOST="github.com"
 export GH_REPO="$REPOSITORY"
@@ -54,8 +57,7 @@ ALLOWED_SIGNING_CERTIFICATE=""
 NON_INTERACTIVE=0
 DRY_RUN=0
 CONFIRM_PUBLISH=""
-ORIGINAL_GH_ACCOUNT=""
-RESTORE_GH_ACCOUNT_ON_EXIT=0
+GH_AUTHENTICATED_ACCOUNT=""
 PREVIOUS_APP_PATH=""
 RUN_ROOT=""
 BUILD_DIR=""
@@ -118,7 +120,6 @@ die() {
 cleanup_release_driver() {
     local exit_code=$?
     local cleanup_failed=0
-    local restore_failed=0
 
     if [[ -n "$RUN_ROOT" && -d "$RUN_ROOT" ]]; then
         if ! rm -rf "$RUN_ROOT" || [[ -e "$RUN_ROOT" ]]; then
@@ -126,15 +127,7 @@ cleanup_release_driver() {
             cleanup_failed=1
         fi
     fi
-    if [[ "$RESTORE_GH_ACCOUNT_ON_EXIT" == "1" ]]; then
-        echo
-        echo "GitHub CLI 계정 복원: $RESTORE_GH_ACCOUNT"
-        if ! gh auth switch --hostname github.com --user "$RESTORE_GH_ACCOUNT" >/dev/null 2>&1; then
-            echo "오류: GitHub CLI 계정을 $RESTORE_GH_ACCOUNT 로 복원하지 못했습니다." >&2
-            restore_failed=1
-        fi
-    fi
-    exit "$(release_cleanup_exit_code "$exit_code" "$cleanup_failed" "$restore_failed")"
+    exit "$(release_cleanup_exit_code "$exit_code" "$cleanup_failed")"
 }
 
 exit_on_signal() {
@@ -486,11 +479,12 @@ repair_pages_from_candidate_release() {
     [[ -f "$VERIFIED_CANDIDATE_APPCAST" && ! -L "$VERIFIED_CANDIDATE_APPCAST" ]] \
         || die "검증된 Pages 복구용 appcast.xml을 찾지 못했습니다."
 
-    TMPDIR="$DRIVER_TMP_DIR" \
-    GH_HOST="github.com" \
-    GH_REPO="$REPOSITORY" \
-    APPCAST_SOURCE="$VERIFIED_CANDIDATE_APPCAST" \
-    GHPAGES_BRANCH="$PAGES_BRANCH" \
+    with_github_cli_token env \
+        "TMPDIR=$DRIVER_TMP_DIR" \
+        "GH_HOST=github.com" \
+        "GH_REPO=$REPOSITORY" \
+        "APPCAST_SOURCE=$VERIFIED_CANDIDATE_APPCAST" \
+        "GHPAGES_BRANCH=$PAGES_BRANCH" \
         "$PAGES_PUBLISH_SCRIPT" \
         --feed-url "$FEED_URL" \
         --channel "$RELEASE_ENVIRONMENT" \
@@ -504,10 +498,22 @@ repair_pages_from_candidate_release() {
 
 if [[ "${RELEASE_DRIVER_TEST_MODE:-0}" != "1" ]]; then
     for binary in gh curl git; do
-        command -v "$binary" >/dev/null 2>&1 || die "필수 명령을 찾지 못했습니다: $binary"
+        type -P "$binary" >/dev/null 2>&1 || die "필수 명령을 찾지 못했습니다: $binary"
     done
-    gh auth status >/dev/null 2>&1 || die "GitHub CLI 로그인이 필요합니다."
+else
+    # 격리 시험이 실제 gh 로그인을 읽지 않도록 토큰을 읽기 전에 shim을 확인한다.
+    RESOLVED_TEST_GH="$(type -P gh || true)"
+    [[ -n "${RELEASE_DRIVER_TEST_BIN_DIR:-}" && "$RESOLVED_TEST_GH" == "$RELEASE_DRIVER_TEST_BIN_DIR/gh" ]] \
+        || die "test gh가 격리 shim을 사용하지 않습니다: ${RESOLVED_TEST_GH:-<없음>}"
 fi
+
+# 전역 활성 계정은 다른 세션과 공유하므로 바꾸지 않는다. 이 실행의 gh 호출만 release 계정 토큰을 쓴다.
+pin_github_cli_account_token "$RELEASE_GH_ACCOUNT" \
+    || die "GitHub CLI에 저장된 release 계정 토큰이 없습니다: $RELEASE_GH_ACCOUNT (gh auth status로 로그인 계정을 확인하세요)"
+GH_AUTHENTICATED_ACCOUNT="$(gh api user --jq .login)" \
+    || die "release 계정 토큰으로 GitHub 인증을 확인하지 못했습니다: $RELEASE_GH_ACCOUNT"
+[[ "$GH_AUTHENTICATED_ACCOUNT" == "$RELEASE_GH_ACCOUNT" ]] \
+    || die "release 계정 토큰이 다른 계정으로 인증됩니다: ${GH_AUTHENTICATED_ACCOUNT:-<없음>}"
 
 if [[ "${RELEASE_DRIVER_TEST_MODE:-0}" == "1" \
     && -n "${RELEASE_DRIVER_TEST_STAGING_IDENTITY_BOOTSTRAP_VERSION:-}" ]]; then
@@ -527,6 +533,7 @@ validate_feed_state
 
 echo
 echo "ClaudeUsage 배포 상태"
+echo "  github:     $GH_AUTHENTICATED_ACCOUNT (이 실행의 gh 호출 전용 토큰, 활성 계정 유지)"
 echo "  code:       $CODE_VERSION ($CODE_BUILD)"
 echo "  prod:       $PROD_RELEASE_TAG / $PROD_FEED_VERSION ($PROD_FEED_BUILD)"
 echo "  staging:    $STAGING_RELEASE_TAG / $STAGING_FEED_VERSION ($STAGING_FEED_BUILD)"
@@ -656,7 +663,7 @@ if [[ "$DRY_RUN" == "1" ]]; then
     cat <<EOF
 
 DRY-RUN 실행 계획
-  1. release 계정/저장소, clean main, origin/main, 미사용 tag 확인
+  1. 대상 저장소, clean main, origin/main, 미사용 tag 확인
   2. notary profile '$NOTARY_PROFILE' 사전 검증
   3. release driver shell 회귀 테스트 실행
   4. 격리된 임시 DerivedData로 전체 XCTest와 실제 AGY 자동 조회 smoke 실행
@@ -693,7 +700,7 @@ if [[ "${RELEASE_DRIVER_TEST_MODE:-0}" == "1" ]]; then
         *) die "test TMPDIR이 test sandbox 밖에 있습니다: ${TMPDIR:-/tmp}" ;;
     esac
     for binary in gh git xcodebuild xcrun codesign; do
-        RESOLVED_TEST_BINARY="$(command -v "$binary" 2>/dev/null || true)"
+        RESOLVED_TEST_BINARY="$(type -P "$binary" 2>/dev/null || true)"
         [[ "$RESOLVED_TEST_BINARY" == "$TEST_BIN_DIR/$binary" ]] \
             || die "test 명령이 격리 shim을 사용하지 않습니다: $binary=$RESOLVED_TEST_BINARY"
     done
@@ -708,23 +715,6 @@ done
 [[ -x "$DRIVER_TEST_SCRIPT" ]] || die "release driver 테스트를 실행할 수 없습니다: $DRIVER_TEST_SCRIPT"
 [[ -x "$PAGES_PUBLISH_SCRIPT" ]] || die "Pages 게시 primitive를 실행할 수 없습니다: $PAGES_PUBLISH_SCRIPT"
 
-GH_AUTH_STATUS="$(gh auth status --hostname github.com 2>&1)" \
-    || die "GitHub CLI 인증 상태를 확인하지 못했습니다."
-[[ "$GH_AUTH_STATUS" == *"$RELEASE_GH_ACCOUNT"* ]] \
-    || die "release GitHub 계정 인증이 없습니다: $RELEASE_GH_ACCOUNT"
-[[ "$GH_AUTH_STATUS" == *"$RESTORE_GH_ACCOUNT"* ]] \
-    || die "종료 시 복원할 GitHub 계정 인증이 없습니다: $RESTORE_GH_ACCOUNT"
-RESTORE_GH_ACCOUNT_ON_EXIT=1
-
-ORIGINAL_GH_ACCOUNT="$(gh api user --jq .login)"
-if [[ "$ORIGINAL_GH_ACCOUNT" != "$RELEASE_GH_ACCOUNT" ]]; then
-    echo
-    echo "GitHub CLI 계정 전환: $ORIGINAL_GH_ACCOUNT -> $RELEASE_GH_ACCOUNT"
-    gh auth switch --hostname github.com --user "$RELEASE_GH_ACCOUNT"
-fi
-ACTIVE_GH_ACCOUNT="$(gh api user --jq .login)"
-[[ "$ACTIVE_GH_ACCOUNT" == "$RELEASE_GH_ACCOUNT" ]] \
-    || die "GitHub CLI active 계정이 release 계정이 아닙니다: $ACTIVE_GH_ACCOUNT"
 REPO_NAME_WITH_OWNER="$(gh repo view "$REPOSITORY" --json nameWithOwner -q .nameWithOwner)"
 [[ "$REPO_NAME_WITH_OWNER" == "$REPOSITORY" ]] \
     || die "GitHub target repository가 다릅니다: $REPO_NAME_WITH_OWNER"
@@ -922,7 +912,7 @@ case "$CANDIDATE_STATE" in
 
         echo
         echo "부분 배포 복구: Release 산출물 검증"
-        if ! "$VERIFY_SCRIPT" \
+        if ! with_github_cli_token "$VERIFY_SCRIPT" \
             --tag "$TAG" \
             --channel "$RELEASE_ENVIRONMENT" \
             --expected-version "$VERSION" \
@@ -938,7 +928,7 @@ case "$CANDIDATE_STATE" in
         else
             echo
             echo "현재 public feed 기준 산출물 검증: $PREVIOUS_TAG"
-            "$VERIFY_SCRIPT" \
+            with_github_cli_token "$VERIFY_SCRIPT" \
                 "${PREVIOUS_VERIFY_ARGS[@]}" \
                 --channel "$RELEASE_ENVIRONMENT" \
                 --expected-version "$PREVIOUS_VERSION" \
@@ -951,7 +941,7 @@ case "$CANDIDATE_STATE" in
 
         echo
         echo "복구된 public feed와 원격 산출물 최종 검증: $TAG"
-        "$VERIFY_SCRIPT" \
+        with_github_cli_token "$VERIFY_SCRIPT" \
             --tag "$TAG" \
             --channel "$RELEASE_ENVIRONMENT" \
             --expected-version "$VERSION" \
@@ -966,6 +956,7 @@ case "$CANDIDATE_STATE" in
   tag:           $TAG
   version/build: $VERSION ($EXPECTED_BUILD)
   source:        $HEAD_SHA
+  github:        $GH_AUTHENTICATED_ACCOUNT
   local temp:    정리 완료
 
 기존 tag, Release, asset은 수정하지 않고 Pages와 public feed만 복구했습니다.
@@ -975,7 +966,7 @@ EOF
     complete)
         echo
         echo "이미 완료된 배포의 원격 산출물과 public feed 재검증: $TAG"
-        if ! "$VERIFY_SCRIPT" \
+        if ! with_github_cli_token "$VERIFY_SCRIPT" \
             --tag "$TAG" \
             --channel "$RELEASE_ENVIRONMENT" \
             --expected-version "$VERSION" \
@@ -992,6 +983,7 @@ EOF
   tag:           $TAG
   version/build: $VERSION ($EXPECTED_BUILD)
   source:        $HEAD_SHA
+  github:        $GH_AUTHENTICATED_ACCOUNT
 
 tag, Release, asset, Pages, Downloads 및 로컬 build를 변경하지 않았습니다.
 EOF
@@ -1008,7 +1000,7 @@ xcrun notarytool history \
 
 if [[ "$RELEASE_ENVIRONMENT" == "prod" ]]; then
     echo "승인 staging 후보 원격 자산 검증: $FROM_STAGING"
-    "$VERIFY_SCRIPT" --tag "$FROM_STAGING" --channel staging \
+    with_github_cli_token "$VERIFY_SCRIPT" --tag "$FROM_STAGING" --channel staging \
         --expected-version "$VERSION" --expected-build "$EXPECTED_BUILD" --repo "$REPOSITORY"
 fi
 
@@ -1094,7 +1086,7 @@ else
     SIGNING_REFERENCE_APP_PATH="$PREVIOUS_APP_PATH"
     mkdir -p "$RUN_ROOT/upgrade"
     echo "이전 동일 채널 앱 준비: $PREVIOUS_TAG"
-    "$VERIFY_SCRIPT" \
+    with_github_cli_token "$VERIFY_SCRIPT" \
         "${PREVIOUS_VERIFY_ARGS[@]}" \
         --channel "$RELEASE_ENVIRONMENT" \
         --expected-version "$PREVIOUS_VERSION" \
@@ -1190,6 +1182,7 @@ SPARKLE_TOOLS_DIR="$ARCHIVE_DERIVED_DATA/SourcePackages/artifacts/sparkle/Sparkl
 echo
 echo "게시 직전 최종 확인"
 echo "  source:      main@$HEAD_SHA"
+echo "  github:      $GH_AUTHENTICATED_ACCOUNT"
 echo "  channel:     $RELEASE_ENVIRONMENT"
 echo "  version:     $VERSION ($EXPECTED_BUILD)"
 echo "  tag:         $TAG"
@@ -1240,7 +1233,7 @@ PUBLISH_ARGS+=(--notes-file "$NOTES_FILE")
 
 echo
 echo "GitHub Release 및 appcast 게시"
-env \
+with_github_cli_token env \
     "TMPDIR=$DRIVER_TMP_DIR" \
     "GH_HOST=github.com" \
     "GH_REPO=$REPOSITORY" \
@@ -1267,7 +1260,7 @@ echo "로컬 release build 산출물 정리 완료: $BUILD_DIR"
 VERIFIED_CANDIDATE_APPCAST="$RUN_ROOT/appcast.xml"
 echo
 echo "public feed 게시 전 새 원격 산출물 검증: $TAG"
-if ! "$VERIFY_SCRIPT" \
+if ! with_github_cli_token "$VERIFY_SCRIPT" \
     --tag "$TAG" \
     --channel "$RELEASE_ENVIRONMENT" \
     --expected-version "$VERSION" \
@@ -1283,7 +1276,7 @@ repair_pages_from_candidate_release
 
 echo
 echo "새 원격 산출물 재다운로드 검증: $TAG"
-"$VERIFY_SCRIPT" \
+with_github_cli_token "$VERIFY_SCRIPT" \
     --tag "$TAG" \
     --channel "$RELEASE_ENVIRONMENT" \
     --expected-version "$VERSION" \
@@ -1299,6 +1292,7 @@ if [[ "$STAGING_IDENTITY_BOOTSTRAP" == "1" ]]; then
   tag:           $TAG
   version/build: $VERSION ($EXPECTED_BUILD)
   source:        $HEAD_SHA
+  github:        $GH_AUTHENTICATED_ACCOUNT
   local temp:    정리 완료
   upgrade app:   없음 (분리된 staging 식별자의 최초 배포)
 
@@ -1312,6 +1306,7 @@ else
   tag:           $TAG
   version/build: $VERSION ($EXPECTED_BUILD)
   source:        $HEAD_SHA
+  github:        $GH_AUTHENTICATED_ACCOUNT
   local temp:    정리 완료
   upgrade source: $PREVIOUS_TAG 원격 검증 완료
 

@@ -392,7 +392,6 @@ extension AppDelegate {
         let menu = StatusContextMenuBuilder.build(
             settings: settings,
             runtimeServices: runtimeServices,
-            selectedService: popoverViewModel.selectedService,
             refreshableServiceSet: Set(refreshableServices),
             styleConfigurations:
                 statusContextStyleConfigurations(
@@ -401,6 +400,7 @@ extension AppDelegate {
                 ),
             actions: StatusContextMenuActions(
                 refreshAll: #selector(refreshClicked),
+                openSettingsPanel: #selector(settingsPanelClicked(_:)),
                 settings: #selector(settingsClicked),
                 openProviderExternalAction:
                     #selector(openProviderExternalActionClicked(_:)),
@@ -899,6 +899,11 @@ extension AppDelegate {
 
     @objc func settingsClicked() {
         showSettingsWindow()
+    }
+
+    @objc func settingsPanelClicked(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String else { return }
+        showSettingsWindow(settingsPanelRawValue: rawValue)
     }
 
     @objc func refreshClicked() {

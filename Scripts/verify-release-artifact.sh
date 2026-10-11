@@ -9,6 +9,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=Scripts/lib/release-driver-common.sh
 source "$ROOT_DIR/Scripts/lib/release-driver-common.sh"
+# shellcheck source=Scripts/lib/github-cli-token.sh
+source "$ROOT_DIR/Scripts/lib/github-cli-token.sh"
+scope_github_cli_token
 SPARKLE_SIGNATURE_VERIFIER="$ROOT_DIR/Scripts/verify-sparkle-signature.swift"
 HOMEBREW_CASK_TOOL="$ROOT_DIR/Scripts/lib/homebrew_cask.py"
 PROJECT_FILE="$ROOT_DIR/ClaudeUsage.xcodeproj/project.pbxproj"
@@ -206,7 +209,7 @@ if [[ "$DRY_RUN" == "1" ]]; then
 fi
 
 for binary in gh jq curl hdiutil xcrun spctl codesign plutil shasum stat ditto cp chmod ln; do
-    command -v "$binary" >/dev/null 2>&1 || die "필수 명령을 찾지 못했습니다: $binary"
+    type -P "$binary" >/dev/null 2>&1 || die "필수 명령을 찾지 못했습니다: $binary"
 done
 [[ -x /usr/libexec/PlistBuddy ]] || die "PlistBuddy를 찾지 못했습니다."
 [[ -f "$SPARKLE_SIGNATURE_VERIFIER" ]] \
@@ -509,7 +512,7 @@ cleanup() {
         echo "오류: 검증 임시 디렉터리를 정리하지 못했습니다: $VERIFY_ROOT" >&2
         cleanup_failed=1
     fi
-    exit "$(release_cleanup_exit_code "$exit_code" "$cleanup_failed" 0)"
+    exit "$(release_cleanup_exit_code "$exit_code" "$cleanup_failed")"
 }
 trap cleanup EXIT
 trap 'exit 130' INT

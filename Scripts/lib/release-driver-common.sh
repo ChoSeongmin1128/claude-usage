@@ -164,14 +164,11 @@ release_artifact_identity_metadata_policy() {
 release_cleanup_exit_code() {
     local original_status="${1:-}"
     local cleanup_failed="${2:-}"
-    local restore_failed="${3:-}"
 
     [[ "$original_status" =~ ^[0-9]+$ ]] || return 1
     [[ "$cleanup_failed" == "0" || "$cleanup_failed" == "1" ]] || return 1
-    [[ "$restore_failed" == "0" || "$restore_failed" == "1" ]] || return 1
 
-    if [[ "$original_status" == "0" \
-        && ( "$cleanup_failed" == "1" || "$restore_failed" == "1" ) ]]; then
+    if [[ "$original_status" == "0" && "$cleanup_failed" == "1" ]]; then
         printf '1\n'
     else
         printf '%s\n' "$original_status"

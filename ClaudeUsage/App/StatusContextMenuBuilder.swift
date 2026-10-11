@@ -18,6 +18,7 @@ struct ProviderStyleMenuConfiguration {
 
 struct StatusContextMenuActions {
     let refreshAll: Selector
+    let openSettingsPanel: Selector
     let settings: Selector
     let openProviderExternalAction: Selector
     let quit: Selector
@@ -37,7 +38,6 @@ enum StatusContextMenuBuilder {
     static func build(
         settings: AppSettings,
         runtimeServices: [PopoverService],
-        selectedService: PopoverService,
         refreshableServiceSet: Set<PopoverService>,
         styleConfigurations:
             [PopoverService:
@@ -67,19 +67,10 @@ enum StatusContextMenuBuilder {
         }
 
         menu.addItem(.separator())
-        let externalActions = selectedService.providerKind.descriptor.externalActions
-        for externalAction in externalActions {
-            let item = makeItem(
-                title: "\(selectedService.displayName) \(externalAction.title) 보기",
-                action: actions.openProviderExternalAction,
-                keyEquivalent: externalAction.kind == .usage ? "u" : ""
-            )
-            item.representedObject = externalAction.destination.absoluteString
-            menu.addItem(item)
-        }
-        if !externalActions.isEmpty {
-            menu.addItem(.separator())
-        }
+        // 업데이트 패널은 보일 때 스스로 확인을 시작하므로 이 항목은 패널만 연다.
+        let updateCheck = makeItem(title: "업데이트 확인...", action: actions.openSettingsPanel)
+        updateCheck.representedObject = SettingsProviderPanel.updates.rawValue
+        menu.addItem(updateCheck)
         menu.addItem(makeItem(title: "설정...", action: actions.settings, keyEquivalent: ","))
         menu.addItem(makeItem(title: "종료", action: actions.quit, keyEquivalent: "q"))
         return menu
@@ -113,11 +104,19 @@ enum StatusContextMenuBuilder {
                     styleConfiguration.availableStyles,
                 action: actions.changeProviderStyle))
         }
+        // 서비스마다 같은 항목이 있어 단축키를 붙이지 않는다. ⌘U는 팝오버에서 고른 서비스의 사용량을 연다.
+        for externalAction in kind.descriptor.externalActions {
+            let item = makeItem(
+                title: "\(externalAction.title) 보기",
+                action: actions.openProviderExternalAction)
+            item.representedObject = externalAction.destination.absoluteString
+            submenu.addItem(item)
+        }
         submenu.addItem(.separator())
         // 컨트롤 문구는 실행 결과를 그대로 말한다: 켜기/끄기
         submenu.addItem(toggleItem(
                 title: isMonitoring ? "사용 끄기" : "사용 켜기",
-            isEnabled: false,
+                isChecked: false,
             action: actions.toggleProvider,
             representedObject: service.rawValue))
 
@@ -137,12 +136,12 @@ enum StatusContextMenuBuilder {
 
     private static func toggleItem(
         title: String,
-        isEnabled: Bool,
+        isChecked: Bool,
         action: Selector,
         representedObject: Any?
     ) -> NSMenuItem {
         let item = makeItem(title: title, action: action)
-        item.state = isEnabled ? .on : .off
+        item.state = isChecked ? .on : .off
         item.representedObject = representedObject
         return item
     }

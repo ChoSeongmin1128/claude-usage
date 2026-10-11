@@ -20,7 +20,7 @@
 #
 # 전제:
 #   - Scripts/build-notarize-release.sh 이 성공적으로 완료돼 DMG/ZIP 존재
-#   - gh (GitHub CLI) 로그인 상태
+#   - gh (GitHub CLI) 로그인 또는 호출자가 넘긴 GH_TOKEN. 전역 활성 계정은 바꾸지 않음
 #   - git working tree clean (tag 대상 커밋이 HEAD)
 
 set -euo pipefail
@@ -28,6 +28,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=Scripts/lib/release-driver-common.sh
 source "$ROOT_DIR/Scripts/lib/release-driver-common.sh"
+# shellcheck source=Scripts/lib/github-cli-token.sh
+source "$ROOT_DIR/Scripts/lib/github-cli-token.sh"
+scope_github_cli_token
 BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build/release}"
 DMG_PATH="${DMG_PATH:-$BUILD_DIR/$APP_RELEASE_DMG_NAME}"
 ZIP_PATH="${ZIP_PATH:-$BUILD_DIR/$APP_RELEASE_ZIP_NAME}"
@@ -56,7 +59,7 @@ cleanup_publish_release() {
             cleanup_failed=1
         fi
     fi
-    exit "$(release_cleanup_exit_code "$exit_code" "$cleanup_failed" 0)"
+    exit "$(release_cleanup_exit_code "$exit_code" "$cleanup_failed")"
 }
 trap cleanup_publish_release EXIT
 trap 'exit 130' INT
@@ -311,14 +314,14 @@ echo "ClaudeUsage 릴리스 게시: $TAG"
 
 # 1) 사전 검증
 for bin in gh git xcrun stat; do
-    command -v "$bin" >/dev/null 2>&1 || {
+    type -P "$bin" >/dev/null 2>&1 || {
         echo "$bin 을 찾지 못했습니다." >&2
         exit 1
     }
 done
 
 if ! gh auth status >/dev/null 2>&1; then
-    echo "gh 로그인이 안 돼있습니다. gh auth login 을 먼저 실행하세요." >&2
+    echo "GitHub CLI 인증이 없습니다. gh 로그인 또는 GH_TOKEN이 필요합니다." >&2
     exit 1
 fi
 

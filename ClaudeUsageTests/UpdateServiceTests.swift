@@ -464,3 +464,101 @@ extension UpdateServiceTests {
         XCTAssertNil(wrongProfile.claudeProfileMetadata)
     }
 }
+
+@MainActor
+final class UpdatePanelAutomaticCheckTests: XCTestCase {
+    func testShowingPanelStartsOneQuietCheckAndSkipsWhileItRuns() async throws {
+        let engine = SuspendedCheckUpdateEngine()
+        let state = try makeState(engine: engine)
+
+        let first = try XCTUnwrap(state.checkWhenPanelShown())
+        XCTAssertNil(state.checkWhenPanelShown())
+        try await waitForChecks(engine) { engine.checkCount == 1 }
+        XCTAssertNil(state.checkWhenPanelShown())
+        engine.resumeChecks()
+        await first.value
+
+        let second = try XCTUnwrap(state.checkWhenPanelShown())
+        try await waitForChecks(engine) { engine.checkCount == 2 }
+        engine.resumeChecks()
+        await second.value
+
+        XCTAssertEqual(engine.checkCount, 2)
+        XCTAssertEqual(engine.interactiveCheckCount, 0)
+    }
+
+    func testShowingPanelDoesNotStartCheckWhileAnotherUpdateStepRuns() throws {
+        let engine = SuspendedCheckUpdateEngine()
+        let state = try makeState(engine: engine)
+        let update = UpdateInfo(
+            version: "9.9.9", downloadURL: URL(string: "https://example.com/ClaudeUsage.zip")!, releaseNotes: "")
+
+        state.beginChecking()
+        XCTAssertNil(state.checkWhenPanelShown())
+        state.markDownloading(update)
+        XCTAssertNil(state.checkWhenPanelShown())
+        state.markInstalling(version: update.version)
+        XCTAssertNil(state.checkWhenPanelShown())
+        XCTAssertEqual(engine.checkCount, 0)
+        XCTAssertEqual(engine.interactiveCheckCount, 0)
+    }
+
+    private func makeState(engine: SuspendedCheckUpdateEngine) throws -> UpdateRuntimeState {
+        let suite = "UpdatePanelAutomaticCheckTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+        return UpdateRuntimeState(
+            settings: AppSettings(defaults: defaults), updateService: UpdateService(engine: engine))
+    }
+
+    private func waitForChecks(
+        _ engine: SuspendedCheckUpdateEngine, _ condition: @MainActor () -> Bool
+    ) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while !condition() {
+            guard ContinuousClock.now < deadline else {
+                return XCTFail("업데이트 확인이 시작되지 않았습니다: \(engine.checkCount)")
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
+}
+
+/// 대화형 확인을 지원하는 엔진이라 자동 확인이 대화형 경로로 새면 interactiveCheckCount에 남는다.
+private final class SuspendedCheckUpdateEngine: AppUpdateEngine {
+    private(set) var checkCount = 0
+    private(set) var interactiveCheckCount = 0
+    private var pending: [CheckedContinuation<Void, Never>] = []
+
+    func resumeChecks() {
+        let continuations = pending
+        pending.removeAll()
+        continuations.forEach { $0.resume() }
+    }
+
+    func modeSummary() async -> String { "Suspended" }
+
+    func checkForUpdates() async -> UpdateCheckResult {
+        checkCount += 1
+        await withCheckedContinuation { pending.append($0) }
+        return .upToDate(message: nil)
+    }
+
+    func latestDownloadURL() async -> URL { URL(string: "https://example.com/ClaudeUsage.zip")! }
+    func usesExternalScheduler() async -> Bool { true }
+    func supportsInteractiveCheck() async -> Bool { true }
+
+    func performInteractiveCheck() async -> String? {
+        interactiveCheckCount += 1
+        return "interactive"
+    }
+
+    func presentPreparedUpdate() async -> Bool { false }
+    func synchronizeScheduler(interval: UpdateCheckInterval, runImmediate: Bool) async {}
+    func installPreparedUpdate() async -> Bool { false }
+
+    func configurationStatus() async -> UpdateEngineStatus {
+        UpdateEngineStatus(
+            modeSummary: "Suspended", sparkleIntegrated: true, feedConfigured: true, publicKeyConfigured: true)
+    }
+}

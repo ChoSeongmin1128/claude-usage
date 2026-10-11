@@ -28,7 +28,7 @@ cleanup() {
         cleanup_failed=1
     fi
     trap - EXIT
-    exit "$(release_cleanup_exit_code "$exit_code" "$cleanup_failed" 0)"
+    exit "$(release_cleanup_exit_code "$exit_code" "$cleanup_failed")"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -199,10 +199,41 @@ assert_equal \
 assert_failure \
     "identity policy rejects unknown environment" \
     release_artifact_identity_metadata_policy beta 2.4.0
-assert_equal "0" "$(release_cleanup_exit_code 0 0 0)" "clean success status"
-assert_equal "1" "$(release_cleanup_exit_code 0 1 0)" "cleanup failure changes success"
-assert_equal "1" "$(release_cleanup_exit_code 0 0 1)" "account restore failure changes success"
-assert_equal "7" "$(release_cleanup_exit_code 7 1 1)" "original failure is preserved"
+assert_equal "0" "$(release_cleanup_exit_code 0 0)" "clean success status"
+assert_equal "1" "$(release_cleanup_exit_code 0 1)" "cleanup failure changes success"
+assert_equal "7" "$(release_cleanup_exit_code 7 1)" "original failure is preserved"
+
+# gh 토큰 범위. 호출자 토큰은 gh에만 가고 다른 자식 프로세스 환경에는 남지 않는다.
+TOKEN_SCOPE_BIN="$TEST_ROOT/token-scope-bin"
+mkdir -p "$TOKEN_SCOPE_BIN"
+cat > "$TOKEN_SCOPE_BIN/gh" <<'SCRIPT'
+#!/usr/bin/env bash
+printf 'gh <GH_TOKEN=%s> <GITHUB_TOKEN=%s>\n' "${GH_TOKEN:-}" "${GITHUB_TOKEN:-}"
+SCRIPT
+cat > "$TEST_ROOT/token-scope-probe.sh" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+source "$1"
+scope_github_cli_token
+gh
+printf 'child <%s>\n' "$(env | grep -c fixture- || true)"
+with_github_cli_token env | grep '^GH_TOKEN=' || printf 'with <none>\n'
+SCRIPT
+chmod +x "$TOKEN_SCOPE_BIN/gh"
+run_token_scope() {
+    env -u GH_TOKEN -u GITHUB_TOKEN -u SCOPED_GITHUB_CLI_TOKEN "PATH=$TOKEN_SCOPE_BIN:/usr/bin:/bin" "$@" \
+        /bin/bash "$TEST_ROOT/token-scope-probe.sh" "$ROOT_DIR/Scripts/lib/github-cli-token.sh"
+}
+TOKEN_SCOPE_OUTPUT="$(run_token_scope GH_TOKEN=fixture-a GITHUB_TOKEN=fixture-b SCOPED_GITHUB_CLI_TOKEN=fixture-c)"
+assert_contains "$TOKEN_SCOPE_OUTPUT" "gh <GH_TOKEN=fixture-a> <GITHUB_TOKEN=>" "GH_TOKEN wins and GITHUB_TOKEN is removed for gh"
+assert_contains "$TOKEN_SCOPE_OUTPUT" "child <0>" "scoped token leaves other child environments"
+assert_contains "$TOKEN_SCOPE_OUTPUT" "GH_TOKEN=fixture-a" "gh-calling child script receives the token"
+TOKEN_SCOPE_OUTPUT="$(run_token_scope GITHUB_TOKEN=fixture-b)"
+assert_contains "$TOKEN_SCOPE_OUTPUT" "gh <GH_TOKEN=fixture-b> <GITHUB_TOKEN=>" "GITHUB_TOKEN fallback follows gh precedence"
+assert_contains "$TOKEN_SCOPE_OUTPUT" "child <0>" "fallback token leaves other child environments"
+TOKEN_SCOPE_OUTPUT="$(run_token_scope)"
+assert_contains "$TOKEN_SCOPE_OUTPUT" "gh <GH_TOKEN=> <GITHUB_TOKEN=>" "no caller token uses stored gh login"
+assert_contains "$TOKEN_SCOPE_OUTPUT" "with <none>" "no caller token passes nothing to child scripts"
 # 서명 인증서 선택. 현재 배포본을 알면 후보 수와 관계없이 그 인증서만 고른다.
 CERT_A="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 CERT_B="BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
@@ -271,7 +302,31 @@ PBX
 assert_equal "2.4.0" "$(read_project_release_version "$FIXTURE_ROOT/ClaudeUsage.xcodeproj/project.pbxproj")" "project version"
 assert_equal "20400" "$(read_project_release_build "$FIXTURE_ROOT/ClaudeUsage.xcodeproj/project.pbxproj")" "project build"
 
+DRY_RUN_BIN="$TEST_ROOT/dry-run-bin"
+mkdir -p "$DRY_RUN_BIN"
+cat > "$DRY_RUN_BIN/gh" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+case "$*" in
+    "auth token --hostname github.com --user ChoSeongmin1128")
+        printf 'fixture-dry-run-token\n'
+        ;;
+    "api user --jq .login")
+        [[ "${GH_TOKEN:-}" == "fixture-dry-run-token" && -z "${GITHUB_TOKEN:-}" ]] || exit 97
+        printf 'ChoSeongmin1128\n'
+        ;;
+    *)
+        exit 97
+        ;;
+esac
+SCRIPT
+chmod +x "$DRY_RUN_BIN/gh"
+
 DRY_RUN_COMMON_ENV=(
+    "PATH=$DRY_RUN_BIN:$PATH"
+    "RELEASE_DRIVER_TEST_BIN_DIR=$DRY_RUN_BIN"
+    "GH_TOKEN=fixture-caller-token"
+    "GITHUB_TOKEN=fixture-caller-token"
     "RELEASE_DRIVER_TEST_MODE=1"
     "RELEASE_DRIVER_ROOT_DIR=$FIXTURE_ROOT"
     "RELEASE_DRIVER_TEST_PROD_TAG=v2.3.3"
@@ -309,6 +364,11 @@ assert_contains "$STAGING_OUTPUT" "generated tag:     v2.4.0-stg.1" "staging gen
 assert_contains "$STAGING_OUTPUT" "expected build:    20400" "standard build output"
 assert_contains "$STAGING_OUTPUT" "v2.3.3-staging / 2.3.3 (20330)" "historical prior build preserved"
 assert_contains "$STAGING_OUTPUT" "DRY-RUN 완료" "release dry-run completion"
+assert_contains "$STAGING_OUTPUT" "github:     ChoSeongmin1128" "dry-run pins the release account over caller tokens"
+assert_not_contains "$STAGING_OUTPUT" "fixture-dry-run-token" "dry-run never prints the token"
+assert_failure "test mode refuses a gh outside the shim directory" env "${DRY_RUN_COMMON_ENV[@]}" \
+    "RELEASE_DRIVER_TEST_BIN_DIR=$TEST_ROOT/not-a-shim-dir" \
+    /bin/bash "$ROOT_DIR/Scripts/release.sh" stg 2.4.0 --candidate 1 --non-interactive --dry-run
 
 PROD_OUTPUT="$(
     env "${DRY_RUN_COMMON_ENV[@]}" \
@@ -425,6 +485,9 @@ ORCHESTRATION_STATE="$ORCHESTRATION_ROOT/state"
 ORCHESTRATION_DOWNLOADS="$ORCHESTRATION_ROOT/Downloads"
 ORCHESTRATION_TRACE="$ORCHESTRATION_STATE/commands.log"
 ORCHESTRATION_ACCOUNT="$ORCHESTRATION_STATE/active-account"
+ORCHESTRATION_GH_ACCOUNTS="$ORCHESTRATION_STATE/gh-stored-accounts"
+ORCHESTRATION_GH_LOGINS="$ORCHESTRATION_ROOT/gh-token-logins"
+ORCHESTRATION_TOKEN_PROBE="$ORCHESTRATION_ROOT/token-probe"
 ORCHESTRATION_FEED_SWITCH="$ORCHESTRATION_STATE/feed-switched"
 ORCHESTRATION_PAGES_STATE="$ORCHESTRATION_STATE/pages-state-count"
 ORCHESTRATION_HEAD="1111111111111111111111111111111111111111"
@@ -441,12 +504,67 @@ mkdir -p \
 ln -s "$TEST_PYTHON_EXECUTABLE" "$ORCHESTRATION_BIN/python3"
 create_fixture_notes "$ORCHESTRATION_REPOSITORY" 2.4.0
 
+# fixture 토큰과 그 토큰이 인증하는 계정. gh shim과 토큰 노출 검사가 함께 쓴다.
+printf '%s\t%s\n' \
+    fixture-release-token ChoSeongmin1128 \
+    fixture-work-token nathan-glorang \
+    fixture-caller-token caller-other \
+    > "$ORCHESTRATION_GH_LOGINS"
+
+# 이 프로세스 환경에 fixture 토큰이 있는지 기록한다. gh를 부르는 하위 스크립트는 GH_TOKEN의 주인도 기록한다.
+cat > "$ORCHESTRATION_TOKEN_PROBE" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+mode="$1"
+name="$2"
+logins="${RELEASE_DRIVER_TEST_GH_LOGINS:?}"
+contains_fixture_token() {
+    grep -F -f <(cut -f1 "$logins") >/dev/null
+}
+case "$mode" in
+    none)
+        state=clean
+        if env | contains_fixture_token; then state=leak; fi
+        printf 'token-env <%s> <%s>\n' "$name" "$state"
+        ;;
+    gh-child)
+        login=none
+        if [[ -n "${GH_TOKEN:-}" ]]; then
+            login="$(awk -F '\t' -v token="$GH_TOKEN" '$1 == token { print $2 }' "$logins")"
+            login="${login:-unknown}"
+        fi
+        state=clean
+        if env -u GH_TOKEN | contains_fixture_token; then state=leak; fi
+        printf 'token-env <%s> <gh=%s> <other=%s>\n' "$name" "$login" "$state"
+        ;;
+    *)
+        exit 97
+        ;;
+esac >> "${RELEASE_DRIVER_TEST_TRACE:?}"
+SCRIPT
+chmod +x "$ORCHESTRATION_TOKEN_PROBE"
+PROBE_CHECK_TRACE="$ORCHESTRATION_STATE/probe-check.log"
+: > "$PROBE_CHECK_TRACE"
+PROBE_CHECK_ENV=("RELEASE_DRIVER_TEST_GH_LOGINS=$ORCHESTRATION_GH_LOGINS" "RELEASE_DRIVER_TEST_TRACE=$PROBE_CHECK_TRACE")
+env -u GH_TOKEN "${PROBE_CHECK_ENV[@]}" "$ORCHESTRATION_TOKEN_PROBE" none probe-clean
+env "${PROBE_CHECK_ENV[@]}" "UNRELATED_NAME=fixture-work-token" "$ORCHESTRATION_TOKEN_PROBE" none probe-leak
+env "${PROBE_CHECK_ENV[@]}" "GH_TOKEN=fixture-release-token" "$ORCHESTRATION_TOKEN_PROBE" gh-child probe-child
+env "${PROBE_CHECK_ENV[@]}" "GH_TOKEN=fixture-release-token" "GITHUB_TOKEN=fixture-caller-token" \
+    "$ORCHESTRATION_TOKEN_PROBE" gh-child probe-child-leak
+assert_equal \
+    "token-env <probe-clean> <clean>"$'\n'"token-env <probe-leak> <leak>"$'\n'"token-env <probe-child> <gh=ChoSeongmin1128> <other=clean>"$'\n'"token-env <probe-child-leak> <gh=ChoSeongmin1128> <other=leak>" \
+    "$(cat "$PROBE_CHECK_TRACE")" \
+    "token probe detects exposure under any variable name"
+
 cat > "$ORCHESTRATION_REPOSITORY/Scripts/check-changes.py" <<'SCRIPT'
 import os
 import sys
 from pathlib import Path
+tokens = [line.split("\t")[0] for line in Path(os.environ["RELEASE_DRIVER_TEST_GH_LOGINS"]).read_text().splitlines()]
+leaked = any(token in value for value in os.environ.values() for token in tokens)
 with Path(os.environ["RELEASE_DRIVER_TEST_TRACE"]).open("a") as trace:
     trace.write("gate <changed-code-static-checks>\n")
+    trace.write("token-env <check-changes> <%s>\n" % ("leak" if leaked else "clean"))
 sys.exit(1 if os.environ.get("RELEASE_DRIVER_TEST_STATIC_FAIL") == "1" else 0)
 SCRIPT
 
@@ -463,6 +581,7 @@ cat > "$ORCHESTRATION_REPOSITORY/Scripts/tests/release-driver-tests.sh" <<'SCRIP
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'gate <release-driver-shell-tests>\n' >> "${RELEASE_DRIVER_TEST_TRACE:?}"
+"${RELEASE_DRIVER_TEST_TOKEN_PROBE:?}" none release-driver-tests
 SCRIPT
 
 cat > "$ORCHESTRATION_REPOSITORY/Scripts/verify-release-artifact.sh" <<'SCRIPT'
@@ -473,6 +592,7 @@ set -euo pipefail
     printf ' <%s>' "$@"
     printf '\n'
 } >> "${RELEASE_DRIVER_TEST_TRACE:?}"
+"${RELEASE_DRIVER_TEST_TOKEN_PROBE:?}" gh-child verify
 install_path=""
 export_path=""
 if [[ "${RELEASE_DRIVER_TEST_APPROVED_STAGE_FAIL:-0}" == "1" && "${2:-}" == "v2.4.0-stg.1" ]]; then
@@ -528,6 +648,7 @@ set -euo pipefail
     printf ' <SIGNING_REFERENCE_APP=%s>' "${SIGNING_REFERENCE_APP:?}"
     printf ' <TMPDIR=%s>\n' "${TMPDIR:?}"
 } >> "${RELEASE_DRIVER_TEST_TRACE:?}"
+"${RELEASE_DRIVER_TEST_TOKEN_PROBE:?}" none build
 run_root="${TMPDIR%/tmp}"
 [[ "$BUILD_DIR" == "$run_root/build" ]]
 [[ "$ARCHIVE_PATH" == "$BUILD_DIR/ClaudeUsage.xcarchive" ]]
@@ -601,6 +722,7 @@ set -euo pipefail
     printf ' <RELEASE_TAG=%s>' "${RELEASE_TAG:?}"
     printf ' <TMPDIR=%s>\n' "${TMPDIR:?}"
 } >> "${RELEASE_DRIVER_TEST_TRACE:?}"
+"${RELEASE_DRIVER_TEST_TOKEN_PROBE:?}" gh-child publish
 run_root="${TMPDIR%/tmp}"
 [[ "$BUILD_DIR" == "$run_root/build" ]]
 [[ "$DMG_PATH" == "$BUILD_DIR/ClaudeUsage.dmg" ]]
@@ -623,6 +745,7 @@ set -euo pipefail
     printf ' <GHPAGES_BRANCH=%s>' "${GHPAGES_BRANCH:?}"
     printf ' <TMPDIR=%s>\n' "${TMPDIR:?}"
 } >> "${RELEASE_DRIVER_TEST_TRACE:?}"
+"${RELEASE_DRIVER_TEST_TOKEN_PROBE:?}" gh-child pages
 [[ "$GHPAGES_BRANCH" == "gh-pages" ]]
 [[ -f "${APPCAST_SOURCE:?}" ]]
 [[ "$(cat "$APPCAST_SOURCE")" == '<appcast verified="true">candidate</appcast>' ]]
@@ -639,6 +762,7 @@ set -euo pipefail
     printf ' <%s>' "$@"
     printf '\n'
 } >> "${RELEASE_DRIVER_TEST_TRACE:?}"
+"${RELEASE_DRIVER_TEST_TOKEN_PROBE:?}" none git
 if [[ "${1:-}" == "-C" ]]; then
     shift 2
 fi
@@ -723,35 +847,34 @@ set -euo pipefail
     printf ' <%s>' "$@"
     printf '\n'
 } >> "${RELEASE_DRIVER_TEST_TRACE:?}"
+if [[ "${1:-}" == "auth" ]]; then
+    # 저장된 계정 토큰 조회만 허용한다. switch/login/logout은 전역 활성 계정을 바꾸므로 실패시킨다.
+    [[ "$*" == "auth token --hostname github.com --user "* && $# -eq 6 ]] || exit 97
+    stored_token="$(awk -F '\t' -v account="$6" '$1 == account { print $2 }' "${RELEASE_DRIVER_TEST_GH_ACCOUNTS:?}")"
+    if [[ -z "$stored_token" ]]; then
+        printf 'no oauth token found for github.com account %s\n' "$6" >&2
+        exit 1
+    fi
+    printf '%s\n' "$stored_token"
+    exit 0
+fi
+# 실제 gh와 같은 인증 우선순위: GH_TOKEN, GITHUB_TOKEN, 저장된 활성 계정.
+if [[ -n "${GH_TOKEN:-}" ]]; then
+    auth_source=GH_TOKEN
+    auth_login="$(awk -F '\t' -v token="$GH_TOKEN" '$1 == token { print $2 }' "${RELEASE_DRIVER_TEST_GH_LOGINS:?}")"
+elif [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    auth_source=GITHUB_TOKEN
+    auth_login="$(awk -F '\t' -v token="$GITHUB_TOKEN" '$1 == token { print $2 }' "${RELEASE_DRIVER_TEST_GH_LOGINS:?}")"
+else
+    auth_source=stored
+    auth_login="$(cat "${RELEASE_DRIVER_TEST_ACCOUNT_FILE:?}")"
+fi
+auth_login="${auth_login:-unknown}"
+printf 'gh-auth <%s> <%s>\n' "$auth_login" "$auth_source" >> "${RELEASE_DRIVER_TEST_TRACE:?}"
 case "${1:-}" in
-    auth)
-        case "${2:-}" in
-            status)
-                printf 'Logged in to github.com account ChoSeongmin1128\n'
-                printf 'Logged in to github.com account nathan-glorang\n'
-                ;;
-            switch)
-                shift 2
-                while [[ $# -gt 0 ]]; do
-                    case "$1" in
-                        --user)
-                            printf '%s\n' "$2" > "${RELEASE_DRIVER_TEST_ACCOUNT_FILE:?}"
-                            shift 2
-                            ;;
-                        *)
-                            shift
-                            ;;
-                    esac
-                done
-                ;;
-            *)
-                exit 97
-                ;;
-        esac
-        ;;
     api)
         if [[ "${2:-}" == "user" ]]; then
-            cat "${RELEASE_DRIVER_TEST_ACCOUNT_FILE:?}"
+            printf '%s\n' "$auth_login"
         elif [[ "${2:-}" == *"/releases/tags/v2.4.0-stg.1" || "${2:-}" == *"/releases/tags/v2.4.0" ]]; then
             case "${RELEASE_DRIVER_TEST_CANDIDATE_MODE:?}" in
                 fresh|tag_only)
@@ -849,6 +972,7 @@ set -euo pipefail
     printf ' <%s>' "$@"
     printf '\n'
 } >> "${RELEASE_DRIVER_TEST_TRACE:?}"
+"${RELEASE_DRIVER_TEST_TOKEN_PROBE:?}" none "xcrun-${1:-}"
 case "${1:-}" in
     notarytool)
         exit 0
@@ -890,6 +1014,7 @@ set -euo pipefail
     printf '\n'
     printf 'xcodebuild-env <TMPDIR=%s>\n' "${TMPDIR:?}"
 } >> "${RELEASE_DRIVER_TEST_TRACE:?}"
+"${RELEASE_DRIVER_TEST_TOKEN_PROBE:?}" none xcodebuild
 case "$TMPDIR" in
     "${RELEASE_DRIVER_TEST_SANDBOX_ROOT:?}"/tmp/claudeusage-release-driver.*/tmp) ;;
     *) exit 98 ;;
@@ -923,6 +1048,7 @@ SCRIPT
 cat > "$ORCHESTRATION_BIN/codesign" <<'SCRIPT'
 #!/usr/bin/env bash
 set -euo pipefail
+"${RELEASE_DRIVER_TEST_TOKEN_PROBE:?}" none codesign
 for argument in "$@"; do
     case "$argument" in
         -r-)
@@ -1024,7 +1150,20 @@ run_orchestration_scenario() {
         printf 'user-owned app\n' > "$ORCHESTRATION_DOWNLOADS/$app_name/preserved.txt"
     fi
     : > "$ORCHESTRATION_TRACE"
+    # 전역 활성 계정은 업무 계정이다. driver는 이를 바꾸지 않고 release 계정 토큰만 써야 한다.
     printf 'nathan-glorang\n' > "$ORCHESTRATION_ACCOUNT"
+    case "${RELEASE_DRIVER_TEST_RELEASE_TOKEN_STATE:-valid}" in
+        valid) printf 'ChoSeongmin1128\tfixture-release-token\n' > "$ORCHESTRATION_GH_ACCOUNTS" ;;
+        missing) : > "$ORCHESTRATION_GH_ACCOUNTS" ;;
+        wrong-login) printf 'ChoSeongmin1128\tfixture-work-token\n' > "$ORCHESTRATION_GH_ACCOUNTS" ;;
+        *) fail "unknown release token state" ;;
+    esac
+    printf 'nathan-glorang\tfixture-work-token\n' >> "$ORCHESTRATION_GH_ACCOUNTS"
+    local caller_gh_token="" caller_github_token=""
+    if [[ "${RELEASE_DRIVER_TEST_CALLER_TOKENS:-0}" == "1" ]]; then
+        caller_gh_token="fixture-caller-token"
+        caller_github_token="fixture-work-token"
+    fi
     rm -f "$ORCHESTRATION_FEED_SWITCH" "$ORCHESTRATION_PAGES_STATE"
 
     set +e
@@ -1041,6 +1180,11 @@ run_orchestration_scenario() {
             "RELEASE_DRIVER_ROOT_DIR=$ORCHESTRATION_REPOSITORY" \
             "RELEASE_DRIVER_TEST_TRACE=$ORCHESTRATION_TRACE" \
             "RELEASE_DRIVER_TEST_ACCOUNT_FILE=$ORCHESTRATION_ACCOUNT" \
+            "RELEASE_DRIVER_TEST_GH_ACCOUNTS=$ORCHESTRATION_GH_ACCOUNTS" \
+            "RELEASE_DRIVER_TEST_GH_LOGINS=$ORCHESTRATION_GH_LOGINS" \
+            "RELEASE_DRIVER_TEST_TOKEN_PROBE=$ORCHESTRATION_TOKEN_PROBE" \
+            "GH_TOKEN=$caller_gh_token" \
+            "GITHUB_TOKEN=$caller_github_token" \
             "RELEASE_DRIVER_TEST_FEED_SWITCH_FILE=$ORCHESTRATION_FEED_SWITCH" \
             "RELEASE_DRIVER_TEST_PAGES_STATE_FILE=$ORCHESTRATION_PAGES_STATE" \
             "RELEASE_DRIVER_TEST_PAGES_SEQUENCE=$pages_sequence" \
@@ -1095,10 +1239,45 @@ assert_no_destructive_release_commands() {
     assert_not_contains "$trace" "<--clobber>" "$label release clobber"
 }
 
+assert_github_account_untouched() {
+    local label="$1" token login
+
+    assert_equal "nathan-glorang" "$(cat "$ORCHESTRATION_ACCOUNT")" "$label active account untouched"
+    assert_not_contains "$SCENARIO_TRACE" "gh <auth> <switch>" "$label no account switch"
+    while IFS=$'\t' read -r token login; do
+        assert_not_contains "$SCENARIO_OUTPUT" "$token" "$label output never shows $login token"
+        assert_not_contains "$SCENARIO_TRACE" "$token" "$label trace never records $login token"
+    done < "$ORCHESTRATION_GH_LOGINS"
+}
+
+# driver와 하위 스크립트의 gh 호출은 모두 release 계정 토큰을 쓰고, gh 외 프로세스 환경에는 토큰이 없어야 한다.
+assert_release_token_scope() {
+    local label="$1" line
+
+    while IFS= read -r line; do
+        case "$line" in
+            'gh-auth '*)
+                [[ "$line" == "gh-auth <ChoSeongmin1128> <GH_TOKEN>" ]] \
+                    || fail "$label: release 계정 토큰이 아닌 gh 호출: $line"
+                ;;
+            'token-env <'*'> <gh='*)
+                [[ "$line" == *"> <gh=ChoSeongmin1128> <other=clean>" ]] \
+                    || fail "$label: gh 하위 스크립트의 토큰 범위가 다릅니다: $line"
+                ;;
+            'token-env <'*)
+                [[ "$line" == *"> <clean>" ]] \
+                    || fail "$label: gh 외 프로세스에 토큰이 노출됐습니다: $line"
+                ;;
+        esac
+    done <<< "$SCENARIO_TRACE"
+    pass
+}
+
 assert_orchestration_cleanup() {
     local label="$1"
 
-    assert_equal "nathan-glorang" "$(cat "$ORCHESTRATION_ACCOUNT")" "$label account restore"
+    assert_github_account_untouched "$label"
+    assert_release_token_scope "$label"
     assert_equal "" "$(find "$ORCHESTRATION_TMP" -mindepth 1 -print -quit)" "$label temp cleanup"
 }
 
@@ -1172,6 +1351,17 @@ assert_ordered "$SCENARIO_TRACE" "publish <v2.4.0-stg.1>" "verify-export <verifi
 assert_ordered "$SCENARIO_TRACE" "verify-export <verified-candidate-appcast>" "pages-source <verified-candidate-appcast>" "fresh verification before Pages"
 assert_ordered "$SCENARIO_TRACE" "pages-source <verified-candidate-appcast>" "verify <--tag> <v2.4.0-stg.1> <--channel> <staging> <--expected-version> <2.4.0> <--expected-build> <20400> <--verify-public-feed>" "fresh Pages before final public verification"
 assert_line_count "$SCENARIO_TRACE" "gh <api> <--method> <POST> <repos/ChoSeongmin1128/claude-usage/pages/builds>" "1" "fresh forced Pages rebuild"
+assert_contains "$SCENARIO_OUTPUT" "github:     ChoSeongmin1128" "fresh status names the authenticated account"
+assert_contains "$SCENARIO_OUTPUT" "github:        ChoSeongmin1128" "fresh summary names the authenticated account"
+assert_ordered "$SCENARIO_TRACE" "gh <auth> <token> <--hostname> <github.com> <--user> <ChoSeongmin1128>" "gh <api> <user> <--jq> <.login>" "fresh reads the release token before verifying it"
+assert_ordered "$SCENARIO_TRACE" "gh <api> <user> <--jq> <.login>" "gh <repo> <view>" "fresh verifies the login before other gh calls"
+assert_contains "$SCENARIO_TRACE" "gh-auth <ChoSeongmin1128> <GH_TOKEN>" "fresh gh calls use the release token while the active account is the work account"
+for TOKEN_FREE_PROCESS in check-changes release-driver-tests xcodebuild xcrun-xcresulttool xcrun-xctest xcrun-notarytool codesign git build; do
+    assert_contains "$SCENARIO_TRACE" "token-env <$TOKEN_FREE_PROCESS> <clean>" "fresh $TOKEN_FREE_PROCESS environment has no token"
+done
+for TOKEN_SCOPED_SCRIPT in verify publish pages; do
+    assert_contains "$SCENARIO_TRACE" "token-env <$TOKEN_SCOPED_SCRIPT> <gh=ChoSeongmin1128> <other=clean>" "fresh $TOKEN_SCOPED_SCRIPT receives only the release token"
+done
 [[ ! -e "$ORCHESTRATION_DOWNLOADS/ClaudeUsage-stg.app" ]] \
     || fail "식별자 최초 staging이 구 번들 앱을 Downloads fixture에 두었습니다."
 pass
@@ -1180,6 +1370,38 @@ pass
 pass
 assert_orchestration_cleanup "fresh"
 assert_no_destructive_release_commands "$SCENARIO_TRACE" "fresh"
+
+RELEASE_DRIVER_TEST_CALLER_TOKENS=1 run_orchestration_scenario \
+    fresh v2.3.3-staging $'2.3.3\t20330\tv2.3.3-staging' $'2.4.0\t20400\tv2.4.0-stg.1'
+assert_equal "0" "$SCENARIO_STATUS" "caller GH_TOKEN and GITHUB_TOKEN for other accounts"
+assert_contains "$SCENARIO_TRACE" "publish <v2.4.0-stg.1>" "caller tokens do not block publication"
+assert_not_contains "$SCENARIO_TRACE" "gh-auth <caller-other>" "caller GH_TOKEN is overridden"
+assert_not_contains "$SCENARIO_TRACE" "gh-auth <nathan-glorang>" "caller GITHUB_TOKEN is overridden"
+assert_orchestration_cleanup "caller tokens"
+
+RELEASE_DRIVER_TEST_RELEASE_TOKEN_STATE=missing run_orchestration_scenario \
+    fresh v2.3.3-staging $'2.3.3\t20330\tv2.3.3-staging' $'2.4.0\t20400\tv2.4.0-stg.1'
+[[ "$SCENARIO_STATUS" != 0 ]] || fail "missing release token must stop the driver"
+pass
+assert_contains "$SCENARIO_OUTPUT" "release 계정 토큰이 없습니다: ChoSeongmin1128" "missing release token reason"
+assert_not_contains "$SCENARIO_TRACE" "gh-auth <" "missing release token stops before any authenticated gh call"
+assert_not_contains "$SCENARIO_TRACE" "git <" "missing release token stops before Git"
+assert_not_contains "$SCENARIO_TRACE" "xcodebuild <" "missing release token stops before XCTest"
+assert_not_contains "$SCENARIO_TRACE" "build <BUILD_DIR=" "missing release token stops before archive"
+assert_not_contains "$SCENARIO_TRACE" "publish <" "missing release token stops before publication"
+assert_not_contains "$SCENARIO_TRACE" "pages-publish" "missing release token stops before Pages"
+assert_orchestration_cleanup "missing release token"
+
+RELEASE_DRIVER_TEST_RELEASE_TOKEN_STATE=wrong-login run_orchestration_scenario \
+    fresh v2.3.3-staging $'2.3.3\t20330\tv2.3.3-staging' $'2.4.0\t20400\tv2.4.0-stg.1'
+[[ "$SCENARIO_STATUS" != 0 ]] || fail "release token for another login must stop the driver"
+pass
+assert_contains "$SCENARIO_OUTPUT" "다른 계정으로 인증됩니다: nathan-glorang" "wrong login reason"
+assert_line_count "$SCENARIO_TRACE" "gh-auth <nathan-glorang> <GH_TOKEN>" "1" "wrong login is detected by the first authenticated call"
+assert_not_contains "$SCENARIO_TRACE" "gh <repo> <view>" "wrong login stops before repository lookup"
+assert_not_contains "$SCENARIO_TRACE" "publish <" "wrong login stops before publication"
+assert_github_account_untouched "wrong login"
+assert_equal "" "$(find "$ORCHESTRATION_TMP" -mindepth 1 -print -quit)" "wrong login temp cleanup"
 
 RELEASE_DRIVER_TEST_STATIC_FAIL=1 run_orchestration_scenario \
     fresh v2.3.3-staging $'2.3.3\t20330\tv2.3.3-staging' $'2.4.0\t20400\tv2.4.0-stg.1'
@@ -1480,6 +1702,7 @@ cp \
     "$ROOT_DIR/Scripts/lib/release-driver-common.sh" \
     "$PUBLISH_REPOSITORY/Scripts/lib/release-driver-common.sh"
 cp "$ROOT_DIR/Scripts/lib/app-identity.sh" "$PUBLISH_REPOSITORY/Scripts/lib/app-identity.sh"
+cp "$ROOT_DIR/Scripts/lib/github-cli-token.sh" "$PUBLISH_REPOSITORY/Scripts/lib/github-cli-token.sh"
 cp \
     "$ROOT_DIR/Scripts/verify-sparkle-signature.swift" \
     "$PUBLISH_REPOSITORY/Scripts/verify-sparkle-signature.swift"
@@ -1532,6 +1755,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 [[ -n "$download_base_url" && -n "$release_tag" ]]
+if env | grep -E 'fixture-(standalone|ignored)-token' >/dev/null; then
+    printf 'token-leak <generator>\n' >> "${PUBLISH_FIXTURE_TRACE:?}"
+fi
 {
     printf 'generator'
     printf ' <cwd-name=%s>' "${PWD##*/}"
@@ -1582,6 +1808,9 @@ set -euo pipefail
     printf ' <%s>' "$@"
     printf '\n'
 } >> "${PUBLISH_FIXTURE_TRACE:?}"
+if env | grep -E 'fixture-(standalone|ignored)-token' >/dev/null; then
+    printf 'token-leak <git>\n' >> "${PUBLISH_FIXTURE_TRACE:?}"
+fi
 if [[ "${1:-}" == "-C" ]]; then
     shift 2
 fi
@@ -1651,6 +1880,7 @@ set -euo pipefail
     printf ' <cwd-name=%s>' "${PWD##*/}"
     printf ' <%s>' "$@"
     printf '\n'
+    printf 'gh-env <GH_TOKEN=%s> <GITHUB_TOKEN=%s>\n' "${GH_TOKEN:-}" "${GITHUB_TOKEN:-}"
 } >> "${PUBLISH_FIXTURE_TRACE:?}"
 case "${1:-}" in
     auth)
@@ -1708,6 +1938,9 @@ set -euo pipefail
     printf ' <%s>' "$@"
     printf '\n'
 } >> "${PUBLISH_FIXTURE_TRACE:?}"
+if env | grep -E 'fixture-(standalone|ignored)-token' >/dev/null; then
+    printf 'token-leak <xcrun>\n' >> "${PUBLISH_FIXTURE_TRACE:?}"
+fi
 [[ "${1:-}" == "swift" ]]
 shift
 /usr/bin/xcrun swift "$@"
@@ -1748,6 +1981,8 @@ run_publish_primitive_case() {
             "PUBLISH_FIXTURE_ORIGIN_MAIN=$origin_main_sha" \
             "PUBLISH_FIXTURE_APPCAST_MODE=$appcast_mode" \
             "PUBLISH_FIXTURE_VALID_SIGNATURE=$PUBLISH_VALID_SIGNATURE" \
+            "GH_TOKEN=fixture-standalone-token" \
+            "GITHUB_TOKEN=fixture-ignored-token" \
             /bin/bash "$PUBLISH_SCRIPT" "$@" 2>&1
     )"
     PUBLISH_CASE_STATUS=$?
@@ -1799,6 +2034,12 @@ assert_contains \
 assert_ordered "$PUBLISH_CASE_TRACE" "generator <cwd-name=unrelated-caller>" "signature-verify <cwd-name=unrelated-caller>" "staging appcast before signature"
 assert_ordered "$PUBLISH_CASE_TRACE" "signature-verify <cwd-name=unrelated-caller>" "mutation <git-tag>" "staging signature gate before tag"
 assert_not_contains "$PUBLISH_CASE_TRACE" "mutation <pages-api>" "staging Pages mutation"
+assert_contains "$PUBLISH_CASE_TRACE" "gh-env <GH_TOKEN=fixture-standalone-token> <GITHUB_TOKEN=>" "standalone publish gh uses the caller GH_TOKEN"
+assert_not_contains "$PUBLISH_CASE_TRACE" "<GH_TOKEN=>" "standalone publish every gh call receives the caller token"
+assert_not_contains "$PUBLISH_CASE_TRACE" "<GITHUB_TOKEN=fixture" "standalone publish GITHUB_TOKEN cannot override"
+assert_not_contains "$PUBLISH_CASE_TRACE" "token-leak" "standalone publish other children never see the token"
+assert_not_contains "$PUBLISH_CASE_TRACE" "<auth> <switch>" "standalone publish never switches accounts"
+assert_not_contains "$PUBLISH_CASE_OUTPUT" "fixture-standalone-token" "standalone publish never prints the token"
 
 run_publish_primitive_case \
     valid \
@@ -1963,6 +2204,7 @@ cp \
     "$ROOT_DIR/Scripts/lib/release-driver-common.sh" \
     "$CANONICAL_VERIFY_REPOSITORY/Scripts/lib/release-driver-common.sh"
 cp "$ROOT_DIR/Scripts/lib/app-identity.sh" "$CANONICAL_VERIFY_REPOSITORY/Scripts/lib/app-identity.sh"
+cp "$ROOT_DIR/Scripts/lib/github-cli-token.sh" "$CANONICAL_VERIFY_REPOSITORY/Scripts/lib/github-cli-token.sh"
 cp \
     "$ROOT_DIR/Scripts/verify-sparkle-signature.swift" \
     "$CANONICAL_VERIFY_REPOSITORY/Scripts/verify-sparkle-signature.swift"
@@ -2044,6 +2286,7 @@ set -euo pipefail
     printf 'gh'
     printf ' <%s>' "$@"
     printf '\n'
+    printf 'gh-env <GH_TOKEN=%s> <GITHUB_TOKEN=%s>\n' "${GH_TOKEN:-}" "${GITHUB_TOKEN:-}"
 } >> "${CANONICAL_VERIFY_TRACE:?}"
 if [[ "${1:-}" == "api" ]]; then
     case "${2:-}" in
@@ -2123,6 +2366,9 @@ set -euo pipefail
     printf ' <%s>' "$@"
     printf '\n'
 } >> "${CANONICAL_VERIFY_TRACE:?}"
+if env | grep -E 'fixture-(standalone|ignored)-token' >/dev/null; then
+    printf 'token-leak <curl>\n' >> "${CANONICAL_VERIFY_TRACE:?}"
+fi
 output=""
 for (( index = 1; index <= $#; index++ )); do
     if [[ "${!index}" == "--output" ]]; then
@@ -2144,6 +2390,9 @@ set -euo pipefail
     printf ' <%s>' "$@"
     printf '\n'
 } >> "${CANONICAL_VERIFY_TRACE:?}"
+if env | grep -E 'fixture-(standalone|ignored)-token' >/dev/null; then
+    printf 'token-leak <ditto>\n' >> "${CANONICAL_VERIFY_TRACE:?}"
+fi
 [[ "${1:-}" == "-x" && "${2:-}" == "-k" ]]
 destination="$4"
 mkdir -p "$destination/ClaudeUsage-stg.app/Contents"
@@ -2159,6 +2408,9 @@ set -euo pipefail
     printf ' <%s>' "$@"
     printf '\n'
 } >> "${CANONICAL_VERIFY_TRACE:?}"
+if env | grep -E 'fixture-(standalone|ignored)-token' >/dev/null; then
+    printf 'token-leak <codesign>\n' >> "${CANONICAL_VERIFY_TRACE:?}"
+fi
 if [[ " $* " == *" -dv "* ]]; then
     printf 'Identifier=com.seongmin.ClaudeUsage.staging\n' >&2
     printf 'TeamIdentifier=%s\n' "${CANONICAL_VERIFY_TEAM:?}" >&2
@@ -2175,6 +2427,9 @@ set -euo pipefail
     printf ' <%s>' "$@"
     printf '\n'
 } >> "${CANONICAL_VERIFY_TRACE:?}"
+if env | grep -E 'fixture-(standalone|ignored)-token' >/dev/null; then
+    printf 'token-leak <xcrun>\n' >> "${CANONICAL_VERIFY_TRACE:?}"
+fi
 SCRIPT
 
 cat > "$CANONICAL_VERIFY_BIN/spctl" <<'SCRIPT'
@@ -2185,6 +2440,9 @@ set -euo pipefail
     printf ' <%s>' "$@"
     printf '\n'
 } >> "${CANONICAL_VERIFY_TRACE:?}"
+if env | grep -E 'fixture-(standalone|ignored)-token' >/dev/null; then
+    printf 'token-leak <spctl>\n' >> "${CANONICAL_VERIFY_TRACE:?}"
+fi
 SCRIPT
 
 cat > "$CANONICAL_VERIFY_BIN/hdiutil" <<'SCRIPT'
@@ -2195,6 +2453,9 @@ set -euo pipefail
     printf ' <%s>' "$@"
     printf '\n'
 } >> "${CANONICAL_VERIFY_TRACE:?}"
+if env | grep -E 'fixture-(standalone|ignored)-token' >/dev/null; then
+    printf 'token-leak <hdiutil>\n' >> "${CANONICAL_VERIFY_TRACE:?}"
+fi
 case "${1:-}" in
     attach)
         shift
@@ -2266,6 +2527,8 @@ CANONICAL_VERIFY_OUTPUT="$(
         "CANONICAL_VERIFY_APPCAST_SIZE=$CANONICAL_VERIFY_APPCAST_SIZE" \
         "CANONICAL_VERIFY_APPCAST_SHA=$CANONICAL_VERIFY_APPCAST_SHA" \
         "CANONICAL_VERIFY_STALE_TAG_ASSETS=1" \
+        "GH_TOKEN=fixture-standalone-token" \
+        "GITHUB_TOKEN=fixture-ignored-token" \
         /bin/bash "$CANONICAL_VERIFY_REPOSITORY/Scripts/verify-release-artifact.sh" \
         --tag v2.4.0-stg.1 \
         --channel staging \
@@ -2281,6 +2544,12 @@ assert_equal "0" "$CANONICAL_VERIFY_STATUS" "symlink TMPDIR verifier"
 assert_contains "$CANONICAL_VERIFY_OUTPUT" "검증 완료" "symlink TMPDIR verifier output"
 assert_contains "$CANONICAL_VERIFY_COMMANDS" "gh <api> <repos/FixtureOwner/ClaudeUsage/releases/123>" "verifier release-ID metadata fallback"
 assert_contains "$CANONICAL_VERIFY_COMMANDS" "curl <--fail>" "verifier direct download fallback"
+assert_contains "$CANONICAL_VERIFY_COMMANDS" "gh-env <GH_TOKEN=fixture-standalone-token> <GITHUB_TOKEN=>" "standalone verifier gh uses the caller GH_TOKEN"
+assert_not_contains "$CANONICAL_VERIFY_COMMANDS" "<GH_TOKEN=>" "standalone verifier every gh call receives the caller token"
+assert_not_contains "$CANONICAL_VERIFY_COMMANDS" "<GITHUB_TOKEN=fixture" "standalone verifier GITHUB_TOKEN cannot override"
+assert_not_contains "$CANONICAL_VERIFY_COMMANDS" "token-leak" "standalone verifier other children never see the token"
+assert_not_contains "$CANONICAL_VERIFY_COMMANDS" "<auth> <switch>" "standalone verifier never switches accounts"
+assert_not_contains "$CANONICAL_VERIFY_OUTPUT" "fixture-standalone-token" "standalone verifier never prints the token"
 assert_contains \
     "$CANONICAL_VERIFY_COMMANDS" \
     "<-mountpoint> <$CANONICAL_VERIFY_PHYSICAL_TMP_P/" \
@@ -2392,6 +2661,7 @@ cp \
     "$ROOT_DIR/Scripts/lib/release-driver-common.sh" \
     "$CANONICAL_PAGES_REPOSITORY/Scripts/lib/release-driver-common.sh"
 cp "$ROOT_DIR/Scripts/lib/app-identity.sh" "$CANONICAL_PAGES_REPOSITORY/Scripts/lib/app-identity.sh"
+cp "$ROOT_DIR/Scripts/lib/github-cli-token.sh" "$CANONICAL_PAGES_REPOSITORY/Scripts/lib/github-cli-token.sh"
 chmod +x "$CANONICAL_PAGES_REPOSITORY/Scripts/publish-pages-appcast.sh"
 printf '<appcast>fixture</appcast>\n' \
     > "$CANONICAL_PAGES_STATE/appcast.xml"
@@ -2403,6 +2673,7 @@ set -euo pipefail
     printf 'gh'
     printf ' <%s>' "$@"
     printf '\n'
+    printf 'gh-env <GH_TOKEN=%s> <GITHUB_TOKEN=%s>\n' "${GH_TOKEN:-}" "${GITHUB_TOKEN:-}"
 } >> "${CANONICAL_PAGES_TRACE:?}"
 [[ "${1:-}" == "repo" && "${2:-}" == "view" ]]
 printf 'FixtureOwner/ClaudeUsage\n'
@@ -2416,6 +2687,9 @@ set -euo pipefail
     printf ' <%s>' "$@"
     printf '\n'
 } >> "${CANONICAL_PAGES_TRACE:?}"
+if env | grep -E 'fixture-(standalone|ignored)-token' >/dev/null; then
+    printf 'token-leak <git>\n' >> "${CANONICAL_PAGES_TRACE:?}"
+fi
 working_directory=""
 if [[ "${1:-}" == "-C" ]]; then
     working_directory="$2"
@@ -2481,6 +2755,8 @@ CANONICAL_PAGES_OUTPUT="$(
         "GHPAGES_BRANCH=gh-pages" \
         "CANONICAL_PAGES_TRACE=$CANONICAL_PAGES_TRACE" \
         "CANONICAL_PAGES_REGISTRATION=$CANONICAL_PAGES_REGISTRATION" \
+        "GH_TOKEN=fixture-standalone-token" \
+        "GITHUB_TOKEN=fixture-ignored-token" \
         /bin/bash "$CANONICAL_PAGES_REPOSITORY/Scripts/publish-pages-appcast.sh" \
         --feed-url https://fixtureowner.github.io/ClaudeUsage/channels/staging/appcast.xml \
         --channel staging \
@@ -2491,6 +2767,12 @@ CANONICAL_PAGES_STATUS=$?
 set -e
 CANONICAL_PAGES_COMMANDS="$(cat "$CANONICAL_PAGES_TRACE")"
 assert_equal "0" "$CANONICAL_PAGES_STATUS" "symlink TMPDIR Pages worktree"
+assert_contains "$CANONICAL_PAGES_COMMANDS" "gh-env <GH_TOKEN=fixture-standalone-token> <GITHUB_TOKEN=>" "standalone Pages gh uses the caller GH_TOKEN"
+assert_not_contains "$CANONICAL_PAGES_COMMANDS" "<GH_TOKEN=>" "standalone Pages every gh call receives the caller token"
+assert_not_contains "$CANONICAL_PAGES_COMMANDS" "<GITHUB_TOKEN=fixture" "standalone Pages GITHUB_TOKEN cannot override"
+assert_not_contains "$CANONICAL_PAGES_COMMANDS" "token-leak" "standalone Pages other children never see the token"
+assert_not_contains "$CANONICAL_PAGES_COMMANDS" "<auth> <switch>" "standalone Pages never switches accounts"
+assert_not_contains "$CANONICAL_PAGES_OUTPUT" "fixture-standalone-token" "standalone Pages never prints the token"
 assert_contains \
     "$CANONICAL_PAGES_OUTPUT" \
     "gh-pages 에 반영할 변경이 없습니다." \

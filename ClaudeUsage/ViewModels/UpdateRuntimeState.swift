@@ -35,6 +35,7 @@ final class UpdateRuntimeState: ObservableObject {
     private let settings: AppSettings
     private let updateService: UpdateService
     private var didBootstrap = false
+    private var panelCheckTask: Task<Void, Never>?
 
     init(settings: AppSettings? = nil, updateService: UpdateService = .shared) {
         self.updateService = updateService
@@ -206,6 +207,19 @@ final class UpdateRuntimeState: ObservableObject {
         Task {
             await self.updateService.performUserInitiatedCheck()
         }
+    }
+
+    /// 엔진이 확인 중 상태를 늦게 바꾸므로, 연달아 불려도 확인이 하나만 돌도록 진행 여부를 직접 기억한다.
+    @discardableResult
+    func checkWhenPanelShown() -> Task<Void, Never>? {
+        guard panelCheckTask == nil, canCheckNow else { return nil }
+        let task = Task {
+            // 엔진이 대화형 확인을 지원해도 확인 창을 띄우지 않고 결과를 패널 상태로만 남긴다.
+            _ = await self.updateService.checkForUpdates()
+            self.panelCheckTask = nil
+        }
+        panelCheckTask = task
+        return task
     }
 
     func performPrimaryAction() {

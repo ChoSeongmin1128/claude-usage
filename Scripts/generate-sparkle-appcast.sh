@@ -200,7 +200,7 @@ cleanup() {
       cleanup_failed=1
     fi
   fi
-  exit "$(release_cleanup_exit_code "$exit_code" "$cleanup_failed" 0)"
+  exit "$(release_cleanup_exit_code "$exit_code" "$cleanup_failed")"
 }
 trap cleanup EXIT
 trap 'exit 130' INT

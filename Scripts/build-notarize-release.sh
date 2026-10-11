@@ -104,7 +104,7 @@ cleanup() {
             cleanup_failed=1
         fi
     fi
-    exit "$(release_cleanup_exit_code "$exit_code" "$cleanup_failed" 0)"
+    exit "$(release_cleanup_exit_code "$exit_code" "$cleanup_failed")"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -468,7 +468,8 @@ CONFIGURED_FEED_URL="$(extract_xcconfig_value "$LOCAL_XC_CONFIG_PATH" "SUFeedURL
 CONFIGURED_PUBLIC_KEY="$(extract_xcconfig_value "$LOCAL_XC_CONFIG_PATH" "SUPublicEDKey")"
 TRACKED_PUBLIC_KEY="$(extract_xcconfig_value "$XC_CONFIG_PATH" "SUPublicEDKey")"
 DERIVED_FEED_URL=""
-if [[ -n "$RELEASE_CHANNEL" ]]; then
+# feed가 주어지면 gh로 저장소를 추론하지 않는다. release driver는 이 빌드 프로세스에 GitHub 토큰을 넘기지 않는다.
+if [[ -n "$RELEASE_CHANNEL" && -z "${SU_FEED_URL:-}" ]]; then
     DERIVED_FEED_URL="$(derive_default_feed_url_for_channel "$RELEASE_CHANNEL" || true)"
 fi
 
