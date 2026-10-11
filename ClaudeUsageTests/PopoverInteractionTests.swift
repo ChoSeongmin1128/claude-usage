@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import ClaudeUsage
 
@@ -7,6 +8,25 @@ final class PopoverInteractionTests: XCTestCase {
         monthlyCreditLimitCents: 10000, usedCreditsCents: 300,
         isEnabled: true, outOfCredits: false, currency: "USD"
     )
+
+    func testEscapeClosesOnlyAShownUnpinnedPopoverWithoutModifiers() {
+        func closes(
+            keyCode: UInt16 = PopoverEscapeKey.keyCode, modifiers: NSEvent.ModifierFlags = [],
+            inPopover: Bool = true, pinned: Bool = false
+        ) -> Bool {
+            PopoverEscapeKey.closesPopover(
+                keyCode: keyCode, modifierFlags: modifiers, isInShownPopover: inPopover, isPinned: pinned)
+        }
+
+        XCTAssertTrue(closes())
+        XCTAssertTrue(closes(modifiers: [.capsLock, .function]))
+        XCTAssertFalse(closes(pinned: true))
+        XCTAssertFalse(closes(inPopover: false))
+        XCTAssertFalse(closes(keyCode: 36))
+        for modifier: NSEvent.ModifierFlags in [.command, .option, .control, .shift] {
+            XCTAssertFalse(closes(modifiers: modifier))
+        }
+    }
 
     func testSupplementalUsageCannotSurviveAnAccountBoundary() {
         let facade = AppRuntimeStateFacade()

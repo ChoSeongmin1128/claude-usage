@@ -27,10 +27,11 @@ extension AppDelegate {
             "\(AppDistribution.current.appName) 앱 시작"
         )
 
-        // 메뉴바 tooltip 표시 지연 단축 (macOS 기본 약 1.5초 → 0.5초).
+        // 팝오버와 설정의 도움말 tooltip 표시 지연 단축 (macOS 기본 약 1.5초 → 0.5초).
         // 이 키는 앱 도메인에서만 읽히므로 시스템 전역에는 영향이 없다.
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 500])
 
+        setupServiceStatusPanel()
         setupStatusItems()
         setupPopovers()
         setupKeyboardShortcuts()
@@ -391,10 +392,11 @@ extension AppDelegate {
             let statuses = await (claude: claudeStatus, codex: codexStatus)
 
             await MainActor.run {
-                self.setProviderSystemStatus(statuses.claude, for: .claude)
-                self.setProviderSystemStatus(statuses.codex, for: .codex)
-                self.popoverViewModel.systemStatus = statuses.claude
+                self.recordProviderSystemStatusFetch(statuses.claude, for: .claude)
+                self.recordProviderSystemStatusFetch(statuses.codex, for: .codex)
+                self.popoverViewModel.systemStatus = self.systemStatus
                 self.updateMenuBar()
+                self.refreshServiceStatusPresentation()
             }
         }
     }

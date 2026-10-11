@@ -57,8 +57,8 @@ extension AppDelegate {
         withRuntimeState { $0.systemStatus(for: kind) }
     }
 
-    func setProviderSystemStatus(_ status: ProviderSystemStatus?, for kind: AppProviderKind) {
-        withRuntimeState { $0.setSystemStatus(status, for: kind) }
+    func recordProviderSystemStatusFetch(_ status: ProviderSystemStatus?, for kind: AppProviderKind) {
+        withRuntimeState { $0.recordSystemStatusFetch(status, for: kind) }
     }
 
     var claudeCredentialAvailability: ClaudeCredentialAvailability {

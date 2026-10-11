@@ -2,7 +2,7 @@
 //  OpenAIStatusService.swift
 //  ClaudeUsage
 //
-//  OpenAI Statuspage에서 Codex 관련 컴포넌트 상태만 추려냅니다.
+//  OpenAI 상태 페이지 전체를 Codex 서비스 상태로 읽습니다.
 //
 
 import Foundation
@@ -11,12 +11,6 @@ actor OpenAIStatusService {
     static let shared = OpenAIStatusService()
 
     private let statusURL = "https://status.openai.com/api/v2/summary.json"
-    private let codexComponentNames: Set<String> = [
-        "Codex Web",
-        "Codex API",
-        "CLI",
-        "Responses",
-    ]
 
     func fetchCodexStatus() async -> ProviderSystemStatus? {
         guard let url = URL(string: statusURL) else { return nil }
@@ -33,11 +27,7 @@ actor OpenAIStatusService {
                 return nil
             }
 
-            return StatusPageInterpreter.parseStatus(
-                data: data,
-                relevantComponentNames: codexComponentNames,
-                fallbackDescription: "Codex 상태"
-            )
+            return StatusPageInterpreter.parseStatus(data: data, priorityRule: .codex)
         } catch {
             Logger.warning("OpenAI 상태 확인 실패: \(error.localizedDescription)")
             return nil

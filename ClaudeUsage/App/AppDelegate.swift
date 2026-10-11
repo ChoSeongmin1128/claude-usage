@@ -64,6 +64,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var eventMonitor: Any?
     var globalClickMonitor: Any?
     var isPresentingPopover = false
+    var isShowingStatusContextMenu = false
+    let serviceStatusHover = ServiceStatusHoverController(presenter: ServiceStatusPanelWindowPresenter())
     var claudeCredentialRefreshTask: Task<Void, Never>?
     lazy var claudeRefreshController = makeClaudeRefreshController()
     var claudeCredentialRefreshGeneration = 0

@@ -234,6 +234,12 @@ final class AppRuntimeStateFacade {
         return providerSystemStatuses[kind]
     }
 
+    /// 상태 페이지를 읽지 못한 회차는 마지막으로 읽은 상태를 그대로 둔다. 한 번도 읽지 못한 서비스는 비어 있다.
+    func recordSystemStatusFetch(_ status: ProviderSystemStatus?, for kind: AppProviderKind) {
+        guard let status else { return }
+        setSystemStatus(status, for: kind)
+    }
+
     func setSystemStatus(_ status: ProviderSystemStatus?, for kind: AppProviderKind) {
         if let status {
             providerSystemStatuses[kind] = status

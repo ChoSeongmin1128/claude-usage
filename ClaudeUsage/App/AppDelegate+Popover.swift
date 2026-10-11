@@ -36,6 +36,7 @@ extension AppDelegate {
     }
 
     func toggleUnifiedPopover() {
+        serviceStatusHover.hide()
         guard let button = statusItem?.button else { return }
         guard let currentPopover = popover else { return }
 

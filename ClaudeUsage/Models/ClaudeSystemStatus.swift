@@ -36,15 +36,15 @@ nonisolated enum StatusIndicator: String, Codable, Sendable {
     }
 }
 
-nonisolated struct ProviderSystemStatus: Sendable {
+nonisolated struct ProviderSystemStatus: Sendable, Equatable {
     let indicator: StatusIndicator
     let description: String
-    let activeIncidentCount: Int
-    let latestIncident: IncidentSummary?
-    let degradedComponents: [String]
+    /// 해결되지 않은 장애. 앱이 쓰는 제품에 걸린 장애가 먼저, 같은 묶음 안에서는 최근 업데이트 순이다.
+    let activeIncidents: [IncidentSummary]
+    let componentIssues: [ComponentIssue]
     let pageUpdatedAt: Date?
 
-    struct IncidentSummary: Sendable {
+    struct IncidentSummary: Sendable, Equatable {
         let name: String
         let status: String
         let impact: String
@@ -52,6 +52,58 @@ nonisolated struct ProviderSystemStatus: Sendable {
         let latestUpdateBody: String?
         let latestUpdateAt: Date?
         let affectedComponents: [String]
+        let isPriority: Bool
+
+        init(
+            name: String,
+            status: String,
+            impact: String,
+            shortlink: String?,
+            latestUpdateBody: String?,
+            latestUpdateAt: Date?,
+            affectedComponents: [String],
+            isPriority: Bool = false
+        ) {
+            self.name = name
+            self.status = status
+            self.impact = impact
+            self.shortlink = shortlink
+            self.latestUpdateBody = latestUpdateBody
+            self.latestUpdateAt = latestUpdateAt
+            self.affectedComponents = affectedComponents
+            self.isPriority = isPriority
+        }
+    }
+
+    struct ComponentIssue: Sendable, Equatable {
+        let name: String
+        let indicator: StatusIndicator
+    }
+
+    init(
+        indicator: StatusIndicator,
+        description: String,
+        activeIncidents: [IncidentSummary] = [],
+        componentIssues: [ComponentIssue] = [],
+        pageUpdatedAt: Date?
+    ) {
+        self.indicator = indicator
+        self.description = description
+        self.activeIncidents = activeIncidents
+        self.componentIssues = componentIssues
+        self.pageUpdatedAt = pageUpdatedAt
+    }
+
+    nonisolated var activeIncidentCount: Int {
+        activeIncidents.count
+    }
+
+    nonisolated var latestIncident: IncidentSummary? {
+        activeIncidents.max { ($0.latestUpdateAt ?? .distantPast) < ($1.latestUpdateAt ?? .distantPast) }
+    }
+
+    nonisolated var degradedComponents: [String] {
+        componentIssues.map(\.name)
     }
 
     nonisolated var hasIssue: Bool {
@@ -76,6 +128,58 @@ nonisolated struct ProviderSystemStatus: Sendable {
         }
 
         return effectiveIndicator.displayText
+    }
+}
+
+/// 상태 페이지 전체 중 앱이 보여 주는 제품에 걸린 장애를 고르는 규칙.
+/// 단어 단위로 맞춰 "not working"의 work나 "client"의 cli 같은 부분 문자열은 고르지 않는다.
+nonisolated struct StatusIncidentPriorityRule: Sendable {
+    let componentNames: Set<String>
+    let componentNamePrefixes: [String]
+    let componentNameKeywords: [String]
+    let titleKeywords: [String]
+
+    static let claude = StatusIncidentPriorityRule(
+        componentNames: ["claude.ai", "Claude Code"],
+        componentNamePrefixes: ["Claude API"],
+        componentNameKeywords: [],
+        titleKeywords: ["claude.ai", "Claude Code", "Claude API"]
+    )
+
+    /// OpenAI 장애에는 구성 요소 정보가 비어 있는 경우가 많아 제목으로도 고른다.
+    static let codex = StatusIncidentPriorityRule(
+        componentNames: ["ChatGPT Work"],
+        componentNamePrefixes: [],
+        componentNameKeywords: ["Codex"],
+        titleKeywords: ["Codex", "Work mode", "ChatGPT Work"]
+    )
+
+    nonisolated func isPriority(title: String, componentNames names: [String]) -> Bool {
+        let matchesComponent = names.contains { name in
+            componentNames.contains(name)
+                || componentNamePrefixes.contains { name.hasPrefix($0) }
+                || componentNameKeywords.contains { Self.containsWord($0, in: name) }
+        }
+        return matchesComponent || titleKeywords.contains { Self.containsWord($0, in: title) }
+    }
+
+    nonisolated static func containsWord(_ word: String, in text: String) -> Bool {
+        var searchRange = text.startIndex..<text.endIndex
+        while let found = text.range(of: word, options: [.caseInsensitive], range: searchRange) {
+            let startsAtBoundary =
+                found.lowerBound == text.startIndex
+                || !isWordCharacter(text[text.index(before: found.lowerBound)])
+            let endsAtBoundary = found.upperBound == text.endIndex || !isWordCharacter(text[found.upperBound])
+            if startsAtBoundary && endsAtBoundary {
+                return true
+            }
+            searchRange = text.index(after: found.lowerBound)..<text.endIndex
+        }
+        return false
+    }
+
+    nonisolated private static func isWordCharacter(_ character: Character) -> Bool {
+        character.isLetter || character.isNumber
     }
 }
 
@@ -124,8 +228,8 @@ nonisolated struct StatusPageResponse: Sendable {
         let name: String
     }
 
-    /// 서비스마다 응답 모양이 조금씩 다르다(OpenAI summary에는 incidents가 없고, update의 affected_components가
-    /// 없거나 null일 수 있다). 목록이 빠져도 상태 전체를 버리지 않도록 목록은 모두 선택값으로 읽는다.
+    /// 서비스마다 응답 모양이 조금씩 다르다(OpenAI 장애에는 components와 shortlink가 없고, update의
+    /// affected_components가 없거나 null일 수 있다). 목록이 빠져도 상태 전체를 버리지 않도록 목록은 모두 선택값으로 읽는다.
     nonisolated static func decode(from data: Data) -> StatusPageResponse? {
         struct _Response: Codable {
             let page: _Page
@@ -238,119 +342,93 @@ nonisolated struct StatusPageResponse: Sendable {
 }
 
 nonisolated enum StatusPageInterpreter {
+    /// 해결된 장애가 summary에 남아 있어도 진행 중으로 세지 않는다.
+    nonisolated private static let finishedIncidentStatuses: Set<String> = ["resolved", "postmortem", "completed"]
+
     nonisolated static func parseStatus(
         data: Data,
-        relevantComponentNames: Set<String>? = nil,
-        fallbackDescription: String? = nil
+        priorityRule: StatusIncidentPriorityRule
     ) -> ProviderSystemStatus? {
         guard let statusResponse = StatusPageResponse.decode(from: data) else {
             return nil
         }
-        return makeStatus(
-            from: statusResponse,
-            relevantComponentNames: relevantComponentNames,
-            fallbackDescription: fallbackDescription
-        )
+        return makeStatus(from: statusResponse, priorityRule: priorityRule)
     }
 
+    /// 상태 페이지 전체를 그 서비스의 상태로 읽는다. 머리 상태는 페이지가 매긴 값을 따른다.
+    /// 확인 단계(monitoring)인 장애의 영향도로 페이지보다 높이면 페이지와 다른 상태를 보여 주게 된다.
+    /// 페이지 값이 없거나 모르는 값일 때만 구성 요소와 장애 중 가장 나쁜 값을 쓴다.
     nonisolated static func makeStatus(
         from response: StatusPageResponse,
-        relevantComponentNames: Set<String>? = nil,
-        fallbackDescription: String? = nil
-    ) -> ProviderSystemStatus? {
-        let components = filteredComponents(response.components, relevantComponentNames: relevantComponentNames)
-        if relevantComponentNames != nil, components.isEmpty {
-            return nil
-        }
+        priorityRule: StatusIncidentPriorityRule
+    ) -> ProviderSystemStatus {
+        let componentIssues = componentIssues(from: response.components)
+        let activeIncidents = response.incidents
+            .filter { !finishedIncidentStatuses.contains($0.status) }
+            .map { incidentSummary(for: $0, priorityRule: priorityRule) }
 
-        let degradedComponents = components
-            .filter { $0.status != "operational" }
-        let relevantIncidents = response.incidents
-            .filter { incident in
-                isRelevantIncident(incident, relevantComponentNames: relevantComponentNames)
-            }
-
-        let pageIndicator = relevantComponentNames == nil
-            ? StatusIndicator(rawValue: response.status.indicator) ?? .none
-            : .none
-        let componentIndicator = StatusIndicator.highest(degradedComponents.map { Self.indicator(forComponentStatus: $0.status) })
-        let incidentIndicator = StatusIndicator.highest(relevantIncidents.map { Self.indicator(forImpact: $0.impact) })
-        let resolvedIndicator = StatusIndicator.highest([pageIndicator, componentIndicator, incidentIndicator])
-
-        let latestIncident = relevantIncidents
-            .sorted { lhs, rhs in
-                let leftDate = lhs.updatedAt ?? .distantPast
-                let rightDate = rhs.updatedAt ?? .distantPast
-                return leftDate > rightDate
-            }
-            .first
-
-        let latestIncidentSummary = latestIncident.map { incident in
-            incidentSummary(for: incident, relevantComponentNames: relevantComponentNames)
-        }
+        let pageIndicator = StatusIndicator(rawValue: response.status.indicator)
+        let componentIndicator = StatusIndicator.highest(componentIssues.map(\.indicator))
+        let incidentIndicator = StatusIndicator.highest(activeIncidents.map { Self.indicator(forImpact: $0.impact) })
 
         return ProviderSystemStatus(
-            indicator: resolvedIndicator,
-            description: fallbackDescription ?? response.status.description,
-            activeIncidentCount: relevantIncidents.count,
-            latestIncident: latestIncidentSummary,
-            degradedComponents: degradedComponents.map(\.name),
+            indicator: pageIndicator ?? StatusIndicator.highest([componentIndicator, incidentIndicator]),
+            description: response.status.description,
+            activeIncidents: displayOrder(activeIncidents),
+            componentIssues: componentIssues,
             pageUpdatedAt: response.page.updatedAt
         )
     }
 
-    nonisolated private static func filteredComponents(
-        _ components: [StatusPageResponse.StatusComponent],
-        relevantComponentNames: Set<String>?
-    ) -> [StatusPageResponse.StatusComponent] {
-        guard let relevantComponentNames else {
-            return components
-        }
-        return components.filter { relevantComponentNames.contains($0.name) }
+    nonisolated static func displayOrder(
+        _ incidents: [ProviderSystemStatus.IncidentSummary]
+    ) -> [ProviderSystemStatus.IncidentSummary] {
+        incidents.enumerated()
+            .sorted { lhs, rhs in
+                if lhs.element.isPriority != rhs.element.isPriority {
+                    return lhs.element.isPriority
+                }
+                let leftDate = lhs.element.latestUpdateAt ?? .distantPast
+                let rightDate = rhs.element.latestUpdateAt ?? .distantPast
+                if leftDate != rightDate {
+                    return leftDate > rightDate
+                }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.element)
     }
 
-    nonisolated private static func isRelevantIncident(
-        _ incident: StatusPageResponse.StatusIncident,
-        relevantComponentNames: Set<String>?
-    ) -> Bool {
-        guard let relevantComponentNames else {
-            return true
+    /// 같은 이름이 두 번 오는 페이지가 있어(OpenAI의 Login) 이름별로 가장 나쁜 상태 하나만 남긴다.
+    nonisolated private static func componentIssues(
+        from components: [StatusPageResponse.StatusComponent]
+    ) -> [ProviderSystemStatus.ComponentIssue] {
+        var issues: [ProviderSystemStatus.ComponentIssue] = []
+        for component in components {
+            let indicator = indicator(forComponentStatus: component.status)
+            let name = component.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard indicator != .none, !name.isEmpty else { continue }
+            if let index = issues.firstIndex(where: { $0.name == name }) {
+                let worst = StatusIndicator.highest([issues[index].indicator, indicator])
+                issues[index] = ProviderSystemStatus.ComponentIssue(name: name, indicator: worst)
+            } else {
+                issues.append(ProviderSystemStatus.ComponentIssue(name: name, indicator: indicator))
+            }
         }
-
-        if incident.components.contains(where: { relevantComponentNames.contains($0.name) }) {
-            return true
-        }
-
-        if incident.incidentUpdates.contains(where: { update in
-            update.affectedComponents.contains(where: { relevantComponentNames.contains($0.name) })
-        }) {
-            return true
-        }
-
-        return relevantComponentNames.contains { componentName in
-            incident.name.localizedCaseInsensitiveContains(componentName)
-        }
+        return issues
     }
 
     nonisolated private static func incidentSummary(
         for incident: StatusPageResponse.StatusIncident,
-        relevantComponentNames: Set<String>?
+        priorityRule: StatusIncidentPriorityRule
     ) -> ProviderSystemStatus.IncidentSummary {
-        let latestUpdate = incident.incidentUpdates
-            .sorted { lhs, rhs in
-                let leftDate = lhs.displayAt ?? .distantPast
-                let rightDate = rhs.displayAt ?? .distantPast
-                return leftDate > rightDate
-            }
-            .first
+        let updates = incident.incidentUpdates
+            .sorted { ($0.displayAt ?? .distantPast) > ($1.displayAt ?? .distantPast) }
+        let latestUpdate = updates.first
 
-        let affectedComponents = deduplicateNames(
-            latestUpdate?.affectedComponents.map(\.name) ??
-            incident.components.map(\.name)
-        )
-        let filteredAffectedComponents = relevantComponentNames.map { relevant in
-            affectedComponents.filter { relevant.contains($0) }
-        } ?? affectedComponents
+        // incident의 components가 걸린 구성 요소 전체다. update에는 그 회차에 상태가 바뀐 것만 오고,
+        // components가 빈 장애도 있어(실측 2026-10-11) 그때는 update에 나온 이름을 모두 쓴다.
+        let incidentComponents = deduplicateNames(incident.components.map(\.name))
+        let updateComponents = deduplicateNames(updates.flatMap { $0.affectedComponents.map(\.name) })
 
         return ProviderSystemStatus.IncidentSummary(
             name: incident.name,
@@ -359,20 +437,25 @@ nonisolated enum StatusPageInterpreter {
             shortlink: incident.shortlink,
             latestUpdateBody: latestUpdate?.body,
             latestUpdateAt: latestUpdate?.displayAt ?? incident.updatedAt,
-            affectedComponents: filteredAffectedComponents
+            affectedComponents: incidentComponents.isEmpty ? updateComponents : incidentComponents,
+            isPriority: priorityRule.isPriority(
+                title: incident.name,
+                componentNames: incidentComponents + updateComponents
+            )
         )
     }
 
     nonisolated private static func indicator(forComponentStatus status: String) -> StatusIndicator {
         switch status {
-        case "degraded_performance", "under_maintenance":
-            return .minor
+        case "operational":
+            return .none
         case "partial_outage":
             return .major
         case "major_outage":
             return .critical
         default:
-            return .none
+            // degraded_performance, under_maintenance와 처음 보는 값은 정상이 아니므로 경미로 둔다.
+            return .minor
         }
     }
 

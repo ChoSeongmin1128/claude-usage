@@ -191,4 +191,21 @@ extension AppRuntimeStateFacadeTests {
         XCTAssertEqual(facade.snapshot(for: .claude, codexAuthenticated: false).claudeOverage?.usedCredits, 7)
         XCTAssertEqual(facade.snapshot(for: .claude, codexAuthenticated: false).claudeUsage?.fiveHour?.utilization, 20)
     }
+
+    func testUnreadableSystemStatusKeepsLastReadStatusAndNeverReadStaysEmpty() {
+        let facade = AppRuntimeStateFacade()
+        facade.recordSystemStatusFetch(nil, for: .codex)
+        XCTAssertNil(facade.systemStatus(for: .codex))
+
+        let read = ProviderSystemStatus(indicator: .minor, description: "fixture", pageUpdatedAt: nil)
+        facade.recordSystemStatusFetch(read, for: .claude)
+        facade.recordSystemStatusFetch(nil, for: .claude)
+        XCTAssertEqual(facade.systemStatus(for: .claude), read)
+        XCTAssertEqual(facade.systemStatus, read)
+        XCTAssertNil(facade.systemStatus(for: .codex))
+
+        let recovered = ProviderSystemStatus(indicator: .none, description: "fixture", pageUpdatedAt: nil)
+        facade.recordSystemStatusFetch(recovered, for: .claude)
+        XCTAssertEqual(facade.systemStatus(for: .claude), recovered)
+    }
 }

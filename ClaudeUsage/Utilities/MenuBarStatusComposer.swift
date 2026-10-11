@@ -197,7 +197,10 @@ enum MenuBarStatusComposer {
             return true
         }
         image.isTemplate = false
-        return MenuBarRenderedContent(image: image, tooltip: "\(AppDistribution.current.appName) 설정")
+        // tooltip을 두지 않으므로 VoiceOver가 읽을 이름을 따로 준다.
+        return MenuBarRenderedContent(
+            image: image, tooltip: "\(AppDistribution.current.appName) 설정",
+            accessibilityLabel: AppDistribution.current.appName)
     }
 
     private static func statusDot(color: NSColor) -> MenuBarElement {
@@ -858,10 +861,7 @@ enum MenuBarStatusComposer {
         if let badge = snapshot.resetCreditBadge {
             base += "\n초기화권 \(badge.count)개"
         }
-        guard let status = snapshot.systemStatus, status.hasIssue else {
-            return base
-        }
-        return "\(base)\n⚠ \(snapshot.kind.displayName) 서비스 상태: \(status.menuBarSummary)"
+        return base
     }
 
     private static func statusBadgedIcon(

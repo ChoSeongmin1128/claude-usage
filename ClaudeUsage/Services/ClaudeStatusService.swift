@@ -28,7 +28,7 @@ actor ClaudeStatusService {
                 return nil
             }
 
-            return StatusPageInterpreter.parseStatus(data: data)
+            return StatusPageInterpreter.parseStatus(data: data, priorityRule: .claude)
 
         } catch {
             Logger.warning("상태 확인 실패: \(error.localizedDescription)")

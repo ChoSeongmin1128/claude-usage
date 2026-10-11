@@ -281,6 +281,7 @@ extension AppDelegate {
     }
 
     func rebuildStatusItems() {
+        serviceStatusHover.detach()
         if let item = statusItem {
             NSStatusBar.system.removeStatusItem(item)
         }
@@ -330,10 +331,10 @@ extension AppDelegate {
         statusItem = item
         if let button = item.button {
             button.title = "..."
-            button.toolTip = AppDistribution.current.appName
             button.action = #selector(statusItemClicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.target = self
+            serviceStatusHover.attach(to: button)
             menuBarAppearanceChangeState =
                 MenuBarAppearanceChangeState(
                     initialKey:
@@ -373,6 +374,7 @@ extension AppDelegate {
     }
 
     @objc func statusItemClicked(_ sender: NSStatusBarButton) {
+        serviceStatusHover.hide()
         guard let event = NSApp.currentEvent else { return }
         if event.type == .rightMouseUp {
             showUnifiedContextMenu()
@@ -410,6 +412,9 @@ extension AppDelegate {
         )
         applyContextMenuTarget(self, to: menu)
 
+        // performClick은 메뉴가 닫힐 때까지 돌아오지 않는다.
+        isShowingStatusContextMenu = true
+        defer { isShowingStatusContextMenu = false }
         statusItem?.menu = menu
         statusItem?.button?.performClick(nil)
         statusItem?.menu = nil
@@ -831,8 +836,10 @@ extension AppDelegate {
         button.image = content.image
         button.imagePosition = .imageOnly
         button.attributedTitle = NSAttributedString(string: "")
-        button.toolTip = content.tooltip
+        // 서비스 상태 패널이 tooltip 자리를 대신하므로 시스템 tooltip은 두지 않는다.
+        button.toolTip = nil
         content.applyAccessibility(to: button)
+        refreshServiceStatusPresentation()
         if PopoverGeometryDiagnostics.isEnabled {
             let buttonScreenFrame = button.window.map {
                 NSStringFromRect($0.convertToScreen(button.convert(button.bounds, to: nil)))
@@ -849,6 +856,20 @@ extension AppDelegate {
 
     func setupKeyboardShortcuts() {
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if let self,
+                PopoverEscapeKey.closesPopover(
+                    keyCode: event.keyCode,
+                    modifierFlags: event.modifierFlags,
+                    // macOS 27에서는 팝오버를 띄운 뒤 앱 활성화가 거부돼 팝오버 창이 키 창이 아닐 수 있다.
+                    // 그때 키 입력은 창 없이 오므로, 다른 창이 키 창일 때만 Esc를 그 창에 맡긴다.
+                    isInShownPopover: self.popover?.isShown == true
+                        && (event.window == nil || event.window === self.popover?.contentViewController?.view.window),
+                    isPinned: self.isPopoverPinned
+                )
+            {
+                self.closePopover()
+                return nil
+            }
             guard event.modifierFlags.contains(.command) else { return event }
 
             switch event.charactersIgnoringModifiers {
@@ -915,5 +936,23 @@ extension AppDelegate {
 
     @objc func quitClicked() {
         NSApplication.shared.terminate(nil)
+    }
+}
+
+/// transient 팝오버도 Esc를 처리한다고 보장되지 않아(macOS 27 SDK NSPopover.h) 열린 팝오버의 Esc를 앱이 직접 받는다.
+/// 고정한 팝오버는 닫지 않는다.
+enum PopoverEscapeKey {
+    static let keyCode: UInt16 = 53
+
+    static func closesPopover(
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags,
+        isInShownPopover: Bool,
+        isPinned: Bool
+    ) -> Bool {
+        keyCode == Self.keyCode
+            && modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty
+            && isInShownPopover
+            && !isPinned
     }
 }
