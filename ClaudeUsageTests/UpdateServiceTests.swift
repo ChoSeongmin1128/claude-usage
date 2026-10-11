@@ -68,11 +68,12 @@ final class UpdateRuntimeStateTests: XCTestCase {
             publicKeyConfigured: false
         )
 
-        XCTAssertFalse(
+        XCTAssertTrue(
             UpdateRuntimeState.shouldShowPrimaryAction(
                 phase: .downloaded(version: "9.9.9"),
                 engineStatus: sparkleReady
-            )
+            ),
+            "다운로드 완료 뒤 설치 준비 중에도 진행 버튼이 같은 자리에 남아야 합니다"
         )
         XCTAssertTrue(
             UpdateRuntimeState.shouldShowPrimaryAction(
@@ -497,6 +498,12 @@ final class UpdatePanelAutomaticCheckTests: XCTestCase {
         XCTAssertNil(state.checkWhenPanelShown())
         state.markDownloading(update)
         XCTAssertNil(state.checkWhenPanelShown())
+        state.markDownloadedReady(update)
+        XCTAssertNil(state.checkWhenPanelShown(), "설치 준비 중에는 확인을 다시 시작하지 않습니다")
+        XCTAssertFalse(state.canCheckNow)
+        XCTAssertTrue(state.showsPrimaryAction)
+        XCTAssertFalse(state.isPrimaryActionEnabled)
+        XCTAssertEqual(state.primaryActionTitle, "설치 준비 중")
         state.markInstalling(version: update.version)
         XCTAssertNil(state.checkWhenPanelShown())
         XCTAssertEqual(engine.checkCount, 0)

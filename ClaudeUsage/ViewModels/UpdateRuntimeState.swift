@@ -159,9 +159,11 @@ final class UpdateRuntimeState: ObservableObject {
         Self.shouldShowPrimaryAction(phase: phase, engineStatus: engineStatus)
     }
 
+    /// 다운로드부터 설치까지 같은 자리에 진행 버튼을 둔다. 다운로드 완료 뒤 설치 준비가 끝날 때까지 비우면
+    /// 그 사이 '지금 확인'만 남아 확인을 다시 하라는 것처럼 보인다.
     nonisolated static func shouldShowPrimaryAction(phase: Phase, engineStatus: UpdateEngineStatus?) -> Bool {
         switch phase {
-        case .readyToInstall, .downloading, .installing:
+        case .readyToInstall, .downloading, .downloaded, .installing:
             return true
         case .updateAvailable:
             return engineStatus?.usesSparkleReadyPath != true
@@ -172,7 +174,7 @@ final class UpdateRuntimeState: ObservableObject {
 
     var isPrimaryActionEnabled: Bool {
         switch phase {
-        case .downloading:
+        case .downloading, .downloaded:
             return false
         default:
             return true
@@ -181,7 +183,7 @@ final class UpdateRuntimeState: ObservableObject {
 
     var canCheckNow: Bool {
         switch phase {
-        case .checking, .downloading, .installing:
+        case .checking, .downloading, .downloaded, .installing:
             return false
         default:
             return true
@@ -234,7 +236,7 @@ final class UpdateRuntimeState: ObservableObject {
             if let update = latestKnownUpdate {
                 NSWorkspace.shared.open(update.downloadURL)
             }
-        case .downloading:
+        case .downloading, .downloaded:
             break
         default:
             checkNow()
