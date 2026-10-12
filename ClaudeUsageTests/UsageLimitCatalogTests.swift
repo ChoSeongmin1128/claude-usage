@@ -131,7 +131,8 @@ final class UsageLimitCatalogTests: XCTestCase {
                 """
                 {"rate_limit":{"primary_window":{"used_percent":20,"limit_window_seconds":604800},"secondary_window":{"used_percent":50,"limit_window_seconds":604800}},"additional_rate_limits":[{"metered_feature":"broken","rate_limit":{"primary_window":{"used_percent":20,"limit_window_seconds":-1}}}]}
                 """))
-        XCTAssertEqual(limits.count, 2)
+        XCTAssertEqual(limits.count, 1)
+        XCTAssertTrue(limits.allSatisfy { $0.periodSeconds == 604_800 })
         XCTAssertTrue(limits.allSatisfy { !$0.canNotify })
         let invalid = UsageLimitCatalog.claude(.init(fiveHour: .init(utilization: .nan, resetsAt: nil), sevenDay: nil))
         XCTAssertFalse(invalid[0].canNotify)

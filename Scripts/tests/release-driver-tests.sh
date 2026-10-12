@@ -2195,6 +2195,7 @@ mkdir -p \
     "$CANONICAL_VERIFY_PHYSICAL_TMP"
 ln -s "$TEST_PYTHON_EXECUTABLE" "$CANONICAL_VERIFY_BIN/python3"
 cp "$ROOT_DIR/Scripts/lib/release_metadata.py" "$CANONICAL_VERIFY_REPOSITORY/Scripts/lib/release_metadata.py"
+cp "$ROOT_DIR/Scripts/lib/release_download.py" "$CANONICAL_VERIFY_REPOSITORY/Scripts/lib/release_download.py"
 ln -s "$CANONICAL_VERIFY_PHYSICAL_TMP" "$CANONICAL_VERIFY_LOGICAL_TMP"
 CANONICAL_VERIFY_PHYSICAL_TMP_P="$(
     cd "$CANONICAL_VERIFY_PHYSICAL_TMP"
@@ -2720,10 +2721,15 @@ case "${1:-}" in
                 [[ "$(cat "$CANONICAL_PAGES_REGISTRATION")" == "$worktree_path" ]]
                 printf 'worktree-remove <%s>\n' "$worktree_path" \
                     >> "${CANONICAL_PAGES_TRACE:?}"
+                [[ "${CANONICAL_PAGES_REMOVE_FAIL:-0}" != "1" ]] || exit 1
                 rm -rf "$worktree_path"
                 rm -f "$CANONICAL_PAGES_REGISTRATION"
                 ;;
             prune)
+                printf 'worktree-prune\n' >> "${CANONICAL_PAGES_TRACE:?}"
+                if [[ -n "${CANONICAL_PAGES_UNRELATED_REGISTRATION:-}" ]]; then
+                    rm -f "$CANONICAL_PAGES_UNRELATED_REGISTRATION"
+                fi
                 exit 0
                 ;;
             *)
@@ -2801,5 +2807,35 @@ assert_equal \
     "" \
     "$(find "$CANONICAL_PAGES_PHYSICAL_TMP" -mindepth 1 -print -quit)" \
     "Pages canonical temp cleanup"
+
+CANONICAL_PAGES_UNRELATED_REGISTRATION="$CANONICAL_PAGES_STATE/unrelated-registration"
+printf 'unrelated preserved checkout\n' > "$CANONICAL_PAGES_UNRELATED_REGISTRATION"
+: > "$CANONICAL_PAGES_TRACE"
+set +e
+CANONICAL_PAGES_FAILURE_OUTPUT="$(
+    env \
+        "PATH=$CANONICAL_PAGES_BIN:/usr/bin:/bin:/usr/sbin:/sbin" \
+        "TMPDIR=$CANONICAL_PAGES_LOGICAL_TMP" \
+        "APPCAST_SOURCE=$CANONICAL_PAGES_STATE/appcast.xml" \
+        "GHPAGES_BRANCH=gh-pages" \
+        "CANONICAL_PAGES_TRACE=$CANONICAL_PAGES_TRACE" \
+        "CANONICAL_PAGES_REGISTRATION=$CANONICAL_PAGES_REGISTRATION" \
+        "CANONICAL_PAGES_REMOVE_FAIL=1" \
+        "CANONICAL_PAGES_UNRELATED_REGISTRATION=$CANONICAL_PAGES_UNRELATED_REGISTRATION" \
+        "GH_TOKEN=fixture-standalone-token" \
+        /bin/bash "$CANONICAL_PAGES_REPOSITORY/Scripts/publish-pages-appcast.sh" \
+        --feed-url https://fixtureowner.github.io/ClaudeUsage/channels/staging/appcast.xml \
+        --channel staging --tag v2.4.0-stg.1 2>&1
+)"
+CANONICAL_PAGES_FAILURE_STATUS=$?
+set -e
+[[ "$CANONICAL_PAGES_FAILURE_STATUS" -ne 0 ]] || fail "worktree removal failure must fail cleanup"
+pass
+assert_contains "$CANONICAL_PAGES_FAILURE_OUTPUT" "경로와 등록을 보존합니다" "failed cleanup explains retention"
+assert_not_contains "$(cat "$CANONICAL_PAGES_TRACE")" "worktree-prune" "failed cleanup never prunes unrelated worktrees"
+[[ -f "$CANONICAL_PAGES_REGISTRATION" && -d "$(cat "$CANONICAL_PAGES_REGISTRATION")" ]] \
+    || fail "failed owned checkout and registration must remain"
+pass
+assert_equal "unrelated preserved checkout" "$(cat "$CANONICAL_PAGES_UNRELATED_REGISTRATION")" "unrelated registration survives"
 
 echo "release driver tests: $PASS_COUNT passed"

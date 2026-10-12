@@ -113,7 +113,7 @@ final class ClaudeOAuthTokenRefresherTests: XCTestCase {
         XCTAssertEqual(count, 2)
     }
 
-    func testTransientFailureSchedulesCooldownAndBlocksImmediateRetry() async {
+    func testUncertainServerFailureSchedulesCooldownAndImmediateRetryIsNotSent() async {
         let runner = MockRunner(scriptedResponses: [
             .success(body: "internal server error", statusCode: 500)
         ])
@@ -131,8 +131,8 @@ final class ClaudeOAuthTokenRefresherTests: XCTestCase {
             _ = try await refresher.refresh(credential)
             XCTFail("5xx 에서는 throw")
         } catch let error as ClaudeOAuthTokenRefresher.RefreshError {
-            guard case .temporary = error else {
-                XCTFail("temporary 가 아닌 \(error)")
+            guard case .uncertain = error else {
+                XCTFail("uncertain 가 아닌 \(error)")
                 return
             }
         } catch {
@@ -144,8 +144,8 @@ final class ClaudeOAuthTokenRefresherTests: XCTestCase {
             _ = try await refresher.refresh(credential)
             XCTFail("cooldown 중에도 throw")
         } catch let error as ClaudeOAuthTokenRefresher.RefreshError {
-            guard case .temporary = error else {
-                XCTFail("temporary 가 아닌 \(error)")
+            guard case .notSent = error else {
+                XCTFail("notSent 가 아닌 \(error)")
                 return
             }
         } catch {

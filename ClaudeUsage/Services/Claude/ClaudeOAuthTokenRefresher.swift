@@ -21,6 +21,10 @@ actor ClaudeOAuthTokenRefresher {
     enum RefreshError: Error, Equatable, LocalizedError {
         /// 서버가 `invalid_grant` 로 거부 — 사용자 재로그인 필요. 더 시도하지 않음.
         case invalidGrant
+        /// Local validation/cancellation/cooldown stopped the request before POST.
+        case notSent(String)
+        /// POST may have consumed the generation. Never retry it automatically.
+        case uncertain(String)
         /// 일시적 실패. cooldown 만료 후 재시도 가능.
         case temporary(String)
         /// refresh token 자체가 없거나 비어 있음.
@@ -32,6 +36,8 @@ actor ClaudeOAuthTokenRefresher {
             switch self {
             case .invalidGrant:
                 return "Claude Code 로그인이 만료됐습니다. 터미널에서 claude auth login을 실행하세요."
+            case .notSent(let detail): return "Claude OAuth refresh를 보내지 않았습니다: \(detail)"
+            case .uncertain(let detail): return "Claude OAuth refresh 결과를 확인하지 못했습니다: \(detail)"
             case .temporary(let detail):
                 return "Claude OAuth refresh 일시 실패: \(detail)"
             case .missingRefreshToken:
@@ -77,7 +83,10 @@ actor ClaudeOAuthTokenRefresher {
     /// 주어진 credential 을 refresh 한다.
     /// - in-flight 중복 호출은 같은 Task 결과를 공유한다.
     /// - cooldown / terminal 상태면 즉시 throw.
-    func refresh(_ credential: ClaudeCodeOAuthCredential) async throws -> ClaudeCodeOAuthCredential {
+    func refresh(
+        _ credential: ClaudeCodeOAuthCredential,
+        beforeSending: @escaping @Sendable () async throws -> Void = {}
+    ) async throws -> ClaudeCodeOAuthCredential {
         guard let refreshToken = credential.refreshToken,
               !refreshToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else {
@@ -88,7 +97,7 @@ actor ClaudeOAuthTokenRefresher {
         }
         if let cooldownUntil, now() < cooldownUntil {
             let remaining = Int(cooldownUntil.timeIntervalSince(now()))
-            throw RefreshError.temporary("cooldown 잔여 \(remaining)s")
+            throw RefreshError.notSent("cooldown 잔여 \(remaining)s")
         }
 
         if let inFlight = inFlightByRefreshToken[refreshToken] {
@@ -98,7 +107,8 @@ actor ClaudeOAuthTokenRefresher {
         let task = Task<ClaudeCodeOAuthCredential, Error> {
             try await self.performRefresh(
                 refreshToken: refreshToken,
-                source: credential.source
+                source: credential.source,
+                beforeSending: beforeSending
             )
         }
         inFlightByRefreshToken[refreshToken] = task
@@ -128,7 +138,8 @@ actor ClaudeOAuthTokenRefresher {
 
     private func performRefresh(
         refreshToken: String,
-        source: ClaudeCodeOAuthCredential.Source
+        source: ClaudeCodeOAuthCredential.Source,
+        beforeSending: @Sendable () async throws -> Void
     ) async throws -> ClaudeCodeOAuthCredential {
         var request = URLRequest(url: Self.endpointURL)
         request.httpMethod = "POST"
@@ -147,15 +158,21 @@ actor ClaudeOAuthTokenRefresher {
         let data: Data
         let response: URLResponse
         do {
+            try Task.checkCancellation()
+            try await beforeSending()
+        } catch {
+            throw RefreshError.notSent("로컬 작업이 중단됐습니다")
+        }
+        do {
             (data, response) = try await httpRunner(request)
         } catch {
             scheduleCooldown()
-            throw RefreshError.temporary("네트워크: \(error.localizedDescription)")
+            throw RefreshError.uncertain("네트워크: \(error.localizedDescription)")
         }
 
         guard let http = response as? HTTPURLResponse else {
             scheduleCooldown()
-            throw RefreshError.invalidResponse("HTTPURLResponse 아님")
+            throw RefreshError.uncertain("HTTPURLResponse 아님")
         }
 
         if http.statusCode != 200 {
@@ -166,7 +183,7 @@ actor ClaudeOAuthTokenRefresher {
             }
             scheduleCooldown()
             Logger.warning("Claude OAuth refresh 실패 HTTP \(http.statusCode)")
-            throw RefreshError.temporary("HTTP \(http.statusCode)")
+            throw RefreshError.uncertain("HTTP \(http.statusCode)")
         }
 
         struct TokenResponse: Decodable {
@@ -185,8 +202,13 @@ actor ClaudeOAuthTokenRefresher {
         do {
             decoded = try JSONDecoder().decode(TokenResponse.self, from: data)
         } catch {
-            throw RefreshError.invalidResponse("디코딩 실패: \(error.localizedDescription)")
+            throw RefreshError.uncertain("디코딩 실패: \(error.localizedDescription)")
         }
+
+        guard !decoded.accessToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            decoded.refreshToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != true,
+            decoded.expiresIn.map({ $0 > 0 }) != false
+        else { throw RefreshError.uncertain("잘못된 token 응답") }
 
         let expiresAt: Date? = decoded.expiresIn.map { now().addingTimeInterval(TimeInterval($0)) }
         Logger.info("Claude OAuth refresh 성공 (다음 만료까지 \(decoded.expiresIn.map(String.init) ?? "?")s)")
@@ -215,9 +237,7 @@ actor ClaudeOAuthTokenRefresher {
     }
 
     private static func containsInvalidGrant(in data: Data) -> Bool {
-        guard let body = String(data: data, encoding: .utf8) else { return false }
-        // 응답 본문에 OAuth 표준 error 코드 "invalid_grant" 가 포함되어 있는지 검사.
-        // CodexBar 와 동일한 휴리스틱. 정확한 JSON 파싱은 비표준 응답까지 커버하려고 안 한다.
-        return body.lowercased().contains("invalid_grant")
+        guard let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return body["error"] as? String == "invalid_grant"
     }
 }

@@ -180,6 +180,8 @@ struct SettingsView: View {
     @State var codexAuthCheckTask: Task<Void, Never>?
     @State var runtimeEnvironmentRefreshTick: Int = 0
     @State var pendingDestructiveAction: SettingsDestructiveAction?
+    @State var destructiveActionError: String?
+    @State var preparingDataReset = false
     @StateObject var antigravitySettings:
         AntigravitySettingsViewModel
 

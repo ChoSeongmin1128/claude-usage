@@ -50,6 +50,17 @@ nonisolated protocol ClaudeOAuthCredentialReading: Sendable {
     func forceRefreshAccessToken() async throws -> String?
     func invalidateCache() async
     func importActiveCLICredential() async -> ClaudeOAuthCredentialImportResult
+    func beginRecoveryClosing() async
+    func drainRecovery() async
+    func sealRecoveryWrites() async
+    func prepareRecoveryForReset() async -> Bool
+}
+
+extension ClaudeOAuthCredentialReading {
+    func beginRecoveryClosing() async {}
+    func drainRecovery() async {}
+    func sealRecoveryWrites() async {}
+    func prepareRecoveryForReset() async -> Bool { true }
 }
 
 nonisolated struct ClaudeOAuthCredentialInventoryRefresh: Equatable, Sendable {
@@ -121,10 +132,23 @@ actor ClaudeCodeCredentialReader {
     private let appCredentialVault: any ClaudeOAuthCredentialVault
     private let cacheTTL: TimeInterval
     private let now: @Sendable () -> Date
+    private let recoveryCoordinator: CredentialRecoveryCoordinator
+    private var activeWorkCount = 0
+    private var drainWaiters: [CheckedContinuation<Void, Never>] = []
     private var cachedResult: CachedResult?
     private var inFlightRead: Task<ClaudeCodeOAuthCredential?, Error>?
     private var cacheGeneration = 0
     private var lastReadError: ClaudeOAuthCredentialReadError?
+    @TaskLocal private static var recoveryReadLease: CredentialRecoveryReadLease?
+    @TaskLocal private static var managedCredentialAllowed = true
+    @TaskLocal private static var recoveredCredential: ClaudeCodeOAuthCredential?
+    @TaskLocal private static var importOperation: ImportOperation?
+
+    private struct ImportOperation: Sendable {
+        let id: UUID
+        let originalPayload: String?
+        let generation: Int
+    }
 
     private struct CachedResult: Sendable {
         let credential: ClaudeCodeOAuthCredential?
@@ -153,7 +177,8 @@ actor ClaudeCodeCredentialReader {
             )
         },
         cliKeychainPayloadReader: CLIKeychainPayloadReader? = nil,
-        cliRefresher: CLIRefresher? = nil
+        cliRefresher: CLIRefresher? = nil,
+        recoveryCoordinator: CredentialRecoveryCoordinator? = nil
     ) {
         let environmentConfigDirectory = Self.explicitClaudeConfigDirectoryFromEnvironment()
         let resolvedConfigDirectory = claudeConfigDirectory
@@ -166,6 +191,10 @@ actor ClaudeCodeCredentialReader {
         self.profileMetadataStore = profileMetadataStore
         self.tokenRefresher = tokenRefresher
         self.appCredentialVault = appCredentialVault
+        self.recoveryCoordinator =
+            recoveryCoordinator
+            ?? (AppRuntimeEnvironment.isRunningUnitTests
+                ? CredentialRecoveryCoordinator.isolated(appVault: appCredentialVault) : .shared)
         self.cacheTTL = cacheTTL
         self.now = now
         self.interactiveKeychainPayloadReader = interactiveKeychainPayloadReader
@@ -187,6 +216,26 @@ actor ClaudeCodeCredentialReader {
         }
         let noRefresher: CLIRefresher = { @Sendable _ in .unavailable }
         self.cliRefresher = cliRefresher ?? (readsUserKeychain ? userRefresher : noRefresher)
+    }
+
+    func beginRecoveryClosing() { recoveryCoordinator.beginClosing() }
+
+    func drainRecovery() async {
+        if activeWorkCount > 0 { await withCheckedContinuation { drainWaiters.append($0) } }
+        await recoveryCoordinator.finishClosing()
+    }
+
+    func sealRecoveryWrites() { recoveryCoordinator.sealWrites() }
+
+    func prepareRecoveryForReset() async -> Bool { await recoveryCoordinator.prepareForReset() }
+
+    private func finishWork() {
+        activeWorkCount -= 1
+        if activeWorkCount == 0 {
+            let waiters = drainWaiters
+            drainWaiters.removeAll()
+            for waiter in waiters { waiter.resume() }
+        }
     }
 
     // A mirror of Claude Code's login is never rotated by the app, so Claude Code
@@ -232,6 +281,12 @@ actor ClaudeCodeCredentialReader {
     /// writes it with that tool. The SecItem read stays in
     /// `importActiveCLICredential()` as an explicit fallback.
     func refreshCredentialInventoryWithoutUI() async throws -> ClaudeOAuthCredentialInventoryRefresh {
+        activeWorkCount += 1
+        defer { finishWork() }
+        return try await performInventoryRefresh()
+    }
+
+    private func performInventoryRefresh() async throws -> ClaudeOAuthCredentialInventoryRefresh {
         let previousAccessToken: String?
         if let cachedAccessToken = cachedResult?.credential?.accessToken {
             previousAccessToken = cachedAccessToken
@@ -254,9 +309,10 @@ actor ClaudeCodeCredentialReader {
         }
         invalidateCache()
 
-        let inventory = try await loadFileThenVaultInventoryFallback(
-            previousAccessToken: previousAccessToken
-        )
+        let inventory = try await withReadLease {
+            try await self.loadFileThenVaultInventoryFallback(previousAccessToken: previousAccessToken)
+        }
+        try Task.checkCancellation()
         if inventory.accessToken == nil, let lastReadError,
             lastReadError == .executableNotFound || lastReadError == .refreshUnavailable
         {
@@ -268,6 +324,13 @@ actor ClaudeCodeCredentialReader {
     /// 401 등으로 캐시된 토큰이 거부됐을 때 외부에서 호출해 즉시 refresh 를 시도하게 한다.
     /// 성공하면 새 access token, 실패하면 nil (caller 가 적절히 폴백).
     func forceRefreshAccessToken() async throws -> String? {
+        activeWorkCount += 1
+        defer { finishWork() }
+        return try await withReadLease { try await self.performForcedRefresh() }
+    }
+
+    private func performForcedRefresh() async throws -> String? {
+        if let recovered = Self.recoveredCredential, !recovered.isExpired { return recovered.accessToken }
         let vaultCredential: ClaudeCodeOAuthCredential?
         do {
             vaultCredential = try await loadVaultCredentialCandidate()
@@ -334,41 +397,70 @@ actor ClaudeCodeCredentialReader {
             }
             return nil
         }
-        cachedResult = CachedResult(credential: refreshed, storedAt: now())
+        storeCachedResult(refreshed, at: now())
         return refreshed.accessToken
     }
 
     func readCredential() async throws -> ClaudeCodeOAuthCredential? {
-        if let cachedResult,
-           now().timeIntervalSince(cachedResult.storedAt) < cacheTTL,
-           cachedResult.credential?.isExpired != true
-        {
-            return cachedResult.credential
-        }
-
-        if let inFlightRead {
-            return try await inFlightRead.value
-        }
-
+        activeWorkCount += 1
+        defer { finishWork() }
+        try Task.checkCancellation()
+        if let inFlightRead { return try await inFlightRead.value }
         let generation = cacheGeneration
-        let task = Task { try await performCredentialLookup() }
+        let task = Task { try await self.withReadLease { try await self.performCredentialLookup() } }
         inFlightRead = task
         do {
             let result = try await task.value
+            try Task.checkCancellation()
             if generation == cacheGeneration {
-                cachedResult = CachedResult(credential: result, storedAt: now())
+                storeCachedResult(result, at: now())
                 inFlightRead = nil
             }
             return result
         } catch {
-            if generation == cacheGeneration {
-                inFlightRead = nil
-            }
+            if generation == cacheGeneration { inFlightRead = nil }
             throw error
         }
     }
 
+    private func withReadLease<Value: Sendable>(
+        _ operation: @Sendable () async throws -> Value
+    ) async throws -> Value {
+        var allowManaged = true
+        var recovered: ClaudeCodeOAuthCredential?
+        do {
+            if let payload = try await recoveryCoordinator.recoveredRefreshPayload(),
+                let credential = Self.parseCredential(from: payload, source: .appManagedVault)
+            {
+                storeCachedResult(credential, at: now())
+                recovered = credential
+            }
+            allowManaged = await recoveryCoordinator.status(provider: .claude) == .ready
+        } catch {
+            allowManaged = false
+            lastReadError = .reconnectRequired
+        }
+        let lease = try await recoveryCoordinator.beginRead()
+        return try await Self.$recoveryReadLease.withValue(lease) {
+            try await Self.$managedCredentialAllowed.withValue(allowManaged) {
+                try await Self.$recoveredCredential.withValue(recovered) { try await operation() }
+            }
+        }
+    }
+
+    private func storeCachedResult(_ credential: ClaudeCodeOAuthCredential?, at date: Date) {
+        guard !Task.isCancelled else { return }
+        if let operation = Self.importOperation {
+            guard operation.generation == cacheGeneration else { return }
+        }
+        if let lease = Self.recoveryReadLease {
+            guard recoveryCoordinator.isReadCurrent(lease) else { return }
+        }
+        cachedResult = CachedResult(credential: credential, storedAt: date)
+    }
+
     func invalidateCache() {
+        recoveryCoordinator.invalidateReadOperations()
         cacheGeneration &+= 1
         inFlightRead?.cancel()
         inFlightRead = nil
@@ -381,7 +473,33 @@ actor ClaudeCodeCredentialReader {
     /// exact active-config Keychain item once and resolves both candidates by
     /// token expiry. Automatic paths remain prompt-free.
     func importActiveCLICredential() async -> ClaudeOAuthCredentialImportResult {
+        activeWorkCount += 1
+        defer { finishWork() }
+        guard !Task.isCancelled else { return .cancelled }
         invalidateCache()
+        let id: UUID
+        let original: String?
+        do {
+            id = try await recoveryCoordinator.beginImport()
+        } catch { return .failed("보존된 로그인 복구 자료를 확인하지 못했습니다.") }
+        do { original = try appCredentialVault.loadPayload() } catch {
+            await recoveryCoordinator.cancelImport(id)
+            return .failed("앱 OAuth 저장소를 읽지 못했습니다.")
+        }
+        let operation = ImportOperation(id: id, originalPayload: original, generation: cacheGeneration)
+        let result = await Self.$importOperation.withValue(operation) { await self.performExplicitImport() }
+        await recoveryCoordinator.cancelImport(id)
+        return result
+    }
+
+    private func currentImportIsValid() async -> Bool {
+        guard !Task.isCancelled, let operation = Self.importOperation,
+            operation.generation == cacheGeneration
+        else { return false }
+        do { try await recoveryCoordinator.validateImport(operation.id); return true } catch { return false }
+    }
+
+    private func performExplicitImport() async -> ClaudeOAuthCredentialImportResult {
 
         let vaultCredential: ClaudeCodeOAuthCredential?
         do {
@@ -404,19 +522,24 @@ actor ClaudeCodeCredentialReader {
             homeDirectory: homeDirectory,
             usesExplicitConfigDirectory: usesScopedKeychainService
         )
+        guard await currentImportIsValid() else { return .cancelled }
+        let cliOutcome = await cliKeychainPayloadReader(service)
+        guard await currentImportIsValid() else { return .cancelled }
         let outcome: KeychainAccessPreflight.ReadOutcome
-        switch await cliKeychainPayloadReader(service) {
+        switch cliOutcome {
         case .payload(let payload):
             outcome = .value(payload)
         case .notFound:
             outcome = .notFound
         case .failed:
+            guard await currentImportIsValid() else { return .cancelled }
             outcome = interactiveKeychainPayloadReader(
                 service,
                 NSUserName(),
                 "Claude Code 로그인을 \(AppDistribution.current.appName)에 연결합니다."
             )
         }
+        guard await currentImportIsValid() else { return .cancelled }
         switch outcome {
         case .value(let payload):
             let keychainCredential = Self.parseCredential(
@@ -517,6 +640,7 @@ actor ClaudeCodeCredentialReader {
         _ lookup: CredentialFileLookup,
         replacing vaultCredential: ClaudeCodeOAuthCredential?
     ) async -> ClaudeOAuthCredentialImportResult? {
+        guard await currentImportIsValid() else { return .cancelled }
         switch lookup {
         case .credential(let credential):
             guard let usable = await ensureUsable(credential) else {
@@ -535,37 +659,47 @@ actor ClaudeCodeCredentialReader {
         replacing vaultCredential: ClaudeCodeOAuthCredential?,
         metadataPayload: String? = nil
     ) async -> ClaudeOAuthCredentialImportResult {
-        guard let payload = Self.vaultPayload(
-            for: credential,
-            ownership: .cliMirror
-        ) else {
-            return .failed("Claude Code 로그인 정보를 앱 저장소 형식으로 만들지 못했습니다.")
+        let originalCLI: String?
+        if let metadataPayload {
+            originalCLI = metadataPayload
+        } else if case .file(let file) = credential.source {
+            originalCLI = try? String(contentsOf: file, encoding: .utf8)
+        } else {
+            originalCLI = nil
         }
+        let raw =
+            originalCLI.flatMap {
+                ClaudeOAuthCredentialVaultPayload.encode(credentialPayload: $0, ownership: .cliMirror)
+            } ?? Self.vaultPayload(for: credential, ownership: .cliMirror)
+        guard let payload = raw,
+            let encoded = Self.parseCredential(from: payload, source: .refreshed),
+            encoded.accessToken == credential.accessToken, encoded.refreshToken == credential.refreshToken
+        else { return .failed("Claude Code 로그인 정보를 앱 저장소 형식으로 만들지 못했습니다.") }
         do {
-            try appCredentialVault.savePayload(payload)
-            guard let verifiedPayload = try appCredentialVault.loadPayload(),
-                let verifiedCredential = Self.parseCredential(
-                      from: verifiedPayload,
-                      source: Self.vaultSource(for: verifiedPayload)
-                  ),
-                  verifiedCredential.accessToken == credential.accessToken,
-                  ClaudeOAuthCredentialVaultPayload.ownership(of: verifiedPayload) == .cliMirror
-            else {
-                return .failed("Claude Code 로그인 정보를 앱 저장소에 검증하지 못했습니다.")
+            if let operation = Self.importOperation {
+                guard await currentImportIsValid() else { return .cancelled }
+                try Task.checkCancellation()
+                try await recoveryCoordinator.saveImport(
+                    payload, operationID: operation.id, expectedPayload: operation.originalPayload)
+                guard await currentImportIsValid() else { return .cancelled }
+            } else {
+                guard let lease = Self.recoveryReadLease, !Task.isCancelled else { return .cancelled }
+                try await recoveryCoordinator.saveMirror(payload, lease: lease)
             }
         } catch {
+            if Task.isCancelled { return .cancelled }
             return .failed("Claude Code 로그인 정보를 앱 저장소에 저장하지 못했습니다.")
         }
-
         if let metadataPayload, let profileMetadataStore {
-            _ = await profileMetadataStore.update(from: metadataPayload)
+            if Self.importOperation != nil, !(await currentImportIsValid()) { return .cancelled }
+            _ = profileMetadataStore
+            await updateProfileMetadata(from: metadataPayload)
         }
+        if Self.importOperation != nil, !(await currentImportIsValid()) { return .cancelled }
         lastReadError = nil
-        cachedResult = CachedResult(credential: credential, storedAt: now())
+        storeCachedResult(credential, at: now())
         return .imported(
-            credentialChanged: vaultCredential != nil
-                && vaultCredential?.accessToken != credential.accessToken
-        )
+            credentialChanged: vaultCredential != nil && vaultCredential?.accessToken != credential.accessToken)
     }
 
     private func existingVaultResult(
@@ -573,20 +707,28 @@ actor ClaudeCodeCredentialReader {
         fallback: ClaudeOAuthCredentialImportResult
     ) -> ClaudeOAuthCredentialImportResult {
         guard let vaultCredential, !vaultCredential.isExpired else { return fallback }
-        cachedResult = CachedResult(credential: vaultCredential, storedAt: now())
+        storeCachedResult(vaultCredential, at: now())
         return .available
     }
 
     private func loadVaultCredentialCandidate() async throws -> ClaudeCodeOAuthCredential? {
         guard let payload = try appCredentialVault.loadPayload() else { return nil }
-        return await decodeCredential(
-            from: payload,
-            source: Self.vaultSource(for: payload),
-            sourceDescription: "앱 OAuth vault"
-        )
+        let credential = await decodeCredential(
+            from: payload, source: Self.vaultSource(for: payload), sourceDescription: "앱 OAuth vault")
+        if credential != nil { await updateProfileMetadata(from: payload) }
+        return credential
     }
 
     private func performCredentialLookup() async throws -> ClaudeCodeOAuthCredential? {
+        if let recovered = Self.recoveredCredential, !recovered.isExpired { return recovered }
+        if let cachedResult, now().timeIntervalSince(cachedResult.storedAt) < cacheTTL {
+            if let cached = cachedResult.credential, !cached.isExpired,
+                Self.managedCredentialAllowed || cached.source != .appManagedVault
+            {
+                return cached
+            }
+            if cachedResult.credential == nil, Self.managedCredentialAllowed { return nil }
+        }
         let fileLookup = await lookupCredentialFromFiles()
         let vaultCredential: ClaudeCodeOAuthCredential?
         do {
@@ -600,7 +742,8 @@ actor ClaudeCodeCredentialReader {
         // 이전 버전에서 앱이 이미 회전시킨 credential은 CLI mirror와 다른
         // 독립 lineage다. stale CLI 파일이 이를 덮지 않도록 먼저 사용한다.
         if let vaultCredential, vaultCredential.source == .appManagedVault {
-            return await ensureUsable(vaultCredential)
+            if Self.managedCredentialAllowed { return await ensureUsable(vaultCredential) }
+            return await nativeReadOnlyCredential(fileLookup)
         }
 
         // CLI mirror인 경우에는 활성 credential 파일이 계정 경계다. 현재
@@ -644,6 +787,12 @@ actor ClaudeCodeCredentialReader {
     private func loadFileThenVaultInventoryFallback(
         previousAccessToken: String?
     ) async throws -> ClaudeOAuthCredentialInventoryRefresh {
+        if let recovered = Self.recoveredCredential, !recovered.isExpired {
+            storeCachedResult(recovered, at: now())
+            return ClaudeOAuthCredentialInventoryRefresh(
+                accessToken: recovered.accessToken,
+                credentialChanged: previousAccessToken != nil && previousAccessToken != recovered.accessToken)
+        }
         let fileLookup = await lookupCredentialFromFiles()
         let vaultCredential: ClaudeCodeOAuthCredential?
         do {
@@ -655,8 +804,10 @@ actor ClaudeCodeCredentialReader {
         }
 
         if let vaultCredential, vaultCredential.source == .appManagedVault {
-            let usable = await ensureUsable(vaultCredential)
-            cachedResult = CachedResult(credential: usable, storedAt: now())
+            let usable =
+                Self.managedCredentialAllowed
+                ? await ensureUsable(vaultCredential) : await nativeReadOnlyCredential(fileLookup)
+            storeCachedResult(usable, at: now())
             return ClaudeOAuthCredentialInventoryRefresh(
                 accessToken: usable?.accessToken,
                 credentialChanged: previousAccessToken != nil
@@ -676,7 +827,7 @@ actor ClaudeCodeCredentialReader {
             if let vaultCredential,
                Self.shouldPreferVaultCredential(vaultCredential, over: credential),
                !vaultCredential.isExpired {
-                cachedResult = CachedResult(credential: vaultCredential, storedAt: now())
+                storeCachedResult(vaultCredential, at: now())
                 return ClaudeOAuthCredentialInventoryRefresh(
                     accessToken: vaultCredential.accessToken,
                     credentialChanged: previousAccessToken != nil
@@ -684,21 +835,21 @@ actor ClaudeCodeCredentialReader {
                 )
             }
             guard let usable = await ensureUsable(credential) else {
-                cachedResult = CachedResult(credential: nil, storedAt: now())
+                storeCachedResult(nil, at: now())
                 return ClaudeOAuthCredentialInventoryRefresh(
                     accessToken: nil,
                     credentialChanged: false
                 )
             }
             await persistCredentialToVault(usable)
-            cachedResult = CachedResult(credential: usable, storedAt: now())
+            storeCachedResult(usable, at: now())
             return ClaudeOAuthCredentialInventoryRefresh(
                 accessToken: usable.accessToken,
                 credentialChanged: previousAccessToken != nil
                     && previousAccessToken != usable.accessToken
             )
         case .unavailable:
-            cachedResult = CachedResult(credential: nil, storedAt: now())
+            storeCachedResult(nil, at: now())
             return ClaudeOAuthCredentialInventoryRefresh(
                 accessToken: nil,
                 credentialChanged: false
@@ -719,13 +870,13 @@ actor ClaudeCodeCredentialReader {
             if vaultCredential?.isExpired == true {
                 Logger.warning("credential inventory의 CLI mirror가 만료되었습니다")
             }
-            cachedResult = CachedResult(credential: nil, storedAt: now())
+            storeCachedResult(nil, at: now())
             return ClaudeOAuthCredentialInventoryRefresh(
                 accessToken: nil,
                 credentialChanged: false
             )
         }
-        cachedResult = CachedResult(credential: vaultCredential, storedAt: now())
+        storeCachedResult(vaultCredential, at: now())
         return ClaudeOAuthCredentialInventoryRefresh(
             accessToken: vaultCredential.accessToken,
             credentialChanged: previousAccessToken != nil
@@ -744,6 +895,10 @@ actor ClaudeCodeCredentialReader {
             var credential = Self.parseCredential(from: payload, source: .keychain(service: service))
         else { return nil }
         if credential.isExpired {
+            guard !Task.isCancelled, await recoveryCoordinator.canRefreshCLIGeneration(credential) else {
+                lastReadError = .reconnectRequired
+                return nil
+            }
             lastReadError = nil
             switch await cliRefresher(usesScopedKeychainService ? claudeConfigDirectory.path : nil) {
             case .refreshed:
@@ -802,7 +957,7 @@ actor ClaudeCodeCredentialReader {
     ) async {
         if vaultCredential?.accessToken == credential.accessToken {
             lastReadError = nil
-            cachedResult = CachedResult(credential: credential, storedAt: now())
+            storeCachedResult(credential, at: now())
         } else {
             _ = await finishExplicitImport(credential, replacing: vaultCredential, metadataPayload: payload)
         }
@@ -835,7 +990,7 @@ actor ClaudeCodeCredentialReader {
         guard credential.canAttemptRefresh else { return nil }
         switch credential.source {
         case .file:
-            return await refreshThroughClaudeCode()
+            return await refreshThroughClaudeCode(of: credential)
         case .appManagedVault:
             return await attemptAppManagedVaultRefresh(of: credential)
         case .keychain, .unversionedVaultMirror, .refreshed:
@@ -846,7 +1001,12 @@ actor ClaudeCodeCredentialReader {
 
     /// Claude Code 로그인은 앱이 직접 갱신하지 않는다. 앱이 refresh token을 쓰면 Claude Code가 가진 토큰이
     /// 무효가 되므로 Claude Code에 갱신을 맡기고 다시 읽는다.
-    private func refreshThroughClaudeCode() async -> ClaudeCodeOAuthCredential? {
+    private func refreshThroughClaudeCode(of credential: ClaudeCodeOAuthCredential) async -> ClaudeCodeOAuthCredential?
+    {
+        guard !Task.isCancelled, await recoveryCoordinator.canRefreshCLIGeneration(credential) else {
+            lastReadError = .reconnectRequired
+            return nil
+        }
         lastReadError = nil
         switch await cliRefresher(usesScopedKeychainService ? claudeConfigDirectory.path : nil) {
         case .refreshed: break
@@ -871,69 +1031,107 @@ actor ClaudeCodeCredentialReader {
     private func attemptAppManagedVaultRefresh(
         of credential: ClaudeCodeOAuthCredential
     ) async -> ClaudeCodeOAuthCredential? {
-        guard let originalPayload = try? appCredentialVault.loadPayload(),
-              ClaudeOAuthCredentialVaultPayload.ownership(of: originalPayload) == .appManaged,
-            let currentCredential = Self.parseCredential(
-                  from: originalPayload,
-                  source: .appManagedVault
-              ),
-              currentCredential.refreshToken == credential.refreshToken
-        else {
-            Logger.info("OAuth refresh 전에 앱 소유 credential이 바뀌어 이전 요청을 폐기합니다")
-            return nil
-        }
-
+        let originalPayload: String
+        let id: UUID
         do {
-            let refreshed = try await tokenRefresher.refresh(credential)
-            guard let latestPayload = try? appCredentialVault.loadPayload(),
-                  ClaudeOAuthCredentialVaultPayload.ownership(of: latestPayload) == .appManaged,
-                let latestCredential = Self.parseCredential(
-                      from: latestPayload,
-                      source: .appManagedVault
-                  ),
-                  latestCredential.refreshToken == credential.refreshToken
-            else {
-                Logger.warning("OAuth refresh 도중 앱 소유 credential이 변경되어 write-back을 폐기합니다")
+            guard !Task.isCancelled,
+                let loaded = try appCredentialVault.loadPayload(),
+                ClaudeOAuthCredentialVaultPayload.ownership(of: loaded) == .appManaged,
+                Self.parseCredential(from: loaded, source: .appManagedVault)?.refreshToken == credential.refreshToken
+            else { lastReadError = .reconnectRequired; return nil }
+            originalPayload = loaded
+            id = try await recoveryCoordinator.beginRefresh(originalPayload: loaded, accountID: nil)
+        } catch { lastReadError = .reconnectRequired; return nil }
+        do {
+            let recovery = recoveryCoordinator
+            let refreshed = try await tokenRefresher.refresh(
+                credential,
+                beforeSending: {
+                    try Task.checkCancellation()
+                    try await recovery.markRefreshStarted(id)
+                })
+            guard let payload = Self.mergingRefreshedCredential(refreshed, into: originalPayload) else {
+                await recoveryCoordinator.releaseRefresh(id)
+                lastReadError = .reconnectRequired
                 return nil
             }
-
-            let sourceCredential = ClaudeCodeOAuthCredential(
-                accessToken: refreshed.accessToken,
-                refreshToken: refreshed.refreshToken,
-                expiresAt: refreshed.expiresAt,
-                source: .appManagedVault
-            )
-            guard await persistCredentialToVault(
-                sourceCredential,
-                ownership: .appManaged,
-                verify: true
-            ) else {
-                Logger.error("앱 소유 OAuth refresh 성공 후 vault write-back에 실패했습니다")
-                // 회전된 새 refresh token을 현재 프로세스에서는 계속 사용해
-                // 사용량 조회를 복구한다. 다음 실행에는 재연결이 필요할 수 있다.
+            // Preserve first, even when the source changed, the caller was
+            // cancelled, or shutdown has stopped new active-vault writes.
+            do { try await recoveryCoordinator.preserveSuccessor(payload, operationID: id) } catch {
+                let usable = try? await recoveryCoordinator.usableRefreshSuccessor(id)
+                await recoveryCoordinator.releaseRefresh(id)
+                if let usable, !Task.isCancelled {
+                    lastReadError = nil
+                    return Self.parseCredential(from: usable, source: .appManagedVault)
+                }
+                lastReadError = .reconnectRequired
+                return nil
+            }
+            do {
+                let applied = try await recoveryCoordinator.applyRefreshSuccessor(id)
                 lastReadError = nil
-                return sourceCredential
+                return Self.parseCredential(from: applied, source: .appManagedVault)
+            } catch {
+                let usable = try? await recoveryCoordinator.usableRefreshSuccessor(id)
+                await recoveryCoordinator.releaseRefresh(id)
+                if let usable, !Task.isCancelled {
+                    lastReadError = nil
+                    return Self.parseCredential(from: usable, source: .appManagedVault)
+                }
+                lastReadError = .reconnectRequired
+                return nil
             }
-            lastReadError = nil
-            Logger.info("앱 소유 OAuth credential을 refresh하고 vault에 동기화했습니다")
-            return sourceCredential
+        } catch ClaudeOAuthTokenRefresher.RefreshError.notSent {
+            try? await recoveryCoordinator.finishRefreshWithoutSending(id)
+            await recoveryCoordinator.releaseRefresh(id)
+            lastReadError = .refreshUnavailable
+            return nil
+        } catch ClaudeOAuthTokenRefresher.RefreshError.missingRefreshToken {
+            try? await recoveryCoordinator.finishRefreshWithoutSending(id)
+            await recoveryCoordinator.releaseRefresh(id)
+            lastReadError = .reconnectRequired
+            return nil
         } catch ClaudeOAuthTokenRefresher.RefreshError.invalidGrant {
-            if let latestPayload = try? appCredentialVault.loadPayload(),
-               ClaudeOAuthCredentialVaultPayload.ownership(of: latestPayload) == .appManaged,
-                let latestCredential = Self.parseCredential(
-                   from: latestPayload,
-                   source: .appManagedVault
-               ),
-               latestCredential.refreshToken == credential.refreshToken {
-                try? appCredentialVault.deletePayload()
-            }
+            try? await recoveryCoordinator.retainRejectedRefresh(id)
+            await recoveryCoordinator.releaseRefresh(id)
             lastReadError = .reauthenticationRequired
-            Logger.warning("앱 소유 OAuth refresh invalid_grant — Claude Code 재연결 필요")
             return nil
         } catch {
-            Logger.warning("앱 소유 OAuth refresh 실패: \(error.localizedDescription)")
+            // Transport failure/invalid response after POST is uncertain. The
+            // durable started record prevents any old-generation retry.
+            await recoveryCoordinator.releaseRefresh(id)
+            lastReadError = .reconnectRequired
             return nil
         }
+    }
+
+    private static func mergingRefreshedCredential(
+        _ credential: ClaudeCodeOAuthCredential, into original: String
+    ) -> String? {
+        guard let data = original.data(using: .utf8),
+            var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            var oauth = root["claudeAiOauth"] as? [String: Any]
+        else { return nil }
+        oauth["accessToken"] = credential.accessToken
+        oauth["refreshToken"] = credential.refreshToken
+        oauth["expiresAt"] = credential.expiresAt.map { Int($0.timeIntervalSince1970 * 1000) }
+        root["claudeAiOauth"] = oauth
+        guard let output = try? JSONSerialization.data(withJSONObject: root, options: [.sortedKeys]),
+            let payload = String(data: output, encoding: .utf8)
+        else { return nil }
+        return ClaudeOAuthCredentialVaultPayload.encode(credentialPayload: payload, ownership: .appManaged)
+    }
+
+    private func nativeReadOnlyCredential(_ lookup: CredentialFileLookup) async -> ClaudeCodeOAuthCredential? {
+        if case .payload(let payload) = await cliKeychainPayloadReader(cliKeychainService),
+            let credential = Self.parseCredential(from: payload, source: .keychain(service: cliKeychainService)),
+            !credential.isExpired
+        {
+            return credential
+        }
+        if case .credential(let credential) = lookup, !credential.isExpired { return credential }
+        lastReadError = .reconnectRequired
+        return nil
     }
 
     /// 활성 CLI credential을 앱 vault에 mirror로 저장한다. 이 refresh token은
@@ -975,7 +1173,8 @@ actor ClaudeCodeCredentialReader {
 
     private func persistPayloadToVault(_ payload: String) async -> Bool {
         do {
-            try appCredentialVault.savePayload(payload)
+            guard !Task.isCancelled, let lease = Self.recoveryReadLease else { return false }
+            try await recoveryCoordinator.saveMirror(payload, lease: lease)
             return true
         } catch {
             Logger.warning("OAuth refresh 캐시 저장 실패")
@@ -1084,6 +1283,7 @@ actor ClaudeCodeCredentialReader {
                 source: .file(fileURL),
                 sourceDescription: "파일: \(fileURL.lastPathComponent)")
             {
+                await updateProfileMetadata(from: text)
                 return .credential(credential)
             }
             return .unavailable
@@ -1093,6 +1293,21 @@ actor ClaudeCodeCredentialReader {
         return .missing
     }
 
+    private func updateProfileMetadata(from payload: String) async {
+        guard !Task.isCancelled, let profileMetadataStore else { return }
+        let lease: CredentialRecoveryReadLease
+        if Self.importOperation != nil {
+            guard await currentImportIsValid(), let current = try? await recoveryCoordinator.beginRead(),
+                await currentImportIsValid()
+            else { return }
+            lease = current
+        } else {
+            guard let current = Self.recoveryReadLease else { return }
+            lease = current
+        }
+        _ = await profileMetadataStore.update(from: payload, guardedBy: recoveryCoordinator, lease: lease)
+    }
+
     private func decodeCredential(
         from credentialsText: String,
         source: ClaudeCodeOAuthCredential.Source,
@@ -1100,10 +1315,6 @@ actor ClaudeCodeCredentialReader {
     ) async -> ClaudeCodeOAuthCredential? {
         guard let credential = Self.parseCredential(from: credentialsText, source: source) else {
             return nil
-        }
-
-        if let profileMetadataStore {
-            _ = await profileMetadataStore.update(from: credentialsText)
         }
 
         if credential.isExpired {

@@ -209,11 +209,8 @@ cleanup() {
 
     if is_registered_worktree; then
         if ! git -C "$ROOT_DIR" worktree remove --force "$WORKTREE_DIR" >/dev/null 2>&1; then
-            if ! rm -rf "$WORKTREE_DIR" || [[ -e "$WORKTREE_DIR" ]]; then
-                echo "gh-pages 임시 worktree를 제거하지 못했습니다: $WORKTREE_DIR" >&2
-                cleanup_failed=1
-            fi
-            git -C "$ROOT_DIR" worktree prune --expire now >/dev/null 2>&1 || cleanup_failed=1
+            echo "gh-pages 임시 worktree를 제거하지 못했습니다. 경로와 등록을 보존합니다: $WORKTREE_DIR" >&2
+            cleanup_failed=1
         fi
     elif [[ -d "$WORKTREE_DIR" ]]; then
         if ! rm -rf "$WORKTREE_DIR" || [[ -e "$WORKTREE_DIR" ]]; then

@@ -17,7 +17,7 @@ final class AppDataResetTests: XCTestCase {
         try? FileManager.default.removeItem(at: library)
     }
 
-    func testResetRemovesEverythingThisChannelStored() throws {
+    func testResetRemovesStoredDataWhilePreservingTheLockDirectory() throws {
         let keychain = KeychainStub(accounts: [
             "claude-session-key.account", KeychainClaudeOAuthCredentialVault.account, "oauth.antigravity.v2.id",
         ])
@@ -35,7 +35,12 @@ final class AppDataResetTests: XCTestCase {
         reset.perform(AppDataResetPlan(keepsClaudeCodeTokenCopy: false))
 
         for location in reset.storageLocations {
-            XCTAssertFalse(FileManager.default.fileExists(atPath: location.path), location.path)
+            if location == reset.applicationSupportDirectory {
+                XCTAssertTrue(FileManager.default.fileExists(atPath: location.path))
+                XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: location.path), [])
+            } else {
+                XCTAssertFalse(FileManager.default.fileExists(atPath: location.path), location.path)
+            }
         }
         for location in untouched {
             XCTAssertTrue(FileManager.default.fileExists(atPath: location.path), location.path)
@@ -81,6 +86,52 @@ final class AppDataResetTests: XCTestCase {
                     || location.lastPathComponent == Self.directoryName,
                 location.path)
         }
+    }
+
+    func testResetPreservesHeldInodeAndSingleInstanceExclusion() throws {
+        let reset = makeReset(keychain: KeychainStub(accounts: []), recorder: SystemRecorder())
+        try createAll(reset.storageLocations)
+        let owner = AppSingleInstanceGuard()
+        let contender = AppSingleInstanceGuard()
+        defer { owner.release(); contender.release() }
+        XCTAssertEqual(owner.acquire(applicationSupportDirectoryURL: reset.applicationSupportDirectory), .acquired)
+        let lockURL = reset.applicationSupportDirectory.appendingPathComponent(AppSingleInstanceGuard.lockFileName)
+        let before = try FileManager.default.attributesOfItem(atPath: lockURL.path)[.systemFileNumber] as? NSNumber
+
+        XCTAssertTrue(reset.perform(AppDataResetPlan(keepsClaudeCodeTokenCopy: false)))
+
+        let after = try FileManager.default.attributesOfItem(atPath: lockURL.path)[.systemFileNumber] as? NSNumber
+        XCTAssertNotNil(before)
+        XCTAssertEqual(before, after)
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: reset.applicationSupportDirectory.path),
+            [AppSingleInstanceGuard.lockFileName])
+        XCTAssertEqual(
+            contender.acquire(applicationSupportDirectoryURL: reset.applicationSupportDirectory), .alreadyRunning)
+        owner.release()
+        XCTAssertEqual(contender.acquire(applicationSupportDirectoryURL: reset.applicationSupportDirectory), .acquired)
+        XCTAssertEqual(
+            try FileManager.default.attributesOfItem(atPath: lockURL.path)[.systemFileNumber] as? NSNumber, before)
+    }
+
+    func testSymlinkSupportRootIsRejectedBeforeAnyResetSideEffect() throws {
+        let keychain = KeychainStub(accounts: ["fixture"])
+        let recorder = SystemRecorder()
+        let reset = makeReset(keychain: keychain, recorder: recorder)
+        let foreign = library.appendingPathComponent("foreign", isDirectory: true)
+        try FileManager.default.createDirectory(at: foreign, withIntermediateDirectories: true)
+        let preserved = foreign.appendingPathComponent("data")
+        try Data("keep".utf8).write(to: preserved)
+        try FileManager.default.createDirectory(
+            at: reset.applicationSupportDirectory.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: reset.applicationSupportDirectory, withDestinationURL: foreign)
+
+        XCTAssertFalse(reset.canPerform())
+        XCTAssertFalse(reset.perform(AppDataResetPlan(keepsClaudeCodeTokenCopy: false)))
+        XCTAssertEqual(try String(contentsOf: preserved, encoding: .utf8), "keep")
+        XCTAssertEqual(keychain.deleted, [])
+        XCTAssertEqual(recorder.events, [])
     }
 
     private func makeReset(keychain: KeychainStub, recorder: SystemRecorder) -> AppDataReset {

@@ -28,6 +28,7 @@ TRACKED_UPDATE_TEMP=""
 
 OVERWRITE_CONFIG=0
 ALLOW_NEW_KEY=0
+ADOPT_PUBLIC_KEY=""
 DEFAULT_FEED_URL=""
 DEFAULT_NOTARY_PROFILE="ClaudeUsageNotary"
 CHANNEL="prod"
@@ -69,6 +70,14 @@ while [[ $# -gt 0 ]]; do
             ALLOW_NEW_KEY=1
             shift
             ;;
+        --adopt-public-key)
+            [[ $# -ge 2 && -n "$2" && -z "$ADOPT_PUBLIC_KEY" ]] || {
+                echo "--adopt-public-key에 새 공개키를 한 번 지정해 주세요." >&2
+                exit 2
+            }
+            ADOPT_PUBLIC_KEY="$2"
+            shift 2
+            ;;
         --feed-url)
             DEFAULT_FEED_URL="$2"
             shift 2
@@ -84,11 +93,12 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             cat <<USAGE
 사용법:
-    $0 [--force] [--new-key] [--feed-url URL] [--channel prod|staging] [--notary-profile NAME]
+    $0 [--force] [--new-key | --adopt-public-key BASE64] [--feed-url URL] [--channel prod|staging] [--notary-profile NAME]
 
 옵션:
     --force            local xcconfig를 다시 작성 (기존 signing key는 재사용)
     --new-key          Keychain에 키가 없을 때 새 키를 만들고 커밋된 공개키를 바꿈
+    --adopt-public-key 기존 Keychain 키를 명시적으로 채택 (지정한 공개키와 일치해야 함)
     --feed-url URL     SUFeedURL 기본값 (기본: GitHub Pages 채널 URL)
     --channel NAME     기본 feed 채널 (prod 또는 staging, 기본: $CHANNEL)
     --notary-profile N NOTARY_PROFILE 기본값 (기본: $DEFAULT_NOTARY_PROFILE)
@@ -101,6 +111,11 @@ USAGE
             ;;
     esac
 done
+
+if [[ "$ALLOW_NEW_KEY" == "1" && -n "$ADOPT_PUBLIC_KEY" ]]; then
+    echo "--new-key와 --adopt-public-key는 함께 사용할 수 없습니다." >&2
+    exit 2
+fi
 
 validate_channel() {
     case "${1:-}" in
@@ -238,8 +253,42 @@ if [[ -n "$PUBLIC_KEY" ]]; then
 fi
 
 TRACKED_PUBLIC_KEY=""
-if [[ -f "${TRACKED_XCCONFIG:-}" ]]; then
-    TRACKED_PUBLIC_KEY="$(sed -n -E 's/^[[:space:]]*SUPublicEDKey[[:space:]]*=[[:space:]]*([A-Za-z0-9+/=]{40,})[[:space:]]*$/\1/p' "$TRACKED_XCCONFIG" | tail -n1)"
+[[ -f "${TRACKED_XCCONFIG:-}" ]] || {
+    echo "tracked release xcconfig를 찾지 못했습니다." >&2
+    exit 1
+}
+TRACKED_PUBLIC_KEY="$(sed -n -E 's/^[[:space:]]*SUPublicEDKey[[:space:]]*=[[:space:]]*(.*[^[:space:]])[[:space:]]*$/\1/p' "$TRACKED_XCCONFIG")"
+validate_public_key() {
+    python3 - "$1" <<'PY'
+import base64
+import sys
+try:
+    valid = len(base64.b64decode(sys.argv[1], validate=True)) == 32
+except ValueError:
+    valid = False
+raise SystemExit(0 if valid else 1)
+PY
+}
+
+if [[ -n "$PUBLIC_KEY" ]] && ! validate_public_key "$PUBLIC_KEY"; then
+    echo "Keychain 공개키 형식이 올바르지 않습니다." >&2
+    exit 1
+fi
+if [[ -n "$TRACKED_PUBLIC_KEY" ]] && ! validate_public_key "$TRACKED_PUBLIC_KEY"; then
+    echo "커밋된 공개키 형식이 올바르지 않습니다." >&2
+    exit 1
+fi
+if [[ -n "${ADOPT_PUBLIC_KEY:-}" ]]; then
+    if [[ "$HAS_EXISTING_KEY" != "1" ]] || ! validate_public_key "$ADOPT_PUBLIC_KEY" \
+        || [[ "$ADOPT_PUBLIC_KEY" != "$PUBLIC_KEY" ]]; then
+        echo "채택할 공개키가 현재 Keychain 키와 일치하지 않습니다." >&2
+        exit 1
+    fi
+fi
+if [[ "$HAS_EXISTING_KEY" == "1" && -n "$TRACKED_PUBLIC_KEY" && "$TRACKED_PUBLIC_KEY" != "$PUBLIC_KEY" \
+    && "${ADOPT_PUBLIC_KEY:-}" != "$PUBLIC_KEY" ]]; then
+    echo "Keychain 공개키가 커밋된 공개키와 다릅니다. 기존 개인키를 복원하거나 의도한 교체에만 --adopt-public-key를 사용하세요." >&2
+    exit 1
 fi
 if [[ "$HAS_EXISTING_KEY" == "0" && -n "$TRACKED_PUBLIC_KEY" && "${ALLOW_NEW_KEY:-0}" != "1" ]]; then
     # 배포된 앱은 커밋된 공개키만 믿는다. 새 기기에서는 기존 개인키를 가져와야 한다.
@@ -260,7 +309,7 @@ else
     fi
 fi
 
-if [[ -z "$PUBLIC_KEY" ]]; then
+if [[ -z "$PUBLIC_KEY" ]] || ! validate_public_key "$PUBLIC_KEY"; then
     echo "공개키 추출 실패." >&2
     echo "   generate_keys 출력을 직접 확인해 주세요: $GEN_KEYS" >&2
     exit 1

@@ -240,13 +240,15 @@ final class ClaudeUsageAccountProvider: UsageAccountProvider, UsageAccountMenuBa
         keychain: ClaudeCodeKeychain = .system, session: URLSession = .shared,
         cliRefresher: ClaudeCodeCredentialReader.CLIRefresher = {
             await ClaudeCodeCLI.refreshLogin(configDirectoryValue: $0)
-        }
+        }, recoveryCoordinator: CredentialRecoveryCoordinator? = nil
     ) async throws -> CredentialUsage {
         var read = await slot.currentCredential(interactive: interactive, keychain: keychain)
         try Task.checkCancellation()
         if case .credential(let credential) = read, credential.isExpired {
             // 원문을 모르는 항목은 `claude`가 다른 항목을 보게 된다. 그 폴더의 Claude Code가 갱신할 때까지 기다린다.
             guard slot.canRunCLI else { throw UsageAccountFetchError.unavailable }
+            let recovery = recoveryCoordinator ?? CredentialRecoveryCoordinator.operationDefault(keychain: keychain)
+            guard await recovery.canRefreshCLIGeneration(credential) else { throw UsageAccountFetchError.loginExpired }
             switch await cliRefresher(slot.cliConfigDirectoryValue) {
             case .refreshed: read = await slot.currentCredential(interactive: false, keychain: keychain)
             case .notLoggedIn: throw UsageAccountFetchError.loginExpired
@@ -286,7 +288,7 @@ final class ClaudeUsageAccountProvider: UsageAccountProvider, UsageAccountMenuBa
     func switchDefault(to account: UsageAccount, plan: UsageAccountSwitchPlan) async throws {
         guard let directory = account.source(.directory) else { throw AccountSwitchError.unavailable }
         let reference = directory.reference
-        let email = account.identity.email
+        let expectedIdentity = account.identity
         let keychain = self.keychain
         let refresher = cliRefresher
         let tokenOwner = self.tokenOwner
@@ -294,7 +296,8 @@ final class ClaudeUsageAccountProvider: UsageAccountProvider, UsageAccountMenuBa
         try await Task.detached(priority: .userInitiated) {
             let folder = await Self.folderSlot(reference, keychain: keychain, tokenOwner: tokenOwner)
             try await ClaudeAccountSwitcher.switchDefault(
-                to: folder, expectedEmail: email, keychain: keychain, refresher: refresher, tokenOwner: tokenOwner)
+                to: folder, expectedIdentity: expectedIdentity, keychain: keychain, refresher: refresher,
+                tokenOwner: tokenOwner)
         }.value
     }
 

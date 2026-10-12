@@ -131,6 +131,8 @@ final class AccountSwitchingTests: XCTestCase {
     func testSwapLeavesBothLoginsWhenSecondProfileCannotBeWritten() async throws {
         let a = try slot("a", email: "a@example.com", token: "token-a")
         let b = try slot("b", email: "b@example.com", token: "token-b")
+        let originalPermissions = try FileManager.default.attributesOfItem(atPath: a.credentialFiles[0].path)[
+            .posixPermissions]
         try FileManager.default.removeItem(at: b.profileFile)
 
         do {
@@ -144,7 +146,7 @@ final class AccountSwitchingTests: XCTestCase {
         let profile = try JSONSerialization.jsonObject(with: Data(contentsOf: a.profileFile)) as? [String: Any]
         XCTAssertEqual((profile?["oauthAccount"] as? [String: Any])?["emailAddress"] as? String, "a@example.com")
         let permissions = try FileManager.default.attributesOfItem(atPath: a.credentialFiles[0].path)[.posixPermissions]
-        XCTAssertEqual(permissions as? Int, 0o600)
+        XCTAssertEqual(permissions as? Int, originalPermissions as? Int)
     }
 
     func testKeychainLoginIsWrittenBackThroughSecurityToolFirst() async throws {
@@ -152,8 +154,12 @@ final class AccountSwitchingTests: XCTestCase {
         let b = try slot("b", email: "b@example.com", token: "token-b")
         let written = WrittenPayloads()
         var keychain = ClaudeCodeKeychain.none
+        keychain.accountName = { _ in "fixture" }
         keychain.read = { service in
-            service == a.keychainService ? .payload(#"{"claudeAiOauth":{"accessToken":"keychain-a"}}"#) : .notFound
+            guard service == a.keychainService else { return .notFound }
+            return .payload(
+                written.payload(for: service)
+                    ?? #"{"claudeAiOauth":{"accessToken":"keychain-a"}}"#)
         }
         keychain.update = { service, payload in
             written.record(service, payload)
@@ -350,7 +356,7 @@ final class AccountSwitchingTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: live.path))
     }
 
-    func testCodexAuthFilesSwapAtomically() throws {
+    func testCodexAuthFilesSwapAtomically() async throws {
         let a = root.appendingPathComponent("home/auth.json")
         let b = root.appendingPathComponent("other/auth.json")
         for (url, value) in [(a, "A"), (b, "B")] {
@@ -359,22 +365,32 @@ final class AccountSwitchingTests: XCTestCase {
             try Data(value.utf8).write(to: url)
         }
 
-        try CodexAccountSwitcher.swapAuthFiles(a, b)
+        try await CodexAccountSwitcher.swapAuthFiles(a, b)
 
         XCTAssertEqual(String(decoding: try Data(contentsOf: a), as: UTF8.self), "B")
         XCTAssertEqual(String(decoding: try Data(contentsOf: b), as: UTF8.self), "A")
-        XCTAssertThrowsError(
-            try CodexAccountSwitcher.swapAuthFiles(a, root.appendingPathComponent("missing/auth.json")))
+        do {
+            try await CodexAccountSwitcher.swapAuthFiles(a, root.appendingPathComponent("missing/auth.json"))
+            XCTFail("missing auth must not be exchanged")
+        } catch {}
         XCTAssertEqual(String(decoding: try Data(contentsOf: a), as: UTF8.self), "B")
     }
 }
 
 private final class WrittenPayloads: @unchecked Sendable {
     private let lock = NSLock()
-    private(set) var services: [String] = []
+    private var recordedServices: [String] = []
+    private var payloads: [String: Data] = [:]
+    var services: [String] { lock.withLock { recordedServices } }
+
+    func payload(for service: String) -> String? {
+        lock.withLock { payloads[service].map { String(decoding: $0, as: UTF8.self) } }
+    }
 
     func record(_ service: String, _ payload: Data) {
-        lock.withLock { services.append(service) }
+        lock.withLock {
+            recordedServices.append(service); payloads[service] = payload
+        }
     }
 }
 

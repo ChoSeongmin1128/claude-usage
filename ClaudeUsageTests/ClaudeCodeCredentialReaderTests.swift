@@ -16,7 +16,7 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
         let token = try await reader.readAccessToken()
 
         XCTAssertEqual(token, "file-token")
-        XCTAssertEqual(vault.loadCount, 1)
+        XCTAssertEqual(vault.loadCount, 2, "read lease plus credential lookup")
         XCTAssertNotEqual(token, "stale-vault-token")
         XCTAssertTrue(interactive.calls.isEmpty)
     }
@@ -36,7 +36,7 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
         let token = try await reader.readAccessToken()
 
         XCTAssertNil(token)
-        XCTAssertEqual(vault.loadCount, 1)
+        XCTAssertEqual(vault.loadCount, 2, "read lease plus credential lookup")
         XCTAssertTrue(interactive.calls.isEmpty)
     }
 
@@ -55,7 +55,7 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
         let token = try await reader.readAccessToken()
 
         XCTAssertEqual(token, "vault-token")
-        XCTAssertEqual(vault.loadCount, 1)
+        XCTAssertEqual(vault.loadCount, 2, "read lease plus credential lookup")
         XCTAssertTrue(interactive.calls.isEmpty)
     }
 
@@ -154,9 +154,11 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
 
     func testConcurrentCredentialRequestsShareOneLookup() async throws {
         let vault = OAuthVaultStub(payload: Self.credentialJSON(token: "shared-token"))
+        let cli = CLIKeychainStub([])
         let reader = ClaudeCodeCredentialReader(
             homeDirectory: try makeTemporaryHome(),
-            appCredentialVault: vault
+            appCredentialVault: vault,
+            cliKeychainPayloadReader: { await cli.read($0) }
         )
 
         let tokens = try await withThrowingTaskGroup(of: String?.self) { group in
@@ -167,27 +169,30 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
         }
 
         XCTAssertEqual(Set(tokens.compactMap { $0 }), ["shared-token"])
-        XCTAssertEqual(vault.loadCount, 1)
+        XCTAssertEqual(cli.services.count, 1, "concurrent callers share the actual credential lookup")
+        XCTAssertEqual(vault.loadCount, 2, "read lease and shared lookup each read back the app vault")
     }
 
     func testNilResultIsCachedUntilExplicitInvalidation() async throws {
         let vault = OAuthVaultStub()
+        let cli = CLIKeychainStub([])
         let reader = ClaudeCodeCredentialReader(
             homeDirectory: try makeTemporaryHome(),
             appCredentialVault: vault,
-            cacheTTL: 600
+            cacheTTL: 600,
+            cliKeychainPayloadReader: { await cli.read($0) }
         )
 
         let first = try await reader.readAccessToken()
         let second = try await reader.readAccessToken()
         XCTAssertNil(first)
         XCTAssertNil(second)
-        XCTAssertEqual(vault.loadCount, 1)
+        XCTAssertEqual(cli.services.count, 1, "authority readback must not repeat the nil credential lookup")
 
         await reader.invalidateCache()
         let afterInvalidation = try await reader.readAccessToken()
         XCTAssertNil(afterInvalidation)
-        XCTAssertEqual(vault.loadCount, 2)
+        XCTAssertEqual(cli.services.count, 2, "explicit invalidation permits one new lookup")
     }
 
     func testVaultReadFailureDoesNotFallBackToPossiblyStaleCredentialFile() async throws {
@@ -226,7 +231,7 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
 
         let token = try await reader.readAccessToken()
         XCTAssertEqual(token, "file-token")
-        XCTAssertEqual(vault.loadCount, 1)
+        XCTAssertEqual(vault.loadCount, 2, "read lease plus credential lookup")
         XCTAssertTrue(interactive.calls.isEmpty)
     }
 
@@ -248,7 +253,7 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
         let token = try await reader.readAccessToken()
 
         XCTAssertNil(token)
-        XCTAssertEqual(vault.loadCount, 1)
+        XCTAssertEqual(vault.loadCount, 2, "read lease plus credential lookup")
     }
 
     func testExpiredVaultMirrorDoesNotRotateCLIOwnedRefreshToken() async throws {
@@ -403,7 +408,7 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
                 return XCTFail("예상하지 못한 credential 오류: \(error)")
             }
         }
-        XCTAssertEqual(vault.loadCount, 1)
+        XCTAssertEqual(vault.loadCount, 2, "read lease plus credential lookup")
     }
 
     func testExpiredCredentialFileIsRefreshedByClaudeCodeNotByTheApp() async throws {

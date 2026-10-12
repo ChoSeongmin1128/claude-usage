@@ -29,6 +29,7 @@ nonisolated enum OAuthCredentialVaultError: Error, Equatable, Sendable {
     case invalidReference
     case invalidPayload
     case deletionVerificationFailed
+    case atomicCreationUnavailable
     case interactionNotAllowed
     case unexpectedStatus(OSStatus)
 }
@@ -41,11 +42,18 @@ nonisolated enum OAuthCredentialVaultError: Error, Equatable, Sendable {
 nonisolated protocol OAuthCredentialVault: Sendable {
     nonisolated func loadPayload(reference: String) throws -> Data?
     nonisolated func savePayload(_ payload: Data, reference: String) throws
+    /// Returns false on duplicate. It must never update an existing item.
+    nonisolated func createIfAbsent(_ payload: Data, reference: String) throws -> Bool
     nonisolated func deletePayload(reference: String) throws
     nonisolated func references(in namespace: OAuthCredentialVaultNamespace) throws -> Set<String>
 }
 
 extension OAuthCredentialVault {
+    // Older adapters cannot provide atomic creation by composing load/save.
+    nonisolated func createIfAbsent(_ payload: Data, reference: String) throws -> Bool {
+        throw OAuthCredentialVaultError.atomicCreationUnavailable
+    }
+
     nonisolated func deleteOrphans(
         in namespace: OAuthCredentialVaultNamespace,
         preserving requestedReferences: Set<String>
@@ -148,6 +156,19 @@ final class SecurityFrameworkOAuthCredentialVault: OAuthCredentialVault, @unchec
             // Preserve the existing Claude app-vault behavior: an unexpected
             // first update result still gets one add/duplicate-update attempt.
             try addOrRetryUpdate(payload: payload, query: query)
+        }
+    }
+
+    nonisolated func createIfAbsent(_ payload: Data, reference: String) throws -> Bool {
+        try Self.validateExactReference(reference)
+        guard !payload.isEmpty else { throw OAuthCredentialVaultError.invalidPayload }
+        let attributes = Self.addItemAttributes(service: service, reference: reference, payload: payload)
+        switch SecItemAdd(attributes as CFDictionary, nil) {
+        case errSecSuccess: return true
+        case errSecDuplicateItem: return false
+        case errSecInteractionNotAllowed, errSecAuthFailed, errSecUserCanceled:
+            throw OAuthCredentialVaultError.interactionNotAllowed
+        case let status: throw OAuthCredentialVaultError.unexpectedStatus(status)
         }
     }
 

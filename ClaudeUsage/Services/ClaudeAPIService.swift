@@ -393,18 +393,25 @@ actor ClaudeAPIService {
 
     /// 사용자 본인이 Claude Code 연결을 선택한 경우에만 CLI 소유 Keychain
     /// credential을 한 번 읽어 앱 vault에 저장한다.
+    func drainCredentialRecovery() async { await oauthCredentialReader.drainRecovery() }
+
     func importClaudeCodeCredentialForActivation() async throws {
+        try Task.checkCancellation()
         switch await oauthCredentialReader.importActiveCLICredential() {
         case .available:
+            try Task.checkCancellation()
             return
         case .imported:
+            try Task.checkCancellation()
             // 명시적 가져오기는 vault가 비어 있어 이전 token과 비교할 수 없는
             // 경우에도 다른 CLI 계정일 수 있다. 과거 identity/profile/usage
             // 캐시를 항상 비워 새 credential의 응답으로 다시 채운다.
             let previousGeneration = claudeCodeCredentialGeneration
             _ = try? await readSystemOAuthAccessToken()
+            try Task.checkCancellation()
             if previousGeneration == claudeCodeCredentialGeneration { invalidateClaudeCodeRequestGeneration() }
             await clearClaudeCodeIdentityState()
+            try Task.checkCancellation()
         case .notFound:
             throw APIError.claudeCodeCredentialUnavailable
         case .cancelled:

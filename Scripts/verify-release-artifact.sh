@@ -13,6 +13,7 @@ source "$ROOT_DIR/Scripts/lib/release-driver-common.sh"
 source "$ROOT_DIR/Scripts/lib/github-cli-token.sh"
 scope_github_cli_token
 SPARKLE_SIGNATURE_VERIFIER="$ROOT_DIR/Scripts/verify-sparkle-signature.swift"
+ASSET_DOWNLOADER="$ROOT_DIR/Scripts/lib/release_download.py"
 HOMEBREW_CASK_TOOL="$ROOT_DIR/Scripts/lib/homebrew_cask.py"
 PROJECT_FILE="$ROOT_DIR/ClaudeUsage.xcodeproj/project.pbxproj"
 RELEASE_XCCONFIG="$ROOT_DIR/Config/Release.xcconfig"
@@ -208,12 +209,13 @@ if [[ "$DRY_RUN" == "1" ]]; then
     exit 0
 fi
 
-for binary in gh jq curl hdiutil xcrun spctl codesign plutil shasum stat ditto cp chmod ln; do
+for binary in gh jq curl python3 hdiutil xcrun spctl codesign plutil shasum stat ditto cp chmod ln; do
     type -P "$binary" >/dev/null 2>&1 || die "필수 명령을 찾지 못했습니다: $binary"
 done
 [[ -x /usr/libexec/PlistBuddy ]] || die "PlistBuddy를 찾지 못했습니다."
 [[ -f "$SPARKLE_SIGNATURE_VERIFIER" ]] \
     || die "Sparkle signature verifier를 찾지 못했습니다."
+[[ -f "$ASSET_DOWNLOADER" ]] || die "자산 다운로드 도구를 찾지 못했습니다."
 if [[ -n "$EXPORT_HOMEBREW_MANIFEST_TO" ]]; then
     [[ -f "$HOMEBREW_CASK_TOOL" ]] \
         || die "Homebrew Cask metadata tool을 찾지 못했습니다."
@@ -521,19 +523,11 @@ trap 'exit 129' HUP
 
 mkdir -p "$DOWNLOAD_DIR" "$MOUNT_DIR" "$ZIP_EXTRACT_DIR"
 for asset_name in ClaudeUsage.dmg ClaudeUsage.zip appcast.xml; do
-    if [[ "$TAG_ASSETS_STALE" != "1" ]] && gh release download "$TAG" \
-        --repo "$REPOSITORY" \
-        --pattern "$asset_name" \
-        --dir "$DOWNLOAD_DIR"; then
-        continue
-    fi
-    # The direct URL is checked against GitHub's size and SHA-256 metadata
-    # immediately below, even if the tag-based download index is stale.
-    curl --fail --silent --show-error --location \
-        --proto '=https' --proto-redir '=https' \
-        --retry 3 --retry-all-errors \
-        --output "$DOWNLOAD_DIR/$asset_name" \
-        "https://github.com/$REPOSITORY/releases/download/$TAG/$asset_name"
+    DOWNLOAD_ARGS=(--repo "$REPOSITORY" --tag "$TAG" --asset "$asset_name" \
+        --destination "$DOWNLOAD_DIR/$asset_name")
+    [[ "$TAG_ASSETS_STALE" != "1" ]] || DOWNLOAD_ARGS+=(--stale-index)
+    # Token goes through stdin, never argv or the curl environment.
+    printf '%s' "${SCOPED_GITHUB_CLI_TOKEN:-}" | python3 "$ASSET_DOWNLOADER" "${DOWNLOAD_ARGS[@]}"
 done
 
 DMG_SHA256="$(

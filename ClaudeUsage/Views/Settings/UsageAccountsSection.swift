@@ -55,6 +55,10 @@ struct UsageAccountsSection: View {
                     Button("확인") { controller.dismissRevertNotice(service) }.controlSize(.small)
                 }
             }
+            if let message = controller.preferenceSaveError {
+                Text(message).font(AppDesign.Typography.caption).foregroundStyle(AppDesign.Text.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if isSwitching {
                 HStack(spacing: AppDesign.Space.row) {
                     ProgressView().controlSize(.small)
@@ -139,9 +143,20 @@ struct UsageAccountsSection: View {
         let hidden = controller.isHidden(account)
         let isRuntime = controller.isRuntime(account)
         return HStack(spacing: AppDesign.Space.row) {
-            Text(controller.displayName(for: account))
-                .font(AppDesign.Typography.subheadline)
-                .lineLimit(1)
+            VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
+                Text(controller.displayName(for: account))
+                    .font(AppDesign.Typography.subheadline).lineLimit(1)
+                if let notice = controller.recoveryNotice(for: account) {
+                    Text(notice).font(AppDesign.Typography.metadata).foregroundStyle(AppDesign.Text.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if controller.reconnectTarget?.id == account.id {
+                    let directories = account.sources.filter { $0.role != .web }.map(\.reference)
+                    Text(directories.isEmpty ? "이 계정의 로그인을 다시 연결하세요." : directories.joined(separator: "\n"))
+                        .font(AppDesign.Typography.metadata).foregroundStyle(AppDesign.Text.secondary)
+                        .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                }
+            }
             if isRuntime { InUseAccountLabel() }
             ForEach(controller.badges(for: account), id: \.self) { AccountBadgeView(badge: $0) }
             Spacer(minLength: AppDesign.Space.row)
@@ -218,6 +233,7 @@ struct UsageAccountsSection: View {
     }
 
     private func statusText(_ account: UsageAccount, hidden: Bool, isRuntime: Bool) -> String {
+        if controller.recoveryNotice(for: account) != nil { return "다시 연결 필요" }
         guard isMultiAccountEnabled else { return "" }
         if hidden { return "숨김" }
         if isRuntime { return "" }

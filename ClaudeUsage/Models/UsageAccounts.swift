@@ -156,17 +156,75 @@ nonisolated struct UsageAccountPreferences: Codable, Equatable, Sendable {
     var knownIdentities: [String: UsageAccountIdentity] = [:]
 
     static let key = AppIdentifiers.defaultsKey("usageAccounts")
+    private var persistence = PreferencePersistenceContext()
 
-    init() {}
+    init() { persistence.baseline = knownJSON }
 
     init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        services = container.value(.services, default: [:])
-        aliases = container.value(.aliases, default: [:])
-        hidden = container.value(.hidden, default: [])
-        archived = container.value(.archived, default: [])
-        order = container.value(.order, default: [])
-        knownIdentities = container.value(.knownIdentities, default: [:])
+        persistence = try PreferencePersistenceContext(from: decoder)
+        persistence.checkVersion(required: false)
+        services = persistence.dictionary(ServiceSettings.self, at: "services")
+            .filter { PopoverService(rawValue: $0.key) != nil }
+        aliases = persistence.dictionary(String.self, at: "aliases")
+        hidden = persistence.read(Set<String>.self, at: ["hidden"], fallback: [])
+        archived = persistence.read(Set<String>.self, at: ["archived"], fallback: [])
+        order = persistence.read([String].self, at: ["order"], fallback: [])
+        knownIdentities = persistence.dictionary(UsageAccountIdentity.self, at: "knownIdentities")
+        for id in services.keys {
+            let base = ["services", id]
+            _ = persistence.read(Bool.self, at: base + ["isMultiAccountEnabled"], fallback: false)
+            _ = persistence.read(PopoverMode.self, at: base + ["popoverMode"], fallback: .pick)
+            _ = persistence.read([String].self, at: base + ["selected"], fallback: [])
+            _ = persistence.read(String?.self, at: base + ["pinnedTop"], fallback: nil)
+            _ = persistence.read([String].self, at: base + ["directories"], fallback: [])
+            _ = persistence.read(UsageAccountIdentity?.self, at: base + ["expectedDefault"], fallback: nil)
+            _ = persistence.read(Bool.self, at: base + ["isMenuBarAccountChosen"], fallback: false)
+        }
+        persistence.baseline = knownJSON
+    }
+
+    func encode(to encoder: Encoder) throws {
+        guard persistence.writable || !persistence.raw.isEmpty else {
+            throw EncodingError.invalidValue(
+                self,
+                .init(
+                    codingPath: encoder.codingPath,
+                    debugDescription: "Unreadable preference storage cannot be encoded as defaults"))
+        }
+        try PreferenceJSONValue.encode(
+            persistence.writable ? persistence.merged(knownJSON) : persistence.raw,
+            to: encoder)
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.services == rhs.services && lhs.aliases == rhs.aliases && lhs.hidden == rhs.hidden
+            && lhs.archived == rhs.archived && lhs.order == rhs.order && lhs.knownIdentities == rhs.knownIdentities
+    }
+
+    private static func identityJSON(_ identity: UsageAccountIdentity) -> [String: Any] {
+        let fields = [
+            "accountID": identity.accountID, "organizationID": identity.organizationID,
+            "email": identity.email, "organizationName": identity.organizationName,
+        ]
+        return fields.compactMapValues { $0 }
+    }
+
+    private var knownJSON: [String: Any] {
+        var entries: [String: Any] = [:]
+        for (id, service) in services {
+            var value: [String: Any] = [
+                "isMultiAccountEnabled": service.isMultiAccountEnabled, "popoverMode": service.popoverMode.rawValue,
+                "selected": service.selected, "directories": service.directories,
+                "isMenuBarAccountChosen": service.isMenuBarAccountChosen,
+            ]
+            if let pin = service.pinnedTop { value["pinnedTop"] = pin }
+            if let expected = service.expectedDefault { value["expectedDefault"] = Self.identityJSON(expected) }
+            entries[id] = value
+        }
+        return [
+            "services": entries, "aliases": aliases, "hidden": hidden.sorted(), "archived": archived.sorted(),
+            "order": order, "knownIdentities": knownIdentities.mapValues(Self.identityJSON),
+        ]
     }
 
     subscript(service: PopoverService) -> ServiceSettings {
@@ -175,11 +233,39 @@ nonisolated struct UsageAccountPreferences: Codable, Equatable, Sendable {
     }
 
     static func load(from defaults: UserDefaults = .standard) -> Self {
-        defaults.data(forKey: key).flatMap { try? JSONDecoder().decode(Self.self, from: $0) } ?? Self()
+        guard let object = defaults.object(forKey: key) else { return Self() }
+        guard let data = object as? Data, var value = try? JSONDecoder().decode(Self.self, from: data) else {
+            var fallback = Self()
+            fallback.persistence.object = object
+            fallback.persistence.writable = false
+            return fallback
+        }
+        value.persistence.object = object
+        if let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { value.persistence.raw = raw }
+        return value
     }
 
-    func save(to defaults: UserDefaults = .standard) {
-        if let data = try? JSONEncoder().encode(self) { defaults.set(data, forKey: Self.key) }
+    @discardableResult
+    mutating func save(to defaults: UserDefaults = .standard) -> PreferenceSaveResult {
+        commit(to: defaults, intent: .user)
+    }
+
+    @discardableResult
+    mutating func commit(to defaults: UserDefaults, intent: PreferenceChangeIntent) -> PreferenceSaveResult {
+        let known = knownJSON
+        return persistence.save(known, to: defaults, key: Self.key)
+    }
+
+    mutating func inheritPersistence(from value: Self) {
+        let readable = persistence.writable
+        let unreadable = persistence.unreadable
+        persistence = value.persistence
+        persistence.writable = persistence.writable && readable
+        persistence.unreadable.formUnion(unreadable)
+    }
+
+    func restoreStorage(to defaults: UserDefaults) {
+        PreferencePersistenceContext.restore(persistence.object, to: defaults, key: Self.key)
     }
 
     /// 고정한 계정을 먼저, 나머지는 처음 본 순서
@@ -193,6 +279,7 @@ nonisolated struct UsageAccountPreferences: Codable, Equatable, Sendable {
     }
 
     mutating func remember(_ accounts: [UsageAccount]) {
+        guard persistence.canChange(["order"]) else { return }
         var known = Set(order)
         for account in accounts where known.insert(account.id).inserted { order.append(account.id) }
     }

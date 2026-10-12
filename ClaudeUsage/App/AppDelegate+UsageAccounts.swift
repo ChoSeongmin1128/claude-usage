@@ -20,7 +20,8 @@ extension AppDelegate {
         controller.onDefaultLoginSwitched = { [weak self] service in self?.defaultLoginDidSwitch(service) }
         popoverViewModel.accountActions = PopoverAccountActions(
             toggle: { [weak controller] service, id in controller?.toggleSelection(id, service: service) },
-            reconnect: { [weak self] service, _ in
+            reconnect: { [weak self, weak controller] service, accountID in
+                controller?.requestReconnect(service: service, accountID: accountID)
                 self?.closePopover()
                 AppSettings.shared.settingsLastTab = ServiceSelectionHelper.settingsRootTab(for: service)
                 self?.showSettingsWindow()

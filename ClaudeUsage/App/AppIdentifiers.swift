@@ -17,6 +17,13 @@ nonisolated enum AppIdentifiers {
     /// bundle identifier를 못 읽을 때와 이전 버전이 쓰던 Keychain service
     static let legacyKeychainService = "ClaudeUsage"
     static let legacyClaudeOAuthKeychainService = "ClaudeUsage.Claude Code-credentials-refreshed"
+    /// Older releases reset every item under their bundle-ID service. Recovery
+    /// material lives outside that service so a downgrade cannot erase it.
+    static let credentialRecoveryServiceSuffix = ".credential-recovery"
+
+    static func credentialRecoveryService(bundleIdentifier: String) -> String {
+        bundleIdentifier + credentialRecoveryServiceSuffix
+    }
     static let popoverGeometryLogFileName = "ClaudeUsagePopoverGeometry.log"
     /// 상태 아이템 위치를 저장하는 autosave 이름. 바꾸면 메뉴바 위치를 잃는다.
     static let productionStatusItemAutosaveName = "claudeusage"

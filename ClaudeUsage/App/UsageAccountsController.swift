@@ -14,10 +14,64 @@ final class UsageAccountsController: ObservableObject {
     let providers: [any UsageAccountProvider]
     @Published private(set) var accounts: [PopoverService: [UsageAccount]] = [:]
     @Published private(set) var states: [String: UsageAccountState] = [:]
-    @Published private(set) var preferences: UsageAccountPreferences {
-        didSet { if preferences != oldValue { preferences.save(to: defaults) } }
+    @Published private var storedPreferences: UsageAccountPreferences
+    @Published private(set) var preferenceSaveError: String?
+    private(set) var preferences: UsageAccountPreferences {
+        get { storedPreferences }
+        set { _ = commitPreferences(newValue, intent: .automatic) }
+    }
+
+    @discardableResult
+    func commitPreferences(_ value: UsageAccountPreferences, intent: PreferenceChangeIntent) -> PreferenceSaveResult {
+        var candidate = value
+        candidate.inheritPersistence(from: storedPreferences)
+        let result = candidate.commit(to: defaults, intent: intent)
+        if result.accepted, result == .saved || candidate != storedPreferences { storedPreferences = candidate }
+        if case .user = intent { preferenceSaveError = result.message }
+        return result
+    }
+
+    @discardableResult
+    private func changeUserPreferences(_ change: (inout UsageAccountPreferences) -> Void) -> Bool {
+        var candidate = preferences
+        change(&candidate)
+        return commitPreferences(candidate, intent: .user).accepted
     }
     @Published private(set) var revertedSwitch: [PopoverService: String] = [:]
+    @Published private(set) var recoveryNotices: [String: String] = [:]
+    @Published private(set) var reconnectTarget: UsageAccount?
+
+    func requestReconnect(service: PopoverService, accountID: String) {
+        reconnectTarget = accounts[service]?.first { $0.id == accountID }
+    }
+
+    func recoveryNotice(for account: UsageAccount) -> String? { recoveryNotices[account.id] }
+
+    private func refreshRecoveryNotices() async {
+        var notices: [String: String] = [:]
+        for provider in activeProviders {
+            guard let recoveryProvider = CredentialRecoveryProvider(rawValue: provider.service.rawValue) else {
+                continue
+            }
+            let affected = await recoveryCoordinator.affectedSources(provider: recoveryProvider)
+            for account in accounts[provider.service] ?? [] {
+                let sources = account.sources.filter { $0.role != .web }
+                let isAffected = sources.contains { source in
+                    affected.isUnknown || affected.sourceReferences.contains(source.reference)
+                        || (affected.includesCurrentAppVault && source.role == .defaultLogin)
+                }
+                guard isAffected else { continue }
+                let status = await recoveryCoordinator.status(
+                    provider: recoveryProvider, accountID: account.identity.mergeKey)
+                switch status {
+                case .blocked, .reconnectRequired:
+                    notices[account.id] = "로그인 상태를 확인할 수 없습니다. 해당 계정의 \(provider.cliName) 로그인과 폴더를 확인한 뒤 다시 연결하세요."
+                case .ready, .recovering, .closing: break
+                }
+            }
+        }
+        recoveryNotices = notices
+    }
 
     var onChange: (() -> Void)?
     /// 메뉴바 계정 후보가 둘이면 한 번 묻는다. 고른 계정을 넘기면 메뉴바에 둔다.
@@ -26,6 +80,7 @@ final class UsageAccountsController: ObservableObject {
     var onDefaultLoginSwitched: ((PopoverService) -> Void)?
 
     private let defaults: UserDefaults
+    private let recoveryCoordinator: CredentialRecoveryCoordinator
     private let isServiceEnabled: (PopoverService) -> Bool
     private let notifyAccountChange: @MainActor (String, String) -> Void
     private var refreshTask: Task<Void, Never>?
@@ -50,6 +105,7 @@ final class UsageAccountsController: ObservableObject {
     /// 업데이트한 사용자의 메뉴바 계정이 기본 규칙(Claude 앱 로그인 먼저)으로 바뀌지 않게 한다.
     init(
         providers: [any UsageAccountProvider], defaults: UserDefaults = .standard,
+        recoveryCoordinator: CredentialRecoveryCoordinator = .shared,
         adoptsCurrentMenuBarAccount: Bool = false,
         notifyAccountChange: @escaping @MainActor (String, String) -> Void = { title, body in
             NotificationManager.shared.deliverAccountNotice(title: title, body: body)
@@ -58,10 +114,11 @@ final class UsageAccountsController: ObservableObject {
     ) {
         self.providers = providers
         self.defaults = defaults
+        self.recoveryCoordinator = recoveryCoordinator
         self.isServiceEnabled = isServiceEnabled
         self.notifyAccountChange = notifyAccountChange
         self.adoptsCurrentMenuBarAccount = adoptsCurrentMenuBarAccount
-        preferences = UsageAccountPreferences.load(from: defaults)
+        storedPreferences = UsageAccountPreferences.load(from: defaults)
     }
 
     private var adoptsCurrentMenuBarAccount: Bool
@@ -125,7 +182,7 @@ final class UsageAccountsController: ObservableObject {
     }
 
     func setMultiAccountEnabled(_ enabled: Bool, for service: PopoverService) {
-        preferences[service].isMultiAccountEnabled = enabled
+        guard changeUserPreferences({ $0[service].isMultiAccountEnabled = enabled }) else { return }
         if enabled { refreshIfNeeded(force: true) }
         onChange?()
     }
@@ -135,14 +192,15 @@ final class UsageAccountsController: ObservableObject {
     }
 
     func setPopoverMode(_ mode: UsageAccountPreferences.PopoverMode, for service: PopoverService) {
-        preferences[service].popoverMode = mode
+        guard changeUserPreferences({ $0[service].popoverMode = mode }) else { return }
         onChange?()
     }
 
     func isPinned(_ account: UsageAccount) -> Bool { preferences[account.service].pinnedTop == account.id }
 
     func togglePinned(_ account: UsageAccount) {
-        preferences[account.service].pinnedTop = isPinned(account) ? nil : account.id
+        let pin = isPinned(account) ? nil : account.id
+        guard changeUserPreferences({ $0[account.service].pinnedTop = pin }) else { return }
         onChange?()
     }
 
@@ -225,6 +283,7 @@ final class UsageAccountsController: ObservableObject {
         preferences.remember(found.values.flatMap { $0 })
         detectRevertedSwitch(in: discovered)
         for provider in activeProviders { applyMenuBarDefault(provider) }
+        await refreshRecoveryNotices()
         onChange?()
     }
 
@@ -293,8 +352,12 @@ final class UsageAccountsController: ObservableObject {
         guard let policy = provider(for: account.service)?.menuBar, let target = policy.target(for: account) else {
             return
         }
-        preferences[account.service].isMenuBarAccountChosen = true
-        preferences.hidden.remove(account.id)
+        guard
+            changeUserPreferences({
+                $0[account.service].isMenuBarAccountChosen = true
+                $0.hidden.remove(account.id)
+            })
+        else { return }
         if target != policy.currentTarget { show(target, policy: policy, service: account.service) }
         onChange?()
     }
@@ -316,12 +379,16 @@ final class UsageAccountsController: ObservableObject {
         let service = provider.service
         let current = policy.currentTarget
         if adoptsCurrentMenuBarAccount, current != nil, lastMenuBarTarget[service] == nil {
-            preferences[service].isMenuBarAccountChosen = true
+            var candidate = preferences
+            candidate[service].isMenuBarAccountChosen = true
+            guard commitPreferences(candidate, intent: .automatic).accepted else { return }
         }
         if let last = lastMenuBarTarget[service], let current, current != last,
             current != scheduledMenuBarTarget[service]
         {
-            preferences[service].isMenuBarAccountChosen = true
+            var candidate = preferences
+            candidate[service].isMenuBarAccountChosen = true
+            guard commitPreferences(candidate, intent: .automatic).accepted else { return }
         }
         lastMenuBarTarget[service] = current
 
@@ -498,8 +565,9 @@ final class UsageAccountsController: ObservableObject {
             learned.identity == result.binding.account.identity,
             preferences.knownIdentities[learned.reference] != learned.identity
         else { return false }
-        preferences.knownIdentities[learned.reference] = learned.identity
-        return true
+        var candidate = preferences
+        candidate.knownIdentities[learned.reference] = learned.identity
+        return commitPreferences(candidate, intent: .automatic).accepted
     }
 
     private func adoptObservedAccount(_ candidate: UsageAccountCandidate, replacing account: UsageAccount)
@@ -535,35 +603,45 @@ final class UsageAccountsController: ObservableObject {
         } else {
             current.append(id)
         }
-        preferences[service].selected = current
+        guard changeUserPreferences({ $0[service].selected = current }) else { return }
         onChange?()
     }
 
     func setHidden(_ hidden: Bool, _ account: UsageAccount) {
         if hidden, isRuntime(account) {
             guard let replacement = replacementForMenuBar(excluding: account) else { return }
-            preferences.hidden.insert(account.id)
+            guard changeUserPreferences({ $0.hidden.insert(account.id) }) else { return }
             showInMenuBar(replacement)
             return
         }
-        if hidden { preferences.hidden.insert(account.id) } else { preferences.hidden.remove(account.id) }
+        guard
+            changeUserPreferences({ if hidden { $0.hidden.insert(account.id) } else { $0.hidden.remove(account.id) } })
+        else { return }
         onChange?()
     }
 
     func setArchived(_ archived: Bool, _ account: UsageAccount) {
-        if archived { preferences.archived.insert(account.id) } else { preferences.archived.remove(account.id) }
+        guard
+            changeUserPreferences({
+                if archived { $0.archived.insert(account.id) } else { $0.archived.remove(account.id) }
+            })
+        else { return }
         if !archived { refresh(soon: account) }
         onChange?()
     }
 
     func rename(_ account: UsageAccount, to name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        preferences.aliases[account.id] = trimmed.isEmpty ? nil : trimmed
+        guard changeUserPreferences({ $0.aliases[account.id] = trimmed.isEmpty ? nil : trimmed }) else { return }
         onChange?()
     }
 
     func addDirectory(_ url: URL, service: PopoverService) {
-        if !preferences[service].directories.contains(url.path) { preferences[service].directories.append(url.path) }
+        guard
+            changeUserPreferences({
+                if !$0[service].directories.contains(url.path) { $0[service].directories.append(url.path) }
+            })
+        else { return }
         Task {
             await discoverAndWait()
             refreshIfNeeded(force: true)
@@ -573,7 +651,9 @@ final class UsageAccountsController: ObservableObject {
     /// 사용자가 추가한 폴더만 목록에서 뺀다. 폴더와 그 안의 로그인은 지우지 않는다.
     func removeDirectory(_ account: UsageAccount) {
         let paths = Set(account.sources.map(\.reference))
-        preferences[account.service].directories.removeAll { paths.contains($0) }
+        guard changeUserPreferences({ $0[account.service].directories.removeAll { paths.contains($0) } }) else {
+            return
+        }
         rediscover()
     }
 
@@ -621,9 +701,11 @@ final class UsageAccountsController: ObservableObject {
         do {
             try await provider.switchDefault(to: account, plan: plan)
         } catch let error as AccountSwitchError {
+            await refreshRecoveryNotices()
             return Self.message(for: error, cliName: provider.cliName)
         } catch {
-            return "전환하지 못했습니다. 로그인은 바뀌지 않았습니다."
+            await refreshRecoveryNotices()
+            return "전환을 완료하지 못했습니다. 해당 계정의 로그인 상태를 확인하세요."
         }
         preferences[account.service].expectedDefault = account.identity
         onDefaultLoginSwitched?(account.service)
@@ -638,6 +720,7 @@ final class UsageAccountsController: ObservableObject {
         case .cancelled: return "전환을 취소했습니다."
         case .verificationFailed: return "전환한 로그인을 확인하지 못해 원래대로 되돌렸습니다."
         case .rollbackFailed: return "전환한 로그인을 확인하지 못했고 되돌리지도 못했습니다. \(cliName)에 다시 로그인하세요."
+        case .recoveryPending: return "로그인 상태는 확인했지만 완료 기록의 저장을 확인하지 못했습니다. 다음 실행에서 다시 확인합니다."
         case .runningAppsNotTerminated: return "실행 중인 \(cliName)를 종료하지 못했습니다. 직접 종료한 뒤 다시 시도하세요."
         case .runningAppsStarted: return "그사이 \(cliName)가 실행됐습니다. 다시 시도하세요."
         case .unavailable, .writeFailed: return "전환하지 못했습니다. 로그인은 바뀌지 않았습니다."

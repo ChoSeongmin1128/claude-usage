@@ -100,6 +100,9 @@ nonisolated final class KeychainManager: @unchecked Sendable {
             lastValidationState: .verified,
             setActive: true
         )
+        guard upsertResult.wasStored else {
+            throw KeychainError.storageFailed("저장된 계정 자료를 읽을 수 없어 연결을 변경하지 않았습니다.")
+        }
         for supersededAccountID in upsertResult.supersededAccountIDs {
             do {
                 try delete(for: supersededAccountID, postsNotification: false)
@@ -122,6 +125,9 @@ nonisolated final class KeychainManager: @unchecked Sendable {
     ) throws -> Bool {
         guard !sessionKey.isEmpty else {
             throw KeychainError.invalidData
+        }
+        guard ClaudeAccountStore.shared.canUseAccountID(accountID) else {
+            throw KeychainError.storageFailed("계정 자료가 충돌하거나 읽을 수 없어 자격을 변경하지 않았습니다.")
         }
         let scopedAccount = ClaudeKeychainStore.accountName(for: accountID)
         // 계정을 지우면 저장소의 항목만 사라지고 이 캐시는 남는다. 캐시가 아니라 저장소 값과 비교해야

@@ -330,8 +330,32 @@ class AppSettings: ObservableObject {
     @Published var menuBarQuotaPreferences: MenuBarQuotaPreferences {
         didSet { menuBarQuotaPreferences.save(to: defaults) }
     }
-    @Published var notificationTargets: NotificationTargetPreferences {
-        didSet { if notificationTargets != oldValue { notificationTargets.save(to: defaults) } }
+    @Published private var storedNotificationTargets: NotificationTargetPreferences
+    @Published private(set) var preferenceSaveError: String?
+    var notificationTargets: NotificationTargetPreferences {
+        get { storedNotificationTargets }
+        set { _ = commitNotificationTargets(newValue, intent: .automatic) }
+    }
+
+    @discardableResult
+    func commitNotificationTargets(_ value: NotificationTargetPreferences, intent: PreferenceChangeIntent)
+        -> PreferenceSaveResult
+    {
+        var candidate = value
+        candidate.inheritPersistence(from: storedNotificationTargets)
+        let result = candidate.commit(to: defaults, intent: intent)
+        if result.accepted, result == .saved || candidate != storedNotificationTargets {
+            storedNotificationTargets = candidate
+        }
+        if case .user = intent { preferenceSaveError = result.message }
+        return result
+    }
+
+    @discardableResult
+    func setNotificationSelected(_ selected: Bool, limit: UsageLimit) -> PreferenceSaveResult {
+        var candidate = notificationTargets
+        candidate.setSelected(selected, limit: limit)
+        return commitNotificationTargets(candidate, intent: .user)
     }
     @Published private(set) var resetCreditMenuBarModes: [String: String] {
         didSet { defaults.set(resetCreditMenuBarModes, forKey: Self.resetCreditMenuBarKey) }
@@ -441,9 +465,9 @@ class AppSettings: ObservableObject {
                 .fullItemsByProvider
         }
         set {
-            objectWillChange.send()
-            popoverDisplayPreferencesStore
-                .setFullItemsByProvider(newValue)
+            let result = popoverDisplayPreferencesStore.setFullItemsByProvider(newValue)
+            preferenceSaveError = result.message
+            if result.accepted { objectWillChange.send() }
         }
     }
     var separateCompactConfig: Bool {
@@ -452,9 +476,9 @@ class AppSettings: ObservableObject {
                 .usesSeparateCompactItems
         }
         set {
-            objectWillChange.send()
-            popoverDisplayPreferencesStore
-                .setUsesSeparateCompactItems(newValue)
+            let result = popoverDisplayPreferencesStore.setUsesSeparateCompactItems(newValue)
+            preferenceSaveError = result.message
+            if result.accepted { objectWillChange.send() }
         }
     }
     var compactPopoverItemsByProvider:
@@ -465,9 +489,9 @@ class AppSettings: ObservableObject {
                 .compactItemsByProvider
         }
         set {
-            objectWillChange.send()
-            popoverDisplayPreferencesStore
-                .setCompactItemsByProvider(newValue)
+            let result = popoverDisplayPreferencesStore.setCompactItemsByProvider(newValue)
+            preferenceSaveError = result.message
+            if result.accepted { objectWillChange.send() }
         }
     }
     @Published var showCodexIcon: Bool {
@@ -553,6 +577,7 @@ class AppSettings: ObservableObject {
         let antigravityHoverObject: Any?
         let hoverPreferences: PopoverHoverPreferences.Snapshot
         let menuBarPresets: MenuBarPresetStore.Snapshot
+        let popoverPreferences: PopoverDisplayPreferencesStore.Snapshot
         let resetCreditMenuBarModes: [String: String]
         let menuBarDesign: MenuBarDesign
         let menuBarDesignIntroductionDismissed: Bool
@@ -610,6 +635,7 @@ class AppSettings: ObservableObject {
             antigravityHoverObject: defaults.object(forKey: AntigravityHoverDisplayPreferences.key),
             hoverPreferences: popoverDisplayPreferencesStore.hoverSnapshot(),
             menuBarPresets: menuBarPresets.snapshot(),
+            popoverPreferences: popoverDisplayPreferencesStore.snapshot(),
             resetCreditMenuBarModes: resetCreditMenuBarModes,
             menuBarDesign: menuBarDesign,
             menuBarDesignIntroductionDismissed: menuBarDesignIntroductionDismissed,
@@ -694,7 +720,8 @@ class AppSettings: ObservableObject {
         autoRefresh = snapshot.autoRefresh
         notificationsEnabled = snapshot.notificationsEnabled
         notificationPresets = snapshot.notificationPresets
-        notificationTargets = snapshot.notificationTargets
+        snapshot.notificationTargets.restoreStorage(to: defaults)
+        storedNotificationTargets = NotificationTargetPreferences.load(from: defaults)
         menuBarQuotaPreferences = snapshot.menuBarQuotaPreferences
         alertRemainingMode = snapshot.alertRemainingMode
         usageDisplayMode = snapshot.usageDisplayMode
@@ -711,12 +738,7 @@ class AppSettings: ObservableObject {
         popoverCompact = snapshot.popoverCompact
         launchAtLogin = snapshot.launchAtLogin
         preferredOrganizationID = snapshot.preferredOrganizationID
-        popoverItemsByProvider = Self.normalizedPopoverDict(snapshot.popoverItemsByProvider)
-        separateCompactConfig = snapshot.separateCompactConfig
-        compactPopoverItemsByProvider = Self.normalizedPopoverDict(
-            snapshot.compactPopoverItemsByProvider,
-            fallback: snapshot.popoverItemsByProvider
-        )
+        popoverDisplayPreferencesStore.restore(snapshot.popoverPreferences)
         showCodexIcon = snapshot.showCodexIcon
         codexPercentageDisplay = snapshot.codexPercentageDisplay
         codexResetTimeDisplay = snapshot.codexResetTimeDisplay
@@ -766,32 +788,12 @@ class AppSettings: ObservableObject {
 
     /// provider별 팝오버 항목 (정규화 후).
     func popoverItems(for service: PopoverService) -> [PopoverItemConfig] {
-        guard let catalog =
-                UsageItemCatalogRegistry.catalog(
-                    for: service
-                )
-        else {
-            return []
-        }
-        let normalized = catalog.normalized(popoverItemsByProvider[service.rawValue] ?? catalog.defaultItems)
-        return normalized
+        popoverDisplayPreferencesStore.items(for: service, surface: .standard)
     }
 
-    /// provider별 간소화 팝오버 항목 (정규화 후). 따로 정하기 전에는 일반 항목을 그대로 쓴다.
+    /// Separate compact editing starts from the effective full list.
     func compactPopoverItems(for service: PopoverService) -> [PopoverItemConfig] {
-        guard separateCompactConfig else { return popoverItems(for: service) }
-        guard let catalog =
-                UsageItemCatalogRegistry.catalog(
-                    for: service
-                )
-        else {
-            return []
-        }
-        let stored = compactPopoverItemsByProvider[service.rawValue]
-            ?? popoverItemsByProvider[service.rawValue]
-            ?? catalog.defaultItems
-        let normalized = catalog.normalized(stored)
-        return normalized
+        popoverDisplayPreferencesStore.items(for: service, surface: separateCompactConfig ? .compact : .standard)
     }
 
     func displayItems(for service: PopoverService, surface: ProviderDisplaySurface) -> [PopoverItemConfig] {
@@ -805,13 +807,8 @@ class AppSettings: ObservableObject {
     func setDisplayItems(_ items: [PopoverItemConfig], for service: PopoverService, surface: ProviderDisplaySurface)
         throws
     {
-        switch surface {
-        case .standard: setPopoverItems(items, for: service)
-        case .compact: setCompactPopoverItems(items, for: service)
-        case .hover:
-            try popoverDisplayPreferencesStore.setHoverItems(items, for: service)
-            objectWillChange.send()
-        }
+        try popoverDisplayPreferencesStore.setItems(items, for: service, surface: surface)
+        objectWillChange.send()
     }
 
     /// density에 맞춰 실제로 사용할 항목 배열.
@@ -821,32 +818,21 @@ class AppSettings: ObservableObject {
 
     /// provider의 항목 배열 업데이트 (정규화 적용).
     func setPopoverItems(_ items: [PopoverItemConfig], for service: PopoverService) {
-        guard let catalog =
-                UsageItemCatalogRegistry.catalog(
-                    for: service
-                )
-        else {
-            return
-        }
-        var dict = popoverItemsByProvider
-        dict[service.rawValue] = catalog.normalized(items)
-        popoverItemsByProvider = dict
+        commitDisplayItems(items, for: service, surface: .standard)
     }
 
-    /// provider의 간소화 항목 배열 업데이트 (정규화 적용).
-    /// 간소화 항목을 바꾸면 그때부터 일반 항목과 따로 쓴다.
     func setCompactPopoverItems(_ items: [PopoverItemConfig], for service: PopoverService) {
-        guard let catalog =
-                UsageItemCatalogRegistry.catalog(
-                    for: service
-                )
-        else {
-            return
-        }
-        if !separateCompactConfig { separateCompactConfig = true }
-        var dict = compactPopoverItemsByProvider
-        dict[service.rawValue] = catalog.normalized(items)
-        compactPopoverItemsByProvider = dict
+        commitDisplayItems(items, for: service, surface: .compact)
+    }
+
+    private func commitDisplayItems(
+        _ items: [PopoverItemConfig], for service: PopoverService,
+        surface: ProviderDisplaySurface
+    ) {
+        do {
+            try setDisplayItems(items, for: service, surface: surface)
+            preferenceSaveError = nil
+        } catch { preferenceSaveError = error.localizedDescription }
     }
 
     /// SwiftUI 바인딩.
@@ -1337,7 +1323,7 @@ class AppSettings: ObservableObject {
         autoRefresh = true
         notificationsEnabled = false
         notificationPresets = Self.defaultNotificationPresets
-        notificationTargets = NotificationTargetPreferences()
+        _ = commitNotificationTargets(notificationTargets.resetKnown(), intent: .automatic)
         menuBarQuotaPreferences = MenuBarQuotaPreferences()
         alertRemainingMode = false
         usageDisplayMode = .remaining
@@ -1353,9 +1339,8 @@ class AppSettings: ObservableObject {
         popoverCompact = false
         motion = AppMotionPreferences()
         popoverDisplayPreferencesStore.restoreHoverDefaults()
-        popoverItemsByProvider = Self.defaultPopoverItemsDict()
+        popoverDisplayPreferencesStore.restoreKnownDefaults()
         separateCompactConfig = false
-        compactPopoverItemsByProvider = Self.defaultPopoverItemsDict()
         codexTimeFormat = .h24
         codexCircularDisplayMode = .usage
         codexAlertEnabled = false
@@ -1443,7 +1428,7 @@ class AppSettings: ObservableObject {
         self.autoRefresh = defaults.object(forKey: "autoRefresh") as? Bool ?? true
         self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? false
         self.alertRemainingMode = defaults.object(forKey: "alertRemainingMode") as? Bool ?? false
-        self.notificationTargets = NotificationTargetPreferences.load(from: defaults)
+        self.storedNotificationTargets = NotificationTargetPreferences.load(from: defaults)
         self.menuBarQuotaPreferences = MenuBarQuotaPreferences.load(from: defaults)
         self.resetCreditMenuBarModes =
             defaults.dictionary(forKey: Self.resetCreditMenuBarKey) as? [String: String] ?? [:]

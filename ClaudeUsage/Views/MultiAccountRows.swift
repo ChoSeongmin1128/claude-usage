@@ -82,42 +82,139 @@ struct AccountPickerRow: View {
     }
 }
 
+nonisolated struct OtherAccountStatusPresentation: Equatable {
+    let status: UsageAccountState.Status
+    let lastSuccessAge: String?
+
+    init(status: UsageAccountState.Status, fetchedAt: Date?, now: Date = Date()) {
+        self.status = status
+        if let fetchedAt, TimeFormatter.validatedResetDate(fetchedAt) != nil,
+            TimeFormatter.validatedResetDate(now) != nil
+        {
+            lastSuccessAge = TimeFormatter.elapsed(since: fetchedAt, now: now)
+        } else {
+            lastSuccessAge = nil
+        }
+    }
+
+    var stateLabel: String {
+        switch status {
+        case .current: "현재 값"
+        case .stale: UsageStatusLabel.previousValue
+        case .archived: "보관"
+        case .checking: "확인 중"
+        case .failed: "확인 실패"
+        case .loginExpired: "로그인 만료"
+        case .needsPermission: "허용 필요"
+        case .executableNotFound: "Claude Code 없음"
+        }
+    }
+
+    var compactText: String? {
+        switch status {
+        case .stale, .archived:
+            lastSuccessAge.map { "\(stateLabel) / \($0)" } ?? stateLabel
+        default:
+            nil
+        }
+    }
+
+    func generalText(hasUsage: Bool) -> String? {
+        switch status {
+        case .stale, .archived: compactText
+        case .loginExpired: stateLabel
+        case .executableNotFound where hasUsage: stateLabel
+        default: nil
+        }
+    }
+
+    var accessibilityState: String {
+        let confirmation = lastSuccessAge.map { "마지막 성공 확인 \($0)" } ?? "마지막 성공 확인 시각 미확인"
+        return "\(stateLabel), \(confirmation)"
+    }
+
+    func accountAccessibilityLabel(name: String) -> String {
+        "\(name), \(accessibilityState)"
+    }
+
+    func quotaAccessibilityLabel(
+        accountName: String, label: String, window: UsageAccountUsage.Window?, basis: UsageValueBasis
+    ) -> String {
+        let value = window.map { basis.spokenValue(fromUsed: $0.usedPercent) } ?? "데이터 없음"
+        return "\(accountName), \(label) \(value), \(accessibilityState)"
+    }
+}
+
 struct OtherAccountRow: View {
     let data: PopoverAccountRowData
     let density: PopoverDensity
     @Environment(\.popoverAccountActions) private var actions
 
     var body: some View {
+        let presentation = OtherAccountStatusPresentation(status: data.status, fetchedAt: data.fetchedAt)
         if density.isCompact {
             HStack(spacing: PopoverLayoutMetrics.compactRowSpacing) {
-                Text(data.name)
-                    .font(AppDesign.Typography.caption.weight(.semibold))
-                    .foregroundStyle(data.status == .current ? .primary : .secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                statusOrGauges.layoutPriority(1)
+                VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
+                    accountName(presentation)
+                    if let text = presentation.compactText {
+                        metadata(text)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                statusOrGauges(presentation).layoutPriority(1)
             }
             .opacity(data.status == .archived || data.status == .loginExpired ? 0.55 : 1)
             .help(data.status == .executableNotFound ? ClaudeCodeCredentialIssue.executableNotFoundExplanation : "")
         } else {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: AppDesign.Space.control) {
-                    Text(data.name).font(AppDesign.Typography.subheadline.weight(.semibold)).lineLimit(1)
+                    accountName(presentation)
                     if data.isRuntime { InUseAccountLabel() }
                     ForEach(data.badges, id: \.self) { AccountBadgeView(badge: $0) }
                     Spacer(minLength: 0)
-                    statusText
+                    if let text = presentation.generalText(hasUsage: data.usage != nil) {
+                        metadata(text)
+                    }
                 }
-                statusOrGauges
+                statusOrGauges(presentation)
             }
             .opacity(data.status == .archived || data.status == .loginExpired ? 0.55 : 1)
             .help(data.status == .executableNotFound ? ClaudeCodeCredentialIssue.executableNotFoundExplanation : "")
         }
     }
 
+    private func accountName(_ presentation: OtherAccountStatusPresentation) -> some View {
+        Text(data.name)
+            .font(
+                density.isCompact
+                    ? AppDesign.Typography.caption.weight(.semibold)
+                    : AppDesign.Typography.subheadline.weight(.semibold)
+            )
+            .foregroundStyle(density.isCompact && data.status != .current ? .secondary : .primary)
+            .lineLimit(1)
+            .truncationMode(density.isCompact ? .middle : .tail)
+            .accessibilityLabel(presentation.accountAccessibilityLabel(name: data.name))
+    }
+
+    private func metadata(_ text: String) -> some View {
+        Text(text)
+            .font(AppDesign.Typography.metadata)
+            .foregroundStyle(metadataColor)
+            .fixedSize(horizontal: false, vertical: true)
+            .help(data.status == .executableNotFound ? ClaudeCodeCredentialIssue.executableNotFoundExplanation : "")
+            .accessibilityHidden(true)
+    }
+
+    private var metadataColor: Color {
+        switch data.status {
+        case .stale, .executableNotFound: .orange
+        case .loginExpired: .red
+        default: AppDesign.Text.secondary
+        }
+    }
+
     @ViewBuilder
-    private var statusOrGauges: some View {
+    private func statusOrGauges(_ presentation: OtherAccountStatusPresentation) -> some View {
         switch data.status {
         case .loginExpired:
             Button("다시 로그인") { actions.reconnect(data.service, data.id) }
@@ -135,33 +232,10 @@ struct OtherAccountRow: View {
             Text("확인 실패").font(AppDesign.Typography.caption).foregroundStyle(.orange)
         default:
             HStack(spacing: AppDesign.Space.row) {
-                miniGauge(label: "5시간", window: data.usage?.fiveHour, isWeekly: false)
-                miniGauge(label: "주간", window: data.usage?.weekly, isWeekly: true)
+                miniGauge(label: "5시간", window: data.usage?.fiveHour, isWeekly: false, presentation: presentation)
+                miniGauge(label: "주간", window: data.usage?.weekly, isWeekly: true, presentation: presentation)
             }
         }
-    }
-
-    @ViewBuilder
-    private var statusText: some View {
-        switch data.status {
-        case .stale:
-            Text(Self.labeled(UsageStatusLabel.previousValue, since: data.fetchedAt))
-                .font(AppDesign.Typography.caption2).foregroundStyle(.orange)
-        case .archived:
-            Text(Self.labeled("보관", since: data.fetchedAt))
-                .font(AppDesign.Typography.caption2).foregroundStyle(AppDesign.Text.secondary)
-        case .loginExpired:
-            Text("로그인 만료").font(AppDesign.Typography.caption2).foregroundStyle(.red)
-        case .executableNotFound where data.usage != nil:
-            Text("Claude Code 없음").font(AppDesign.Typography.caption2).foregroundStyle(.orange)
-                .help(ClaudeCodeCredentialIssue.executableNotFoundExplanation)
-        default:
-            EmptyView()
-        }
-    }
-
-    private static func labeled(_ label: String, since date: Date?) -> String {
-        date.map { "\(label) · \(TimeFormatter.elapsed(since: $0))" } ?? label
     }
 
     func exhaustedQuotaText(
@@ -174,7 +248,10 @@ struct OtherAccountRow: View {
 
     /// 다른 계정 줄은 초기화 시각을 빼고, 다 쓴 한도만 언제 풀리는지 보여준다.
     @ViewBuilder
-    private func miniGauge(label: String, window: UsageAccountUsage.Window?, isWeekly: Bool) -> some View {
+    private func miniGauge(
+        label: String, window: UsageAccountUsage.Window?, isWeekly: Bool,
+        presentation: OtherAccountStatusPresentation
+    ) -> some View {
         HStack(spacing: 4) {
             if !density.isCompact {
                 Text(label).font(AppDesign.Typography.caption2).foregroundStyle(AppDesign.Text.secondary)
@@ -206,6 +283,8 @@ struct OtherAccountRow: View {
         }
         .fixedSize()
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(label) \(window.map { data.basis.spokenValue(fromUsed: $0.usedPercent) } ?? "데이터 없음")")
+        .accessibilityLabel(
+            presentation.quotaAccessibilityLabel(
+                accountName: data.name, label: label, window: window, basis: data.basis))
     }
 }

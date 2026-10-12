@@ -180,6 +180,7 @@ nonisolated struct ClaudeAccountState: Equatable, Sendable {
 nonisolated struct ClaudeWebSessionUpsertResult: Sendable {
     let account: ClaudeAccount
     let supersededAccountIDs: [String]
+    var wasStored = true
 }
 
 final class ClaudeAccountStore: @unchecked Sendable {
@@ -249,9 +250,9 @@ final class ClaudeAccountStore: @unchecked Sendable {
             accounts[index].lastUsedAt = Date()
         }
         let activeAccountChanged = state.activeAccountID != id
-        saveRaw(accounts: accounts, activeAccountID: id)
+        let saved = saveRaw(accounts: accounts, activeAccountID: id, replacingProtectedActive: true)
         lock.unlock()
-        postAccountNotifications(activeAccountChanged: activeAccountChanged)
+        if saved { postAccountNotifications(activeAccountChanged: activeAccountChanged) }
     }
 
     @discardableResult
@@ -432,12 +433,13 @@ final class ClaudeAccountStore: @unchecked Sendable {
         } else {
             activeID = state.activeAccountID ?? accountID
         }
-        saveRaw(accounts: accounts, activeAccountID: activeID)
+        let saved = saveRaw(accounts: accounts, activeAccountID: activeID)
         lock.unlock()
-        postAccountNotifications(activeAccountChanged: activeID != state.activeAccountID)
+        if saved { postAccountNotifications(activeAccountChanged: activeID != state.activeAccountID) }
         return ClaudeWebSessionUpsertResult(
             account: account,
-            supersededAccountIDs: supersededAccountIDs
+            supersededAccountIDs: saved ? supersededAccountIDs : [],
+            wasStored: saved
         )
     }
 
@@ -521,7 +523,10 @@ final class ClaudeAccountStore: @unchecked Sendable {
         } else {
             activeID = state.activeAccountID
         }
-        saveRaw(accounts: state.accounts, activeAccountID: activeID)
+        guard saveRaw(accounts: state.accounts, activeAccountID: activeID) else {
+            lock.unlock()
+            return
+        }
         lock.unlock()
 
         var deletedSessionCredential = false
@@ -578,6 +583,13 @@ final class ClaudeAccountStore: @unchecked Sendable {
             return
         }
 
+        let stored = loadStoredAccounts()
+        guard stored != nil || defaults.object(forKey: Self.accountsDefaultsKey) == nil else {
+            lock.unlock()
+            return
+        }
+        let protectedIDs = stored?.protectedIDs ?? []
+        let migrationBlocked = !protectedIDs.isEmpty
         var state = rawState()
         let previousActiveAccountID = state.activeAccountID
         var shouldDeleteLegacyKeychainAccount = false
@@ -592,7 +604,9 @@ final class ClaudeAccountStore: @unchecked Sendable {
                 .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .first(where: { !$0.isEmpty })
 
-            if let legacySessionKey {
+            if let legacySessionKey,
+                !protectedIDs.contains(Self.webSessionAccountID(fingerprint: Self.fingerprint(for: legacySessionKey)))
+            {
                 let fingerprint = Self.fingerprint(for: legacySessionKey)
                 let accountID = Self.webSessionAccountID(fingerprint: fingerprint)
                 let scopedAccountName = ClaudeKeychainStore.accountName(for: accountID)
@@ -632,9 +646,7 @@ final class ClaudeAccountStore: @unchecked Sendable {
                 didChangeAccounts = state.activeAccountID != nil
             }
 
-            defaults.removeObject(forKey: Self.legacySessionKeyDefaultsKey)
             migrationVersion = 1
-            defaults.set(migrationVersion, forKey: Self.migrationVersionDefaultsKey)
         }
 
         if migrationVersion < 2 {
@@ -649,7 +661,6 @@ final class ClaudeAccountStore: @unchecked Sendable {
                 didChangeAccounts = true
             }
             migrationVersion = 2
-            defaults.set(migrationVersion, forKey: Self.migrationVersionDefaultsKey)
         }
 
         if migrationVersion < 3 {
@@ -659,6 +670,11 @@ final class ClaudeAccountStore: @unchecked Sendable {
             if let legacySessionKey = defaultsValue, !legacySessionKey.isEmpty {
                 let fingerprint = Self.fingerprint(for: legacySessionKey)
                 let accountID = Self.webSessionAccountID(fingerprint: fingerprint)
+                guard !protectedIDs.contains(accountID) else {
+                    saveRaw(accounts: state.accounts, activeAccountID: state.activeAccountID)
+                    lock.unlock()
+                    return
+                }
                 let scopedAccountName = ClaudeKeychainStore.accountName(for: accountID)
                 do {
                     if try keychainVault.loadString(account: scopedAccountName) != legacySessionKey {
@@ -701,7 +717,6 @@ final class ClaudeAccountStore: @unchecked Sendable {
             // 값이 없거나 scoped Keychain 저장이 검증된 경우에만 평문을 제거한다.
             defaults.removeObject(forKey: Self.legacySessionKeyDefaultsKey)
             migrationVersion = 3
-            defaults.set(migrationVersion, forKey: Self.migrationVersionDefaultsKey)
         }
 
         if migrationVersion < 4 {
@@ -728,6 +743,11 @@ final class ClaudeAccountStore: @unchecked Sendable {
                     if !hasSecuredWebCredential {
                         let fingerprint = Self.fingerprint(for: legacySandboxSessionKey)
                         let accountID = Self.webSessionAccountID(fingerprint: fingerprint)
+                        guard !protectedIDs.contains(accountID) else {
+                            saveRaw(accounts: state.accounts, activeAccountID: state.activeAccountID)
+                            lock.unlock()
+                            return
+                        }
                         let scopedAccount = ClaudeKeychainStore.accountName(for: accountID)
                         if try keychainVault.loadString(account: scopedAccount) != legacySandboxSessionKey {
                             try keychainVault.saveString(legacySandboxSessionKey, account: scopedAccount)
@@ -760,7 +780,9 @@ final class ClaudeAccountStore: @unchecked Sendable {
                         // plaintext를 지우기 전에 복구 가능한 Keychain/account 상태를
                         // 먼저 영속화한다. 이 사이에 프로세스가 종료되어도 다음 실행은
                         // scoped credential과 inventory를 기준으로 정리를 재시도할 수 있다.
-                        saveRaw(accounts: state.accounts, activeAccountID: state.activeAccountID)
+                        guard saveRaw(accounts: state.accounts, activeAccountID: state.activeAccountID) else {
+                            throw ClaudeKeychainStoreError.unexpectedStatus(errSecNotAvailable)
+                        }
                     }
 
                     try legacySandboxCredentialStore?.deleteLegacySessionKey()
@@ -776,16 +798,22 @@ final class ClaudeAccountStore: @unchecked Sendable {
             }
 
             migrationVersion = 4
-            defaults.set(migrationVersion, forKey: Self.migrationVersionDefaultsKey)
         }
 
-        saveRaw(accounts: state.accounts, activeAccountID: state.activeAccountID)
+        guard saveRaw(accounts: state.accounts, activeAccountID: state.activeAccountID) else {
+            lock.unlock()
+            return
+        }
+        if !migrationBlocked {
+            defaults.set(migrationVersion, forKey: Self.migrationVersionDefaultsKey)
+            defaults.removeObject(forKey: Self.legacySessionKeyDefaultsKey)
+        }
         lock.unlock()
 
         if shouldDeleteLegacyKeychainAccount {
             try? keychainVault.delete(account: ClaudeKeychainStore.defaultAccount)
         }
-        for accountID in supersededAccountIDs {
+        for accountID in supersededAccountIDs where !storedAccountIDs().contains(accountID) {
             do {
                 try keychainVault.delete(account: ClaudeKeychainStore.accountName(for: accountID))
             } catch {
@@ -946,27 +974,108 @@ final class ClaudeAccountStore: @unchecked Sendable {
         return Set(stored.elements.map(\.id) + unreadable)
     }
 
-    private nonisolated func loadStoredAccounts() -> PreservingJSONArray.Decoded<ClaudeAccount>? {
-        defaults.data(forKey: Self.accountsDefaultsKey).flatMap {
-            PreservingJSONArray.decode(ClaudeAccount.self, from: $0)
-        }
+    private nonisolated struct StoredAccounts {
+        var elements: [ClaudeAccount] = []
+        var unreadable: [Any] = []
+        var originals: [String: [String: Any]] = [:]
+        var conflictingIDs: Set<String> = []
+        var protectedIDs: Set<String> = []
     }
 
-    private nonisolated func saveRaw(accounts: [ClaudeAccount], activeAccountID: String?) {
-        // 읽지 못한 계정은 다시 저장할 때 그대로 남긴다. 같은 ID의 계정을 지금 버전이 새로 쓰면 그쪽을 쓴다.
-        let ids = Set(accounts.map(\.id))
-        let unreadable = (loadStoredAccounts()?.unreadable ?? []).filter { item in
-            guard let id = (item as? [String: Any])?["id"] as? String else { return true }
-            return !ids.contains(id)
+    /// Authentication callers must check this before writing a credential for an inventory ID.
+    nonisolated func canUseAccountID(_ id: String) -> Bool {
+        guard let stored = loadStoredAccounts() else {
+            return defaults.object(forKey: Self.accountsDefaultsKey) == nil
         }
-        if let data = PreservingJSONArray.encode(accounts, preserving: unreadable) {
-            defaults.set(data, forKey: Self.accountsDefaultsKey)
+        return !stored.protectedIDs.contains(id)
+    }
+
+    nonisolated var canPruneAccountData: Bool {
+        loadStoredAccounts() != nil || defaults.object(forKey: Self.accountsDefaultsKey) == nil
+    }
+
+    private nonisolated func loadStoredAccounts() -> StoredAccounts? {
+        guard let data = defaults.data(forKey: Self.accountsDefaultsKey),
+            let raw = try? JSONSerialization.jsonObject(with: data) as? [Any]
+        else { return nil }
+        let groups = Dictionary(grouping: raw.compactMap { $0 as? [String: Any] }) { $0["id"] as? String }
+        var result = StoredAccounts()
+        for (id, records) in groups {
+            guard let id, records.count > 1 else { continue }
+            let encodings = records.compactMap {
+                try? JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys])
+            }
+            if Set(encodings).count != 1 || encodings.count != records.count { result.conflictingIDs.insert(id) }
         }
-        if let activeAccountID {
+        var seen = Set<String>()
+        for item in raw {
+            let record = item as? [String: Any]
+            let id = record?["id"] as? String
+            if let id, result.conflictingIDs.contains(id) {
+                result.unreadable.append(item)
+                result.protectedIDs.insert(id)
+                continue
+            }
+            if let record,
+                let bytes = try? JSONSerialization.data(withJSONObject: record),
+                let account = try? JSONDecoder().decode(ClaudeAccount.self, from: bytes)
+            {
+                // Only full raw-equivalent duplicates reach this branch. Coalesce their execution entry.
+                if seen.insert(account.id).inserted {
+                    result.elements.append(account)
+                    result.originals[account.id] = record
+                }
+            } else {
+                result.unreadable.append(item)
+                if let id { result.protectedIDs.insert(id) }
+            }
+        }
+        return result
+    }
+
+    @discardableResult
+    private nonisolated func saveRaw(
+        accounts: [ClaudeAccount], activeAccountID: String?,
+        replacingProtectedActive: Bool = false
+    ) -> Bool {
+        let stored = loadStoredAccounts()
+        guard stored != nil || defaults.object(forKey: Self.accountsDefaultsKey) == nil else { return false }
+        let protected = stored?.protectedIDs ?? []
+        guard accounts.allSatisfy({ !protected.contains($0.id) }) else { return false }
+        let before = Dictionary(uniqueKeysWithValues: (stored?.elements ?? []).map { ($0.id, $0) })
+        var rows: [Any] = []
+        for account in accounts {
+            guard let encoded = try? JSONEncoder().encode(account),
+                let after = try? JSONSerialization.jsonObject(with: encoded)
+            else { return false }
+            if let original = stored?.originals[account.id], let previous = before[account.id],
+                let data = try? JSONEncoder().encode(previous),
+                let previousJSON = try? JSONSerialization.jsonObject(with: data)
+            {
+                rows.append(PreservingJSONFields.replacing(in: original, previous: previousJSON, updated: after))
+            } else {
+                rows.append(after)
+            }
+        }
+        rows += stored?.unreadable ?? []
+        guard let data = try? JSONSerialization.data(withJSONObject: rows) else { return false }
+        let original = defaults.object(forKey: Self.accountsDefaultsKey)
+        defaults.set(data, forKey: Self.accountsDefaultsKey)
+        guard defaults.data(forKey: Self.accountsDefaultsKey) == data else {
+            PreferencePersistenceContext.restore(original, to: defaults, key: Self.accountsDefaultsKey)
+            return false
+        }
+        if !replacingProtectedActive,
+            let current = defaults.string(forKey: Self.activeAccountDefaultsKey), protected.contains(current)
+        {
+            return true
+        }
+        if let activeAccountID, accounts.contains(where: { $0.id == activeAccountID }) {
             defaults.set(activeAccountID, forKey: Self.activeAccountDefaultsKey)
         } else {
             defaults.removeObject(forKey: Self.activeAccountDefaultsKey)
         }
+        return true
     }
 
     private nonisolated func postAccountNotifications(activeAccountChanged: Bool = false) {

@@ -37,13 +37,16 @@ actor ClaudeProfileMetadataStore {
     }
 
     private let fileURL: URL
+    private let recoveryCoordinator: CredentialRecoveryCoordinator
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
     init(
         fileURL: URL? = nil, accountID: String? = nil,
-        rootDirectory: URL = ClaudeAccountLocalData.defaultDirectory()
+        rootDirectory: URL = ClaudeAccountLocalData.defaultDirectory(),
+        recoveryCoordinator: CredentialRecoveryCoordinator = .shared
     ) {
+        self.recoveryCoordinator = recoveryCoordinator
         if let fileURL {
             self.fileURL = fileURL
         } else {
@@ -68,6 +71,14 @@ actor ClaudeProfileMetadataStore {
         return merge(metadata)
     }
 
+    func update(
+        from credentialsText: String, guardedBy coordinator: CredentialRecoveryCoordinator,
+        lease: CredentialRecoveryReadLease
+    ) -> ClaudeProfileMetadata? {
+        guard let metadata = Self.parseProfileMetadata(from: credentialsText) else { return nil }
+        return try? coordinator.withMetadataWritePermission(lease: lease) { merge(metadata) }
+    }
+
     @discardableResult
     func merge(_ metadata: ClaudeProfileMetadata) -> ClaudeProfileMetadata {
         let merged = load()?.merging(metadata) ?? metadata
@@ -77,19 +88,21 @@ actor ClaudeProfileMetadataStore {
 
     func save(_ metadata: ClaudeProfileMetadata) {
         do {
+            try recoveryCoordinator.withMetadataWritePermission {
             try FileManager.default.createDirectory(
                 at: fileURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
             let data = try encoder.encode(StoredProfileMetadata(metadata: metadata))
             try data.write(to: fileURL, options: [.atomic])
+            }
         } catch {
             Logger.debug("Claude profile metadata 저장 실패: \(error.localizedDescription)")
         }
     }
 
     func clear() {
-        try? FileManager.default.removeItem(at: fileURL)
+        try? recoveryCoordinator.withMetadataWritePermission { try FileManager.default.removeItem(at: fileURL) }
     }
 
     private static func parseProfileMetadata(from credentialsText: String) -> ClaudeProfileMetadata? {

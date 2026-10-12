@@ -40,10 +40,32 @@ nonisolated struct AppDataReset: Sendable {
     let removeNotifications: @Sendable () -> Void
     let removeDefaults: @Sendable (_ domain: String) -> Void
 
+    var applicationSupportDirectory: URL {
+        libraryDirectory.appendingPathComponent("Application Support/\(directoryName)", isDirectory: true)
+    }
+
+    func canPerform() -> Bool {
+        (try? supportChildren()) != nil
+    }
+
+    private func supportChildren() throws -> [URL] {
+        let manager = FileManager.default
+        do {
+            let attributes = try manager.attributesOfItem(atPath: applicationSupportDirectory.path)
+            guard attributes[.type] as? FileAttributeType == .typeDirectory else {
+                throw CocoaError(.fileReadUnsupportedScheme)
+            }
+            return try manager.contentsOfDirectory(at: applicationSupportDirectory, includingPropertiesForKeys: nil)
+                .filter { $0.lastPathComponent != AppSingleInstanceGuard.lockFileName }
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
+            return []
+        }
+    }
+
     var storageLocations: [URL] {
         let library = libraryDirectory
         return [
-            library.appendingPathComponent("Application Support/\(directoryName)", isDirectory: true),
+            applicationSupportDirectory,
             library.appendingPathComponent("Logs/\(directoryName)", isDirectory: true),
             library.appendingPathComponent("Caches/\(bundleIdentifier)", isDirectory: true),
             library.appendingPathComponent("HTTPStorages/\(bundleIdentifier)", isDirectory: true),
@@ -56,17 +78,20 @@ nonisolated struct AppDataReset: Sendable {
         ]
     }
 
-    func perform(_ plan: AppDataResetPlan) {
+    @discardableResult
+    func perform(_ plan: AppDataResetPlan) -> Bool {
+        guard let children = try? supportChildren() else { return false }
         for account in keychainAccounts(bundleIdentifier)
         where !(plan.keepsClaudeCodeTokenCopy && account == KeychainClaudeOAuthCredentialVault.account) {
             deleteKeychainItem(bundleIdentifier, account)
         }
         unregisterLoginItem()
         removeNotifications()
-        for location in storageLocations {
+        for location in children + storageLocations.filter({ $0 != applicationSupportDirectory }) {
             try? FileManager.default.removeItem(at: location)
         }
         removeDefaults(bundleIdentifier)
+        return true
     }
 
     static var production: Self {

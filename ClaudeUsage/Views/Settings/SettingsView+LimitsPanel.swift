@@ -23,6 +23,9 @@ extension SettingsView {
             }
             .font(AppDesign.Typography.subheadline)
             .controlSize(.small)
+            if let message = settings.preferenceSaveError {
+                Text(message).font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -52,7 +55,7 @@ extension SettingsView {
         if let limit = row.notificationLimit {
             let selected = isNotificationSelected(limit)
             limitsCell(
-                Binding(get: { selected }, set: { settings.notificationTargets.setSelected($0, limit: limit) }),
+                Binding(get: { selected }, set: { settings.setNotificationSelected($0, limit: limit) }),
                 help: !limit.isIdentifiable
                     ? "구분할 수 없는 한도라 고를 수 없습니다" : limit.usedPercentage == nil ? "데이터 없음" : "알림 받기",
                 row: row.title

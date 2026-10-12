@@ -110,7 +110,9 @@ final class CodexUsageAccountProvider: UsageAccountProvider {
     }
 
     func switchDefault(to account: UsageAccount, plan: UsageAccountSwitchPlan) async throws {
-        guard let directory = account.source(.directory), let workspace = account.identity.organizationID else {
+        guard let directory = account.source(.directory), account.identity.organizationID != nil,
+            account.identity.email != nil
+        else {
             throw AccountSwitchError.unavailable
         }
         // 확인 창을 띄운 사이 실행 상태가 바뀌었을 수 있어 다시 본다.
@@ -122,6 +124,6 @@ final class CodexUsageAccountProvider: UsageAccountProvider {
             }
         }
         try await CodexAccountSwitcher.switchDefault(
-            to: URL(fileURLWithPath: directory.reference), expectedWorkspaceID: workspace)
+            to: URL(fileURLWithPath: directory.reference), expectedIdentity: account.identity, owner: owner)
     }
 }

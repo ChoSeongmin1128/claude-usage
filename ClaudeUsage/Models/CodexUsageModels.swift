@@ -236,7 +236,12 @@ nonisolated struct CodexUsageWindow: Codable, Sendable {
         resetAt = parsedReset.flatMap { TimeFormatter.validatedResetDate(Date(timeIntervalSince1970: $0)) }
             .map(\.timeIntervalSince1970)
 
-        limitWindowSeconds = (try? container.decodeIfPresent(Int.self, forKey: .limitWindowSeconds)) ?? nil
+        let seconds = try container.decodeIfPresent(Int.self, forKey: .limitWindowSeconds)
+        if let seconds, CodexWindowDuration.positiveSeconds(seconds) == nil {
+            throw DecodingError.dataCorruptedError(
+                forKey: .limitWindowSeconds, in: container, debugDescription: "positive_window_duration_required")
+        }
+        limitWindowSeconds = seconds
     }
 
     /// Unix timestamp → ISO 8601 문자열 (기존 TimeFormatter 재사용용)

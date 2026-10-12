@@ -140,8 +140,19 @@ nonisolated final class OwnedProcessRun: @unchecked Sendable {
                 }
             }
             if input >= 0, written < pendingInput.count {
-                let count = pendingInput.withUnsafeBytes {
-                    Darwin.write(input, $0.baseAddress!.advanced(by: written), $0.count - written)
+                // Serialize cancellation with each nonblocking input chunk.
+                // Once cancel() returns, no later chunk can be submitted.
+                let inputDescriptor = input
+                let inputOffset = written
+                let submitted = cancelled.withLock { isCancelled -> Int? in
+                    guard !isCancelled else { return nil }
+                    return pendingInput.withUnsafeBytes {
+                        Darwin.write(inputDescriptor, $0.baseAddress!.advanced(by: inputOffset), $0.count - inputOffset)
+                    }
+                }
+                guard let count = submitted else {
+                    OwnedProcessGroup.terminate(processID: child.processID, grace: request.terminationGrace)
+                    return nil
                 }
                 if count > 0 {
                     written += count

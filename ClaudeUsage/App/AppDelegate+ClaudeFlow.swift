@@ -335,11 +335,20 @@ extension AppDelegate {
     /// 3) 성공 요약을 wizard 에 반환 (이메일/조직/플랜 표시)
     @MainActor
     func activateClaudeCodeCLI() async throws -> LoginWindowView.ActivationSummary {
+        try Task.checkCancellation()
+        let store = ClaudeAccountStore.shared
+        guard store.canUseAccountID(ClaudeAccountStore.claudeCodeExternalAccountID) else {
+            throw APIError.unknownError("저장된 Claude Code 계정 자료를 확인할 수 없어 연결하지 않았습니다")
+        }
         // 사용자가 이 카드를 누른 시점에만 CLI Keychain 항목의 대화형 읽기를
         // 허용한다. 성공한 payload는 앱 vault로 복사되므로 이후 전환은 무프롬프트다.
         try await apiService.importClaudeCodeCredentialForActivation()
+        try Task.checkCancellation()
+        guard !isTerminating else { throw CancellationError() }
 
-        let store = ClaudeAccountStore.shared
+        guard store.canUseAccountID(ClaudeAccountStore.claudeCodeExternalAccountID) else {
+            throw APIError.unknownError("Claude Code 계정 자료가 변경되어 연결하지 않았습니다")
+        }
         let previousActiveAccountID = store.state().activeAccountID
         // 1. CLI external account 등록을 보장하고 active 로 설정.
         //    OAuth credential 자체는 fetchUsage 가 첫 호출에서 자체적으로 검사하므로 여기서는
@@ -349,7 +358,12 @@ extension AppDelegate {
             validationState: .detected,
             setActiveIfMissing: false
         )
+        try Task.checkCancellation()
+        guard !isTerminating else { throw CancellationError() }
         store.setActiveAccountID(ClaudeAccountStore.claudeCodeExternalAccountID)
+        guard store.state().activeAccountID == ClaudeAccountStore.claudeCodeExternalAccountID else {
+            throw APIError.unknownError("Claude Code 계정 선택을 저장하지 못했습니다")
+        }
 
         // 2. account 변경 알림도 같은 request 에 합류한다. provider 가 꺼져 있어도
         // 연결 액션 자체는 실제 사용량 1회로 검증한다.
@@ -358,6 +372,8 @@ extension AppDelegate {
             requireUsageValidation: true
         )
         await transaction.value
+        try Task.checkCancellation()
+        guard !isTerminating else { throw CancellationError() }
 
         let snapshot = runtimeProviderSnapshot(for: .claude)
         let expectedAccountID = ClaudeAccountStore.claudeCodeExternalAccountID
@@ -375,6 +391,7 @@ extension AppDelegate {
         // profile 동기화가 아직 끝나지 않았으면 안전하게 제목만 표시한다.
         let activeAccount = ClaudeAccountStore.shared.activeAccount()
         let metadata = await apiService.fetchCachedClaudeCodeProfileMetadata()
+        try Task.checkCancellation()
         let email = activeAccount?.identity.email
         let organizationName = activeAccount?.identity.organizationName
         let plan = metadata?.subscriptionType ?? metadata?.rateLimitTier

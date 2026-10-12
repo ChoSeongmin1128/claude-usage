@@ -14,10 +14,12 @@ nonisolated enum ClaudeCodeKeychainCLI {
     static let timeout: TimeInterval = 5
     private static let environment = ["PATH": "/usr/bin:/bin"]
 
-    static func read(service: String) async -> Outcome {
+    static func read(service: String, account: String? = nil) async -> Outcome {
+        var arguments = ["find-generic-password", "-w", "-s", service]
+        if let account { arguments += ["-a", account] }
         guard
             let output = await ExternalCommand.run(
-                executable, arguments: ["find-generic-password", "-w", "-s", service], environment: environment,
+                executable, arguments: arguments, environment: environment,
                 timeout: timeout)
         else { return .failed }
         if output.status == itemNotFoundStatus { return .notFound }
@@ -76,12 +78,14 @@ nonisolated enum ClaudeCodeKeychainCLI {
     /// 기존 항목의 값만 바꾼다. 명령을 표준 입력으로 넘겨 값이 프로세스 인자에 드러나지 않게 한다.
     /// 대화형 모드의 종료 코드는 명령 성공 여부를 보장하지 않아 다시 읽어 확인한다.
     static func update(service: String, account: String, payload: Data) async -> Bool {
-        guard [service, account].allSatisfy({ !$0.contains("\"") && !$0.contains("\n") }) else { return false }
+        guard !Task.isCancelled, [service, account].allSatisfy({ !$0.contains("\"") && !$0.contains("\n") }) else {
+            return false
+        }
         let hex = payload.map { String(format: "%02x", $0) }.joined()
         let command = "add-generic-password -U -a \"\(account)\" -s \"\(service)\" -X \(hex)\n"
         _ = await ExternalCommand.run(
             executable, arguments: ["-i"], environment: environment, input: Data(command.utf8), timeout: timeout)
         let expected = String(decoding: payload, as: UTF8.self).trimmingCharacters(in: .newlines)
-        return await read(service: service) == .payload(expected)
+        return await read(service: service, account: account) == .payload(expected)
     }
 }

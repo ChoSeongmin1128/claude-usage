@@ -196,6 +196,16 @@ extension SettingsView {
             } message: {
                 if let action = pendingDestructiveAction { Text(action.detail) }
             }
+            .alert(
+                "초기화를 완료하지 못했습니다",
+                isPresented: Binding(
+                    get: { destructiveActionError != nil }, set: { if !$0 { destructiveActionError = nil } }
+                )
+            ) {
+                Button("확인") { destructiveActionError = nil }
+            } message: {
+                Text(destructiveActionError ?? "")
+            }
     }
 
     private var settingsLayoutWithLifecycle: some View {
@@ -317,8 +327,19 @@ extension SettingsView {
         switch action {
         case .resetDefaults: resetToDefaults()
         case .resetAllData(let plan):
-            AppDataResetRequest.pending = plan
-            NSApplication.shared.terminate(nil)
+            guard !preparingDataReset else { return }
+            preparingDataReset = true
+            Task {
+                defer { preparingDataReset = false }
+                guard AppDataReset.production.canPerform(),
+                    await CredentialRecoveryCoordinator.shared.prepareForReset()
+                else {
+                    destructiveActionError = "로그인 보호 상태를 확인하지 못해 데이터를 보존했습니다. 잠시 후 다시 시도하세요."
+                    return
+                }
+                AppDataResetRequest.pending = await plan.rechecked()
+                NSApplication.shared.terminate(nil)
+            }
         }
     }
 

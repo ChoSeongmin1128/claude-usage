@@ -10,11 +10,16 @@ nonisolated struct ClaudeCodeKeychain: Sendable {
     var updateDirectly: @Sendable (_ service: String, _ payload: Data) -> Bool
     /// Claude Code 로그인 항목 이름. 비밀 값은 읽지 않는다. 확인하지 못하면 nil이다.
     var credentialServiceNames: @Sendable () async -> [String]? = { nil }
+    var accountName: @Sendable (_ service: String) async -> String? = { _ in nil }
+    var readExact: (@Sendable (_ service: String, _ account: String) async -> ClaudeCodeKeychainCLI.Outcome)?
+    var updateExact: (@Sendable (_ service: String, _ account: String, _ payload: Data) async -> Bool)?
 
     static let system = ClaudeCodeKeychain(
         read: { await ClaudeCodeKeychainCLI.read(service: $0) },
         update: { service, payload in
-            guard let account = await ClaudeCodeKeychainCLI.accountName(service: service) else { return false }
+            guard !Task.isCancelled, let account = await ClaudeCodeKeychainCLI.accountName(service: service),
+                !Task.isCancelled
+            else { return false }
             return await ClaudeCodeKeychainCLI.update(service: service, account: account, payload: payload)
         },
         readInteractively: { service, reason in
@@ -28,7 +33,10 @@ nonisolated struct ClaudeCodeKeychain: Sendable {
             return SecItemUpdate(query as CFDictionary, [kSecValueData as String: payload] as CFDictionary)
                 == errSecSuccess
         },
-        credentialServiceNames: { await ClaudeCodeKeychainCLI.credentialServiceNames() })
+        credentialServiceNames: { await ClaudeCodeKeychainCLI.credentialServiceNames() },
+        accountName: { await ClaudeCodeKeychainCLI.accountName(service: $0) },
+        readExact: { await ClaudeCodeKeychainCLI.read(service: $0, account: $1) },
+        updateExact: { await ClaudeCodeKeychainCLI.update(service: $0, account: $1, payload: $2) })
 
     /// Keychain에 항목이 없는 것으로 동작한다.
     static let none = ClaudeCodeKeychain(
@@ -50,6 +58,16 @@ nonisolated struct ClaudeCodeLoginSlot: Equatable, Sendable {
         let storage: Storage
         let credential: Data
         let account: Data?
+        let profile: Data?
+        let keychainAccount: String?
+
+        init(storage: Storage, credential: Data, account: Data?, profile: Data? = nil, keychainAccount: String? = nil) {
+            self.storage = storage
+            self.credential = credential
+            self.account = account
+            self.profile = profile
+            self.keychainAccount = keychainAccount
+        }
     }
 
     /// Keychain 항목을 어떻게 찾았는지. Claude Code는 CLAUDE_CONFIG_DIR 원문으로 항목 이름을 정한다.
@@ -152,29 +170,60 @@ nonisolated struct ClaudeCodeLoginSlot: Equatable, Sendable {
     // MARK: - 전환
 
     /// 사용자가 전환을 누른 뒤에만 부른다. `security`로 못 읽으면 macOS 확인 창을 거쳐 읽는다.
-    func readSnapshot(keychain: ClaudeCodeKeychain = .system) async throws -> Snapshot {
-        let account = Self.oauthAccount(in: profileFile)
+    func readSnapshot(keychain: ClaudeCodeKeychain = .system, interactive: Bool = true) async throws -> Snapshot {
+        try Task.checkCancellation()
+        let profile = try CredentialRecoveryFile.read(.file(profileFile))
+        let account: Data?
+        if let profile {
+            guard let object = try? JSONSerialization.jsonObject(with: profile) as? [String: Any] else {
+                throw AccountSwitchError.unavailable
+            }
+            account = try object["oauthAccount"].map { try JSONSerialization.data(withJSONObject: $0) }
+        } else {
+            account = nil
+        }
         switch await keychain.read(keychainService) {
         case .payload(let payload):
-            return Snapshot(storage: .keychain, credential: Data(payload.utf8), account: account)
+            return try await keychainSnapshot(payload, account: account, profile: profile, keychain: keychain)
         case .notFound:
             break
         case .failed:
+            try Task.checkCancellation()
+            guard interactive else { throw AccountSwitchError.unavailable }
             switch keychain.readInteractively(keychainService, "Claude Code 기본 로그인을 전환합니다.") {
             case .value(let payload):
-                return Snapshot(storage: .keychain, credential: Data(payload.utf8), account: account)
+                return try await keychainSnapshot(payload, account: account, profile: profile, keychain: keychain)
             case .cancelled:
                 throw AccountSwitchError.cancelled
-            case .notFound, .interactionRequired, .invalidData, .failure:
-                break
+            case .notFound: break
+            case .interactionRequired, .invalidData, .failure: throw AccountSwitchError.unavailable
             }
         }
         for file in credentialFiles {
-            if let data = try? Data(contentsOf: file) {
-                return Snapshot(storage: .file(file), credential: data, account: account)
+            if let data = try CredentialRecoveryFile.read(.file(file)) {
+                return Snapshot(storage: .file(file), credential: data, account: account, profile: profile)
             }
         }
         throw AccountSwitchError.unavailable
+    }
+
+    private func keychainSnapshot(
+        _ payload: String, account: Data?, profile: Data?,
+        keychain: ClaudeCodeKeychain
+    ) async throws -> Snapshot {
+        guard let keychainAccount = await keychain.accountName(keychainService) else {
+            throw AccountSwitchError.ownerUnverified
+        }
+        let latest: ClaudeCodeKeychainCLI.Outcome
+        if let readExact = keychain.readExact {
+            latest = await readExact(keychainService, keychainAccount)
+        } else {
+            latest = await keychain.read(keychainService)
+        }
+        guard latest == .payload(payload) else { throw AccountSwitchError.busy }
+        return Snapshot(
+            storage: .keychain, credential: Data(payload.utf8), account: account, profile: profile,
+            keychainAccount: keychainAccount)
     }
 
     /// previous는 이 자리에 지금 있는 값이다. 원래 저장 방식을 지켜 Keychain에 있던 로그인은 Keychain에,
@@ -186,9 +235,42 @@ nonisolated struct ClaudeCodeLoginSlot: Equatable, Sendable {
         do {
             try Self.replaceOAuthAccount(in: profileFile, with: account)
         } catch {
-            try? await writeCredential(previous.credential, storage: previous.storage, keychain: keychain)
+            do { try await writeCredential(previous.credential, storage: previous.storage, keychain: keychain) } catch {
+                throw AccountSwitchError.rollbackFailed
+            }
             throw error
         }
+    }
+
+    func recoveryComponents(
+        replacing previous: Snapshot, with incoming: Snapshot
+    ) throws -> [CredentialRecoverySwitchComponent] {
+        let credentialLocation: CredentialRecoveryLocation
+        switch previous.storage {
+        case .keychain:
+            guard let account = previous.keychainAccount else { throw AccountSwitchError.ownerUnverified }
+            credentialLocation = .claudeKeychain(keychainService, account: account)
+        case .file(let url): credentialLocation = .file(url)
+        }
+        let proposedProfile: Data?
+        if let profile = previous.profile {
+            guard var root = try JSONSerialization.jsonObject(with: profile) as? [String: Any] else {
+                throw AccountSwitchError.unavailable
+            }
+            root["oauthAccount"] = try incoming.account.map { try JSONSerialization.jsonObject(with: $0) }
+            proposedProfile =
+                previous.account == incoming.account
+                ? profile
+                : try JSONSerialization.data(
+                    withJSONObject: root, options: [.prettyPrinted, .withoutEscapingSlashes])
+        } else {
+            guard incoming.account == nil else { throw AccountSwitchError.writeFailed }
+            proposedProfile = nil
+        }
+        return [
+            .init(location: credentialLocation, original: previous.credential, proposed: incoming.credential),
+            .init(location: .file(profileFile), original: previous.profile, proposed: proposedProfile),
+        ]
     }
 
     private func writeCredential(

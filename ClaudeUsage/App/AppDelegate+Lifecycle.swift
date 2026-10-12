@@ -37,16 +37,21 @@ extension AppDelegate {
         setupKeyboardShortcuts()
         bindRuntimeObservers()
         startSessionActivityMonitoring()
-        bootstrapUsageAccounts()
+        Task { [weak self] in
+            _ = await CredentialRecoveryCoordinator.shared.recoverPending()
+            guard let self, !isTerminating else { return }
+            bootstrapUsageAccounts()
+            bootstrapRefreshState()
+        }
 
         let claudeAccountIDs = ClaudeAccountStore.shared.storedAccountIDs()
+        let canPruneAccountData = ClaudeAccountStore.shared.canPruneAccountData
         Task.detached(priority: .utility) {
-            ClaudeAccountLocalData.removeOrphans(keeping: claudeAccountIDs)
+            if canPruneAccountData { ClaudeAccountLocalData.removeOrphans(keeping: claudeAccountIDs) }
             ClaudeEndpoints.removeStoredWebCookies()
         }
 
         bootstrapAntigravityRuntime()
-        bootstrapRefreshState()
         syncUpdateCheckState(runImmediate: true)
         refreshSystemStatus()
         startStatusTimer()
@@ -101,6 +106,7 @@ extension AppDelegate {
     /// 종료를 시작하면 새 조회와 타이머를 받지 않는다. 진행 중인 조회는 각 소유자의 종료가 정리한다.
     func stopAcceptingWork() {
         isTerminating = true
+        CredentialRecoveryCoordinator.shared.beginClosing()
         refreshScheduler.stop()
         stopAdaptiveRefresh()
         usageAccountsTimer?.invalidate()
@@ -137,10 +143,12 @@ extension AppDelegate {
         }
         stopGlobalClickMonitor()
         stopAdaptiveRefresh()
-        AppSingleInstanceGuard.shared.release()
         if let plan = AppDataResetRequest.pending {
-            AppDataReset.production.perform(plan)
+            if !AppDataReset.production.perform(plan) {
+                Logger.error("초기화 대상 경로를 확인하지 못해 데이터를 보존했습니다.")
+            }
         }
+        AppSingleInstanceGuard.shared.release()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -164,7 +172,8 @@ extension AppDelegate {
             // Codex와 AGY 정리는 서로 기다리지 않고 같은 제한 시간 안에서 함께 끝낸다.
             async let codex: Void = self.codexRefreshController.shutdown()
             async let antigravity: Void = self.antigravityRuntimeTask.value.runtimeController.shutdown()
-            _ = await (codex, antigravity)
+            async let credentials: Void = self.apiService.drainCredentialRecovery()
+            _ = await (codex, antigravity, credentials)
             await recheckPendingDataReset()
             finishDeferredTermination(
                 timedOut: false
@@ -179,7 +188,11 @@ extension AppDelegate {
                 } catch {
                     return
                 }
-                await self?.recheckPendingDataReset()
+                // Do not put a filesystem/Keychain read in front of the
+                // shutdown deadline. Keep the owned copy if it is uncertain.
+                if AppDataResetRequest.pending != nil {
+                    AppDataResetRequest.pending = AppDataResetPlan(keepsClaudeCodeTokenCopy: true)
+                }
                 self?.finishDeferredTermination(
                     timedOut: true
                 )
@@ -221,8 +234,10 @@ extension AppDelegate {
 
     @MainActor
     private func recheckPendingDataReset() async {
-        guard let plan = AppDataResetRequest.pending else { return }
-        AppDataResetRequest.pending = await plan.rechecked()
+        guard !hasRepliedToTermination, let plan = AppDataResetRequest.pending else { return }
+        let checked = await plan.rechecked()
+        guard !hasRepliedToTermination else { return }
+        AppDataResetRequest.pending = checked
     }
 
     private func finishDeferredTermination(
@@ -232,6 +247,7 @@ extension AppDelegate {
             return
         }
         hasRepliedToTermination = true
+        CredentialRecoveryCoordinator.shared.sealWrites()
         if timedOut {
             Logger.warning(
                 "외부 프로세스 정리 제한 시간을 초과했습니다. 앱 종료를 계속합니다."
