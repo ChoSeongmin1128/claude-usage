@@ -4,26 +4,24 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>ClaudeUsage</title>
         <item>
-            <title>Version 2.10.0</title>
-            <pubDate>Tue, 13 Oct 2026 00:36:10 +0900</pubDate>
-            <sparkle:version>20651</sparkle:version>
-            <sparkle:shortVersionString>2.10.0</sparkle:shortVersionString>
+            <title>Version 2.10.1</title>
+            <pubDate>Tue, 13 Oct 2026 04:57:41 +0900</pubDate>
+            <sparkle:version>20652</sparkle:version>
+            <sparkle:shortVersionString>2.10.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.10.0/ClaudeUsage.dmg" length="7265997" type="application/octet-stream" sparkle:edSignature="uNbv3qZgXf/JIalE/5OQQnyovH2JdhdDh1FQRfGAp0a6RiWvTL+XpTttMYeHDWPBQyF+NH3WSX35APLQNLJhDQ=="></enclosure>
-            <description sparkle:format="plain-text"># 2.10.0
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.10.1/ClaudeUsage.dmg" length="7676911" type="application/octet-stream" sparkle:edSignature="bt7kmyMddl6FdSSgB+bNrJYLCtq4fRzuqfNBmaXZT4UF2lVSvar9gGJzg+S4dyw188KrzwJrQZOuVuY+vZifDg=="></enclosure>
+            <description sparkle:format="plain-text"># 2.10.1
 
-- 메뉴바 표시를 서비스별 프리셋으로 저장하고 다시 적용할 수 있습니다. 기본 제공 프리셋과 내 프리셋을 구분하고 이름 변경, 변경 저장과 삭제를 지원합니다. 세부 편집은 현재 메뉴바에 바로 반영하며 저장한 프리셋은 유지합니다.
-- 서비스 설정에서 일반, 간소화와 호버의 표시 항목과 순서를 각각 고를 수 있습니다. Antigravity 호버는 직접 편집하기 전까지 현재 간소화 목록을 따릅니다. 항목을 모두 숨긴 선택도 유지합니다.
-- 메뉴바 호버에서 선택한 사용량과 서비스 장애를 함께 확인합니다. 정상 상태는 이름 옆 상태점으로 표시하며, 조회 실패와 이전 값은 서비스 장애와 구분합니다. 긴 내용은 생략하지 않고 화면 높이 안에서 스크롤합니다.
-- 호버 패널로 마우스를 옮겨 읽거나 스크롤할 수 있습니다. 아이콘과 패널을 벗어나거나 아이콘을 클릭하면 닫히며 앱 활성화나 키보드 포커스를 가져가지 않습니다. 클릭 팝오버의 일반/간소화 보기는 유지합니다.
-- 설정, 팝오버, 연결 안내, 업데이트와 변경 내역의 글자, 간격과 선택 상태를 공통 디자인 규칙으로 정리했습니다. macOS의 표면과 기본 컨트롤을 사용하며 밝은/어두운 화면을 시스템 설정에 맞춥니다.
-- 업데이트의 '지금 확인'에 새로고침 아이콘을 추가하고 다운로드부터 설치 준비까지 동작 버튼의 자리를 유지합니다. 새 기능 안내와 긴 변경 내역은 스크롤해서 읽을 수 있습니다.
-- 새 프리셋/호버 저장 항목은 현재 채널에서 관리합니다. 읽지 못한 자료와 새 버전의 추가 필드를 보존하며, 기본값 복원은 저장한 내 프리셋을 유지합니다.
+- Claude Code와 Codex 기본 로그인 전환에서 선택한 사용자와 조직을 전후 확인합니다. 전환이 중단되면 보안 저장소의 복구 기록과 실제 로그인 자료를 대조하며, 외부에서 바뀐 자격은 임의로 덮어쓰지 않습니다.
+- 앱이 직접 갱신하는 이전 Claude 로그인 사본은 갱신 요청과 새 자격을 영속 보존합니다. 처리 결과가 불확실한 이전 토큰은 다시 사용하지 않으며, 필요한 경우 기존 계정 연결 화면에서 다시 연결하도록 안내합니다.
+- 손상된 알림, 계정과 팝오버 설정이 다른 서비스의 정상 설정을 초기화하지 않도록 보존 범위를 나눴습니다. 중복 계정 ID가 충돌하면 해당 항목을 보존하고 정상 계정만 사용합니다.
+- 간소화 팝오버에서도 다른 계정의 이전 값과 보관 상태, 마지막 성공 시각을 표시합니다. 잘못된 Codex 한도 기간은 해당 한도만 제외하며 다른 정상 한도와 크레딧은 유지합니다.
+- 모든 데이터 초기화가 끝날 때까지 실행 잠금을 유지합니다. 미완료 자격 복구 기록은 자동 적용을 중지한 뒤 보존하며, 준비를 확인하지 못하면 초기화를 시작하지 않습니다.
 </description>
-            <claudeusage:zipSHA256>5aef913ebda86634075d6e3c30761d7c2133d7e9044fbfaa841e074428920057</claudeusage:zipSHA256>
+            <claudeusage:zipSHA256>ad0e947375404746241d83ef0cc587e054bdc69c22bbbe5c483de1625da31771</claudeusage:zipSHA256>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: E4Vl9ep/8BIYMOll3oUH+GZnTbzdDNtcSoFRWBq4hnlbyE2jl1TSlYZqMFYFFlQ4IV4STTc/hQguStJ+rPvfCg==
-length: 3233
+edSignature: KDZN8a+IkUowuFiBs+C28lHfDcjY7QSk9wFXksp7jo7xN1h6H8hE+TLySNBG/7O4qZjRav8W+zjedb6FQWnuBA==
+length: 2643
 -->
