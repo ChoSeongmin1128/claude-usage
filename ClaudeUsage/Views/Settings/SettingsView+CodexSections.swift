@@ -28,7 +28,7 @@ extension SettingsView {
                     codexActionCard
                 }
                 .padding(AppDesign.Space.content)
-                .appPanelStyle()
+                .appPanelStyle(role: .editable)
             }
         }
     }
@@ -60,7 +60,7 @@ extension SettingsView {
             if let detail = codexPresentation.actionDetail {
                 Text(detail)
                     .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesign.Text.secondary)
             }
             if let command = codexPresentation.command {
                 HStack(spacing: AppDesign.Space.row) {

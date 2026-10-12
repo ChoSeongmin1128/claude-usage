@@ -51,7 +51,7 @@ struct AppMotionSettingsView: View {
                 Text(
                     "macOS \"동작 줄이기\"가 켜져 있습니다. 시스템 설정 > \(SystemReduceMotionSetting.location(for: version))에서 끄면 적용됩니다."
                 )
-                .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+                .font(AppDesign.Typography.caption).foregroundStyle(AppDesign.Text.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 if let url = SystemReduceMotionSetting.url(for: version) {
                     Button {

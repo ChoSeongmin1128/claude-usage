@@ -9,13 +9,15 @@ nonisolated enum PreservingJSONArray {
         var unreadable: [Any]
     }
 
-    static func decode<Element: Decodable>(_ type: Element.Type, from data: Data) -> Decoded<Element>? {
+    static func decode<Element: Decodable>(
+        _ type: Element.Type, from data: Data, accepting: (Element) -> Bool = { _ in true }
+    ) -> Decoded<Element>? {
         guard let raw = try? JSONSerialization.jsonObject(with: data) as? [Any] else { return nil }
         var result = Decoded<Element>(elements: [], unreadable: [])
         let decoder = JSONDecoder()
         for item in raw {
             if let itemData = try? JSONSerialization.data(withJSONObject: item, options: [.fragmentsAllowed]),
-                let element = try? decoder.decode(Element.self, from: itemData)
+                let element = try? decoder.decode(Element.self, from: itemData), accepting(element)
             {
                 result.elements.append(element)
             } else {

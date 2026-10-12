@@ -59,7 +59,7 @@ extension SettingsView {
                 onAction: { applyMenuBarQuotaAction($0, for: provider) })
         } else {
             Text("사용량이 확인되면 한도를 고를 수 있습니다.")
-                .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+                .font(AppDesign.Typography.caption).foregroundStyle(AppDesign.Text.secondary)
         }
     }
 

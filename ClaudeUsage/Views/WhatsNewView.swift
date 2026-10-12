@@ -25,29 +25,32 @@ struct WhatsNewView: View {
             HStack {
                 Text(page.version)
                     .font(AppDesign.Typography.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesign.Text.secondary)
                 Spacer()
                 ReleaseNotesButton()
             }
-            Image(systemName: page.symbol)
-                .font(.system(size: 40, weight: .regular))
-                .foregroundStyle(Color.accentColor)
-                .frame(maxWidth: .infinity, minHeight: 96)
-                .background(AppDesign.Surface.group, in: RoundedRectangle(cornerRadius: AppDesign.Radius.panel))
-                .accessibilityHidden(true)
-            Text(page.title).font(AppDesign.Typography.headline)
-            Text(page.body)
-                .font(AppDesign.Typography.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            if let action = page.action, let title = page.actionTitle {
-                if let binding = toggle(action) {
-                    Toggle(title, isOn: binding).toggleStyle(.switch).controlSize(.small)
-                } else {
-                    Button(title) { onAction(action) }.buttonStyle(.link)
-                }
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: AppDesign.Space.content) {
+                    HStack(alignment: .top, spacing: AppDesign.Space.row) {
+                        Image(systemName: page.symbol).font(AppDesign.Typography.title3)
+                            .foregroundStyle(Color.accentColor).accessibilityHidden(true)
+                        Text(page.title).font(AppDesign.Typography.title)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Text(page.body).font(AppDesign.Typography.body).foregroundStyle(AppDesign.Text.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let action = page.action, let title = page.actionTitle {
+                        if let binding = toggle(action) {
+                            Toggle(title, isOn: binding).toggleStyle(.switch).controlSize(.small)
+                        } else {
+                            Button(title) { onAction(action) }.buttonStyle(.bordered)
+                        }
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
             }
+            .id(page.id)
+            Divider()
             Spacer(minLength: 0)
             HStack {
                 HStack(spacing: AppDesign.Space.control) {
@@ -71,6 +74,6 @@ struct WhatsNewView: View {
             }
         }
         .padding(AppDesign.Space.window)
-        .frame(width: 340, height: 360)
+        .frame(width: AppDesign.Window.whatsNew.width, height: AppDesign.Window.whatsNew.height)
     }
 }

@@ -74,7 +74,7 @@ enum SettingsDestructiveAction: Identifiable, Equatable {
     var detail: String {
         switch self {
         case .resetDefaults:
-            return "표시, 알림과 앱 동작 설정을 되돌립니다. 계정 연결, 서비스 사용 여부, 로그인 시 자동 시작과 Antigravity의 개별 표시 설정은 유지합니다."
+            return "표시, 알림과 앱 동작 설정을 되돌립니다. 계정 연결, 저장한 사용자 프리셋, 서비스 사용 여부, 로그인 시 자동 시작과 Antigravity의 개별 표시 설정은 유지합니다."
         case .resetAllData(let plan):
             let detail =
                 "설정과 이 앱에 저장한 로그인을 모두 지우고 앱을 종료합니다. Claude Code, Codex, AGY CLI의 기본 로그인은 그대로입니다."
@@ -202,6 +202,7 @@ struct SettingsView: View {
     var claudeLastUsage: (() -> ClaudeUsageResponse?)?
     var claudeLastOverage: (() -> OverageSpendLimitResponse?)?
     var codexLastUsage: (() -> CodexUsageResponse?)?
+    var resetCreditsAreNew: (PopoverService) -> Bool
     var codexLastError: (() -> APIError?)?
 
     init(
@@ -232,7 +233,8 @@ struct SettingsView: View {
         onShowWhatsNew: (() -> Void)? = nil,
         onImportClaudeFromBrowser: ((ClaudeBrowserFamily?) -> Void)? = nil,
         onOpenEmbeddedLogin: (() -> Void)? = nil,
-        usageAccounts: UsageAccountsController? = nil
+        usageAccounts: UsageAccountsController? = nil,
+        resetCreditsAreNew: @escaping (PopoverService) -> Bool = { _ in false }
     ) {
         self.claudeAPIService = claudeAPIService
         self.initialPanel = initialPanel
@@ -249,6 +251,7 @@ struct SettingsView: View {
         self.onImportClaudeFromBrowser = onImportClaudeFromBrowser
         self.onOpenEmbeddedLogin = onOpenEmbeddedLogin
         self.usageAccounts = usageAccounts
+        self.resetCreditsAreNew = resetCreditsAreNew
         let fallbackProvider = settings.activeProviderKind ?? .claude
         let storedPanel = SettingsProviderPanel.resolve(
             storedValue: settings.settingsLastTab, fallbackProvider: fallbackProvider)

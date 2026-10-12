@@ -14,7 +14,7 @@ struct ClaudeOAuthMigrationCard: View {
                 icon: "key.horizontal.fill",
                 title: "Claude Code 연결 업데이트 필요",
                 detail: "기존 Claude Code 연결을 새 보안 저장 방식으로 업데이트합니다. 처음 한 번만 macOS 인증을 완료하면 이후 앱 실행과 계정 전환에서는 암호를 다시 묻지 않습니다.",
-                tone: .orange
+                tone: .warning
             ) {
                 Button("연결 업데이트", action: onMigrate)
                     .buttonStyle(.borderedProminent)
@@ -26,13 +26,13 @@ struct ClaudeOAuthMigrationCard: View {
                 icon: "key.horizontal.fill",
                 title: "Claude Code 연결 업데이트 중",
                 detail: "macOS 인증이 끝나면 새 보안 저장소를 확인하고 이전 연결 정보를 정리합니다.",
-                tone: .orange
+                tone: .warning
             ) {
                 ProgressView()
                     .controlSize(.small)
                 Text("처리 중")
                     .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesign.Text.secondary)
             }
         case .deferred:
             notice(
@@ -46,21 +46,21 @@ struct ClaudeOAuthMigrationCard: View {
                 icon: "checkmark.shield.fill",
                 title: "Claude Code 연결 업데이트 완료",
                 detail: "앞으로 \(AppDistribution.current.appName)의 연결 정보는 앱 전용 보안 저장소에서 관리됩니다.",
-                tone: .green
+                tone: .success
             ) { EmptyView() }
         case .completedWithLegacyCleanupFailure:
             notice(
                 icon: "exclamationmark.shield.fill",
                 title: "Claude Code 연결 업데이트 완료",
                 detail: "새 보안 저장소는 확인했지만 이전 연결 정보는 정리하지 못했습니다. 앱 사용에는 영향이 없으며 이전 정보는 다시 읽지 않습니다.",
-                tone: .orange
+                tone: .warning
             ) { EmptyView() }
         case .failed(let message):
             notice(
                 icon: "exclamationmark.triangle.fill",
                 title: "Claude Code 연결을 업데이트하지 못했습니다",
                 detail: message,
-                tone: .orange
+                tone: .warning
             ) {
                 Button("다시 시도", action: onMigrate)
                     .buttonStyle(.borderedProminent)
@@ -78,13 +78,13 @@ struct ClaudeOAuthMigrationCard: View {
         icon: String,
         title: String,
         detail: String,
-        tone: Color,
+        tone: AppStatusTone,
         @ViewBuilder actions: () -> Actions
     ) -> some View {
         HStack(alignment: .top, spacing: AppDesign.Space.content) {
             Image(systemName: icon)
                 .font(AppDesign.Typography.noticeIcon)
-                .foregroundStyle(tone)
+                .foregroundStyle(tone.color)
                 .frame(width: 22, height: 22)
 
             VStack(alignment: .leading, spacing: AppDesign.Space.control) {
@@ -92,7 +92,7 @@ struct ClaudeOAuthMigrationCard: View {
                     .font(AppDesign.Typography.subheadline.weight(.semibold))
                 Text(detail)
                     .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesign.Text.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: AppDesign.Space.row) {
                     actions()
@@ -101,7 +101,7 @@ struct ClaudeOAuthMigrationCard: View {
             Spacer(minLength: 0)
         }
         .padding(AppDesign.Space.content)
-        .appPanelStyle(tone: tone)
+        .appPanelStyle(role: .status(tone))
         .accessibilityElement(children: .contain)
     }
 }

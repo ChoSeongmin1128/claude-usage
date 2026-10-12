@@ -161,7 +161,7 @@ struct LoginWindowView: View {
                 if let subtitle = headerSubtitle {
                     Text(subtitle)
                         .font(AppDesign.Typography.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppDesign.Text.secondary)
                 }
             }
 
@@ -210,7 +210,7 @@ struct LoginWindowView: View {
                 onOpenAdvancedSettings()
             }
             .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(AppDesign.Text.secondary)
 
             Spacer()
 
@@ -291,7 +291,7 @@ struct LoginWindowView: View {
                         Text("세션 키 직접 입력")
                             .font(AppDesign.Typography.caption)
                     }
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesign.Text.secondary)
                 }
                 .buttonStyle(.borderless)
                 .padding(.top, AppDesign.Space.row)
@@ -348,14 +348,14 @@ struct LoginWindowView: View {
                     if let subtitle {
                         Text(subtitle)
                             .font(AppDesign.Typography.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(AppDesign.Text.secondary)
                             .multilineTextAlignment(.leading)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
 
                 Image(systemName: "chevron.right")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesign.Text.secondary)
                     .font(AppDesign.Typography.caption)
                     .padding(.top, AppDesign.Space.control)
             }
@@ -383,7 +383,7 @@ struct LoginWindowView: View {
                 .controlSize(.large)
             Text("찾는 중...")
                 .font(AppDesign.Typography.callout)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesign.Text.secondary)
             Spacer()
         }
         .frame(maxWidth: .infinity)
@@ -394,7 +394,7 @@ struct LoginWindowView: View {
             VStack(spacing: AppDesign.Space.row) {
                 Text("가져올 프로필을 고르세요")
                     .font(AppDesign.Typography.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesign.Text.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, AppDesign.Space.compact)
 
@@ -410,12 +410,12 @@ struct LoginWindowView: View {
                                     .font(AppDesign.Typography.subheadline.weight(.semibold))
                                 Text(candidate.sourceDetail)
                                     .font(AppDesign.Typography.caption2)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(AppDesign.Text.secondary)
                                     .lineLimit(1)
                             }
                             Spacer()
                             Image(systemName: "chevron.right")
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(AppDesign.Text.secondary)
                                 .font(AppDesign.Typography.caption)
                         }
                         .padding(AppDesign.Space.content)
@@ -436,12 +436,12 @@ struct LoginWindowView: View {
             Spacer()
             Image(systemName: "magnifyingglass")
                 .font(AppDesign.Typography.setupIcon)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesign.Text.secondary)
             Text("\(familyName)에서 가져올 수 없습니다")
                 .font(AppDesign.Typography.headline)
             Text(message)
                 .font(AppDesign.Typography.callout)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesign.Text.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, AppDesign.Space.page)
             HStack(spacing: AppDesign.Space.label) {
@@ -466,7 +466,7 @@ struct LoginWindowView: View {
             Label("목록에서 \(AppDistribution.current.appName) 항목을 켭니다. 없으면 + 로 추가합니다", systemImage: "2.circle")
             Label("macOS가 다시 열라고 하면 앱을 종료한 뒤 다시 엽니다", systemImage: "3.circle")
             Text("권한을 주지 않으려면 앱에서 로그인하세요.")
-                .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+                .font(AppDesign.Typography.caption).foregroundStyle(AppDesign.Text.secondary)
             HStack(spacing: AppDesign.Space.label) {
                 Button("설정 열기") {
                     if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
@@ -528,7 +528,7 @@ struct LoginWindowView: View {
             } else if let embeddedStatusMessage {
                 Text(embeddedStatusMessage)
                     .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesign.Text.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, AppDesign.Space.content)
                     .padding(.vertical, AppDesign.Space.row)
@@ -546,7 +546,7 @@ struct LoginWindowView: View {
                 .controlSize(.large)
             Text(message)
                 .font(AppDesign.Typography.callout)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesign.Text.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, AppDesign.Space.page)
             Spacer()
@@ -567,7 +567,7 @@ struct LoginWindowView: View {
             if let detail = summary.detail {
                 Text(detail)
                     .font(AppDesign.Typography.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesign.Text.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, AppDesign.Space.page)
             }
@@ -594,7 +594,7 @@ struct LoginWindowView: View {
                 .foregroundStyle(Color.red)
             Text(context.message)
                 .font(AppDesign.Typography.callout)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesign.Text.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, AppDesign.Space.page)
             HStack(spacing: AppDesign.Space.label) {

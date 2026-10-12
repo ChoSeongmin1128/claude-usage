@@ -25,7 +25,7 @@ enum ProviderBrandIconResolver {
             }
             return MenuBarIconFactory.providerMenuBarIcon(
                 for: provider,
-                size: NSSize(width: 18, height: 18),
+                size: AppDesign.MenuBar.singleProviderIconSize,
                 appearance: appearance
             )
         }
@@ -73,8 +73,8 @@ struct ProviderBrandIconView: View {
 
     var body: some View {
         Group {
-            if let image = ProviderBrandIconResolver.image(for: provider, kind: kind) {
-                Image(nsImage: image)
+            if let assetName = ProviderBrandIconResolver.assetName(for: provider, kind: kind) {
+                Image(assetName, bundle: ProviderBrandIconResolver.resourceBundle)
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fit)

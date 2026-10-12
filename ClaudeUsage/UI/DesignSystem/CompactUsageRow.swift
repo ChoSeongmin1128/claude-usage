@@ -57,7 +57,7 @@ struct CompactUsageRow: View {
                     .lineLimit(1).minimumScaleFactor(0.85).truncationMode(.tail)
                 Text("· " + compactResetText)
                     .font(AppDesign.Typography.metadata)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesign.Text.secondary)
                     .fixedSize(horizontal: true, vertical: false)
             }
         } else {

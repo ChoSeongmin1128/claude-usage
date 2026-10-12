@@ -74,7 +74,7 @@ extension SettingsView {
                             [presentation.sourceLabel, presentation.secondaryLine].compactMap { $0 }.joined(
                                 separator: " · ")
                         )
-                        .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+                        .font(AppDesign.Typography.caption).foregroundStyle(AppDesign.Text.secondary)
                         .lineLimit(1)
                     }
                     Spacer(minLength: AppDesign.Space.row)
@@ -123,7 +123,7 @@ extension SettingsView {
             }
         }
         .padding(AppDesign.Space.content)
-        .appPanelStyle()
+        .appPanelStyle(role: .editable)
     }
 
     private var shouldShowClaudeOAuthMigrationCard: Bool {
@@ -144,7 +144,7 @@ extension SettingsView {
                 Button(action: { claudeAccountMessage = nil }) {
                     Image(systemName: "xmark")
                         .font(AppDesign.Typography.caption2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppDesign.Text.secondary)
                 }
                 .buttonStyle(.borderless)
                 .help("닫기")
@@ -158,7 +158,7 @@ extension SettingsView {
         if !isTesting, testResult == nil, let summary = claudeNotificationPolicySummary {
             Text(summary)
                 .font(AppDesign.Typography.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesign.Text.secondary)
         }
     }
 
@@ -175,7 +175,7 @@ extension SettingsView {
                 } else {
                     Text("불러오는 중")
                         .font(AppDesign.Typography.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppDesign.Text.secondary)
                 }
             }
             .padding(.top, AppDesign.Space.control)
@@ -233,7 +233,7 @@ extension SettingsView {
                     if hasPendingManualSessionKey && testResult == nil {
                         Label("저장 안 됨", systemImage: "pencil")
                             .font(AppDesign.Typography.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(AppDesign.Text.secondary)
                     }
                 }
             }
@@ -335,7 +335,7 @@ extension SettingsView {
                 .fill(color)
                 .frame(width: 6, height: 6)
             Text(title)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesign.Text.secondary)
             Spacer(minLength: 8)
             Text(value)
                 .foregroundStyle(color)
@@ -359,7 +359,7 @@ extension SettingsView {
                 if let subtitle {
                     Text(subtitle)
                         .font(AppDesign.Typography.caption2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppDesign.Text.secondary)
                 }
             }
             Spacer(minLength: 0)
@@ -441,7 +441,7 @@ extension SettingsView {
             if let activeOrgLabel = currentlyAppliedOrganizationLabel {
                 Text(activeOrgLabel)
                     .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesign.Text.secondary)
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
@@ -467,12 +467,12 @@ extension SettingsView {
             if !isLoadingOrganizations {
                 Text("조직 목록을 불러오지 못했습니다.")
                     .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesign.Text.secondary)
             }
         } else if let only = organizations.first {
             HStack(spacing: AppDesign.Space.row) {
                 Image(systemName: "building.2")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesign.Text.secondary)
                 Text(only.displayName)
                     .font(AppDesign.Typography.subheadline)
                 Spacer(minLength: 0)
@@ -504,7 +504,7 @@ extension SettingsView {
                 }
                 .controlSize(.small)
                 .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesign.Text.secondary)
             }
         }
     }

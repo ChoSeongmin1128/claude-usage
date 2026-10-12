@@ -104,7 +104,7 @@ extension SettingsView {
                     }
                 }
             }
-            .navigationSplitViewColumnWidth(min: 150, ideal: 170, max: 220)
+            .navigationSplitViewColumnWidth(min: 150, ideal: 176, max: 220)
             .toolbar(removing: .sidebarToggle)
         } detail: {
             ScrollView {
@@ -113,6 +113,7 @@ extension SettingsView {
                 }
                 .padding(AppDesign.Space.window)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .font(AppDesign.Typography.body)
                 .id(selectedPanel)
                 .transition(.opacity)
                 .animation(

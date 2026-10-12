@@ -130,7 +130,7 @@ struct MenuBarDesignComparison: View {
     var body: some View {
         Grid(alignment: .leading, horizontalSpacing: AppDesign.Space.section, verticalSpacing: AppDesign.Space.row) {
             GridRow {
-                Text("모양").foregroundStyle(.secondary)
+                Text("모양").foregroundStyle(AppDesign.Text.secondary)
                 Text("클래식")
                 Text("새 디자인")
             }

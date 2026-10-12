@@ -45,7 +45,7 @@ struct UsageAccountsSection: View {
             .help("켜 두면 다른 계정의 사용량도 5분마다 확인합니다.")
             Text("계정별 사용량을 함께 봅니다. 끄면 선택한 계정만 표시합니다.")
                 .font(AppDesign.Typography.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesign.Text.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             if let notice = controller.revertedSwitch[service] {
                 HStack {
@@ -58,7 +58,7 @@ struct UsageAccountsSection: View {
             if isSwitching {
                 HStack(spacing: AppDesign.Space.row) {
                     ProgressView().controlSize(.small)
-                    Text("전환 중").font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+                    Text("전환 중").font(AppDesign.Typography.caption).foregroundStyle(AppDesign.Text.secondary)
                 }
             }
             ForEach(accounts) { account in row(account) }
@@ -147,7 +147,7 @@ struct UsageAccountsSection: View {
             Spacer(minLength: AppDesign.Space.row)
             Text(statusText(account, hidden: hidden, isRuntime: isRuntime))
                 .font(AppDesign.Typography.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesign.Text.secondary)
                 .help(
                     controller.states[account.id]?.issue == .executableNotFound
                         ? ClaudeCodeCredentialIssue.executableNotFoundExplanation : "")
@@ -313,7 +313,7 @@ struct AddUsageAccountSheet: View {
             VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
                 Text(title).font(AppDesign.Typography.subheadline.weight(.semibold))
                 if let detail {
-                    Text(detail).font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+                    Text(detail).font(AppDesign.Typography.caption).foregroundStyle(AppDesign.Text.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }

@@ -36,7 +36,7 @@ struct StandardUsageRow: View {
             } else {
                 Text(unavailableText ?? "사용량 알 수 없음")
                     .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesign.Text.secondary)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
@@ -44,7 +44,7 @@ struct StandardUsageRow: View {
             if let detailText {
                 Text(detailText)
                     .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesign.Text.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }

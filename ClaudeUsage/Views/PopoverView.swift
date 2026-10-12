@@ -148,7 +148,7 @@ struct PopoverView: View {
                     Text("⌘, 설정")
                 }
                 .font(AppDesign.Typography.metadata)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesign.Text.secondary)
                 .frame(maxWidth: .infinity)
                 .frame(height: PopoverLayoutMetrics.standardShortcutFooterHeight)
             }
@@ -269,7 +269,7 @@ struct PopoverView: View {
         HStack(spacing: AppDesign.Space.micro) {
             if let accountLabel = context.accountLabel {
                 Text(accountLabel)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesign.Text.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
@@ -366,7 +366,7 @@ struct PopoverView: View {
         let font = Font.system(size: isCompact ? 8 : 9, weight: .medium)
         Text(selectedService.displayName)
             .font(font)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(AppDesign.Text.secondary)
             .lineLimit(1)
             .fixedSize()
             .layoutPriority(2)
@@ -374,7 +374,7 @@ struct PopoverView: View {
         if let account = parts.account {
             Text(account)
                 .font(font)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesign.Text.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .layoutPriority(0)
@@ -383,7 +383,7 @@ struct PopoverView: View {
         if let source = parts.source {
             Text(source)
                 .font(font)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesign.Text.secondary)
                 .lineLimit(1)
                 .fixedSize()
                 .layoutPriority(1)

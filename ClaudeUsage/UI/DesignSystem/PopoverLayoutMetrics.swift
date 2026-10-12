@@ -30,7 +30,7 @@ enum PopoverLayoutMetrics {
     static let compactRowMeterWidth: CGFloat = 150
     static let metricValueWidth: CGFloat = 64
     static var metricCaptionWidth: CGFloat {
-        let font = NSFont.preferredFont(forTextStyle: .caption2)
+        let font = NSFont.systemFont(ofSize: AppDesign.FontSize.metadata)
         return ceil(
             [UsageValueBasis.used.label, UsageValueBasis.remaining.label].map {
                 ($0 as NSString).size(withAttributes: [.font: font]).width
@@ -38,11 +38,7 @@ enum PopoverLayoutMetrics {
     }
 
     static func metricValueFont(compact: Bool) -> NSFont {
-        if compact {
-            return NSFont.monospacedSystemFont(
-                ofSize: NSFont.preferredFont(forTextStyle: .caption1).pointSize, weight: .medium)
-        }
-        return NSFont.preferredFont(forTextStyle: .headline)
+        AppDesign.Typography.metricFont(compact: compact)
     }
     static let compactRowSpacing: CGFloat = 6
     static let compactUsageRowHeight: CGFloat = 18

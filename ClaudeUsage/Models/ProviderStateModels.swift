@@ -472,32 +472,5 @@ enum ProviderMenuBarDisplayPreset: String, CaseIterable, Identifiable, Sendable,
         }
     }
 
-    static func resolved(for config: ProviderMenuBarDisplayConfig) -> Self {
-        guard config.quotaSelection == nil, config.gaugeSelection == nil else { return .custom }
-        if config.showIcon,
-           config.style == .none,
-           config.percentageDisplay == .fiveHour,
-           config.resetTimeDisplay == .none {
-            return .basic
-        }
 
-        if config.showIcon,
-           config.style == .batteryBar,
-           config.percentageDisplay == .none,
-           config.resetTimeDisplay == .none,
-           config.showBatteryPercent,
-           config.iconMetric == .fiveHour,
-           config.circularDisplayMode == .remaining {
-            return .battery
-        }
-
-        if config.showIcon,
-           config.style == .none,
-           config.percentageDisplay == .dual,
-           config.resetTimeDisplay == .none {
-            return .dual
-        }
-
-        return .custom
-    }
 }

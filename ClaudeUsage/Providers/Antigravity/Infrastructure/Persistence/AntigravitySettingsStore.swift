@@ -4,6 +4,7 @@ import Foundation
 nonisolated struct AntigravitySettingsSnapshot: Equatable, Sendable {
     var connection: AntigravityConnectionSettings
     var display: AntigravityDisplaySettings
+    var hover: AntigravityHoverDisplayPreferences = .inherited
 }
 
 nonisolated enum AntigravitySettingsKind: String, Equatable, Sendable {
@@ -44,6 +45,11 @@ nonisolated protocol AntigravitySettingsStoring: Sendable {
         _ snapshot: AntigravitySettingsSnapshot
     ) async throws -> AntigravitySettingsSnapshot
 
+    func saveHover(
+        _ selection: AntigravityDisplaySettings.LaneListPresentationIntent,
+        replacing expected: AntigravityHoverDisplayPreferences
+    ) async throws -> AntigravityHoverDisplayPreferences
+
     func consumePendingNotice() async throws
         -> AntigravitySettingsMigrationNotice?
 }
@@ -58,6 +64,20 @@ nonisolated protocol AntigravitySettingsDataPersisting: Sendable {
     nonisolated func storedData(forKey key: String)
         -> AntigravitySettingsStoredData
     nonisolated func setData(_ data: Data, forKey key: String) throws
+    nonisolated func removeData(forKey key: String) throws
+}
+
+extension AntigravitySettingsDataPersisting {
+    nonisolated func removeData(forKey key: String) throws { throw HoverDisplayPreferencesError.writeFailed }
+}
+
+extension AntigravitySettingsStoring {
+    nonisolated func saveHover(
+        _ selection: AntigravityDisplaySettings.LaneListPresentationIntent,
+        replacing expected: AntigravityHoverDisplayPreferences
+    ) async throws -> AntigravityHoverDisplayPreferences {
+        throw HoverDisplayPreferencesError.writeFailed
+    }
 }
 
 nonisolated final class UserDefaultsAntigravitySettingsDataPersistence:
@@ -85,6 +105,8 @@ nonisolated final class UserDefaultsAntigravitySettingsDataPersistence:
     nonisolated func setData(_ data: Data, forKey key: String) throws {
         defaults.set(data, forKey: key)
     }
+
+    nonisolated func removeData(forKey key: String) throws { defaults.removeObject(forKey: key) }
 }
 
 /// Typed consumer for the settings created by
@@ -121,7 +143,9 @@ actor AntigravitySettingsStore: AntigravitySettingsStoring {
     func load() async throws -> AntigravitySettingsSnapshot {
         AntigravitySettingsSnapshot(
             connection: try loadConnection(),
-            display: try loadDisplay()
+            display: try loadDisplay(),
+            hover: AntigravityHoverDisplayPreferences(
+                stored: persistence.storedData(forKey: AntigravityHoverDisplayPreferences.key))
         )
     }
 
@@ -153,6 +177,32 @@ actor AntigravitySettingsStore: AntigravitySettingsStoring {
         ]
         try persistAtomically(writes)
         return snapshot
+    }
+
+    func saveHover(
+        _ selection: AntigravityDisplaySettings.LaneListPresentationIntent,
+        replacing expected: AntigravityHoverDisplayPreferences
+    ) async throws -> AntigravityHoverDisplayPreferences {
+        let key = AntigravityHoverDisplayPreferences.key
+        guard persistence.storedData(forKey: key) == expected.stored else {
+            throw HoverDisplayPreferencesError.changedElsewhere
+        }
+        let data = try expected.encoding(selection)
+        do {
+            try persistence.setData(data, forKey: key)
+            let saved = AntigravityHoverDisplayPreferences(stored: persistence.storedData(forKey: key))
+            guard saved.stored == .data(data), saved.selection == selection, saved.isWritable else {
+                throw HoverDisplayPreferencesError.writeFailed
+            }
+            return saved
+        } catch {
+            switch expected.stored {
+            case .data(let original): try? persistence.setData(original, forKey: key)
+            case .missing: try? persistence.removeData(forKey: key)
+            case .invalidType: break  // encoding rejects this before writing
+            }
+            throw error
+        }
     }
 
     func consumePendingNotice() async throws

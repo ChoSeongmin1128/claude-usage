@@ -207,6 +207,7 @@ final class AppSettingsTests: XCTestCase {
         let snapshot = settings.createSnapshot()
         defer { settings.restore(from: snapshot) }
 
+        let previousBasis = settings.codexCircularDisplayMode
         settings.applyMenuBarDisplayPreset(.battery, for: .codex)
 
         guard let batteryConfig = settings.menuBarDisplayConfig(for: .codex) else {
@@ -218,7 +219,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(batteryConfig.resetTimeDisplay, .none)
         XCTAssertEqual(batteryConfig.style, .batteryBar)
         XCTAssertTrue(batteryConfig.showBatteryPercent)
-        XCTAssertEqual(batteryConfig.circularDisplayMode, .remaining)
+        XCTAssertEqual(batteryConfig.circularDisplayMode, previousBasis)
 
         settings.applyMenuBarDisplayPreset(.dual, for: .codex)
 
@@ -226,8 +227,8 @@ final class AppSettingsTests: XCTestCase {
             return XCTFail("Codex 메뉴바 설정을 읽지 못했습니다")
         }
         XCTAssertEqual(settings.menuBarDisplayPreset(for: .codex), .dual)
-        XCTAssertEqual(dualConfig.percentageDisplay, .dual)
-        XCTAssertEqual(dualConfig.style, .none)
+        XCTAssertEqual(dualConfig.percentageDisplay, .none)
+        XCTAssertEqual(dualConfig.style, .sideBySideBattery)
     }
 
     func testCustomMenuBarDisplayPresetIsInferredWithoutNewStorageKey() {

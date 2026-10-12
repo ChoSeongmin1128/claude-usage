@@ -8,15 +8,18 @@ nonisolated enum ProviderDisplaySurface:
 {
     case standard
     case compact
+    case hover
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .standard:
-            "일반 보기"
+            "일반"
         case .compact:
-            "간소화 보기"
+            "간소화"
+        case .hover:
+            "호버"
         }
     }
 

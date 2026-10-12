@@ -261,6 +261,26 @@ actor AntigravityRuntimeController {
     }
 
     @discardableResult
+    func updateHover(
+        _ selection: AntigravityDisplaySettings.LaneListPresentationIntent,
+        replacing expected: AntigravityHoverDisplayPreferences,
+        expectedDisplay: AntigravityDisplaySettings
+    ) async throws -> AntigravityRuntimeSnapshot {
+        try await withOperationGate {
+            try ensureMutable()
+            var settings = try await requireSettings()
+            guard settings.hover == expected, settings.display == expectedDisplay else {
+                throw AntigravityRuntimeControllerError.operationSuperseded
+            }
+            settings.hover = try await settingsStore.saveHover(selection, replacing: expected)
+            try ensureMutable()
+            return publish(
+                readiness: .ready, settings: settings,
+                presentationState: currentSnapshot.presentationState)
+        }
+    }
+
+    @discardableResult
     func updateMenuBarStyle(
         _ style: AntigravityDisplaySettings
             .MenuBarPresentationIntent.Style
@@ -308,7 +328,8 @@ actor AntigravityRuntimeController {
                 connection: current.connection,
                 display:
                     try await settingsStore
-                        .saveDisplay(display)
+                    .saveDisplay(display),
+                hover: current.hover
             )
             try ensureMutable()
             return publish(

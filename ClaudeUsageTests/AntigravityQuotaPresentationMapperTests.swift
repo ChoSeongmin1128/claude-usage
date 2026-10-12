@@ -958,6 +958,57 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
         XCTAssertTrue(reportRail.tooltip.contains("조회 계정: AGY CLI 로그인 계정"))
     }
 
+    @MainActor
+    func testHoverInheritsOnlyEffectiveCompactRowsAndRetainsMissingExplicitSelections() throws {
+        let lane = makeLane(
+            id: AntigravityQuotaLaneID.geminiFiveHour.rawValue, scope: .gemini, cadence: .fiveHour, remaining: 0.9)
+        let source = makeSnapshot(lanes: [lane], fetchedAt: now)
+        let display = AntigravityDisplaySettings.default
+        let presentation = AntigravityQuotaPresentationMapper.map(snapshot: source, settings: display, now: now)
+        let runtime = AntigravityRuntimeSnapshot(
+            readiness: .ready,
+            settings: .init(connection: .default, display: display), presentationState: .ready(source),
+            quotaPresentation: .content(presentation), managedRuntimeAvailability: .notChecked,
+            lastAttemptAt: now, lastSuccessfulAt: now)
+        let provider = try XCTUnwrap(MenuBarHoverUsageContent.antigravityProvider(snapshot: runtime, basis: .remaining))
+        XCTAssertEqual(provider.items.map(\.id), presentation.compact.metrics.map { $0.laneID.rawValue })
+        XCTAssertEqual(provider.items.count, 1)
+        let projected = AntigravityDisplayAdapter.hoverEditorSettings(
+            display, hover: .inherited, presentation: presentation)
+        let explicit = AntigravityHoverDisplayPreferences(
+            stored: .data(try AntigravityHoverDisplayPreferences.inherited.encoding(projected.compact)))
+        let missingSource = makeSnapshot(lanes: [], fetchedAt: now)
+        let missing = AntigravityQuotaPresentationMapper.map(snapshot: missingSource, settings: display, now: now)
+        let changed = AntigravityRuntimeSnapshot(
+            readiness: .ready,
+            settings: .init(connection: .default, display: display, hover: explicit),
+            presentationState: .ready(missingSource),
+            quotaPresentation: .content(missing), managedRuntimeAvailability: .notChecked,
+            lastAttemptAt: now, lastSuccessfulAt: now)
+        let previous = try XCTUnwrap(MenuBarHoverUsageContent.antigravityProvider(snapshot: changed, basis: .remaining))
+        XCTAssertEqual(previous.items.map(\.id), provider.items.map(\.id))
+        XCTAssertTrue(previous.items.allSatisfy(\.isUnknown))
+    }
+
+    @MainActor
+    func testExplicitEmptyHoverDoesNotStartShowingNewReportedLanes() throws {
+        let source = makeSnapshot(
+            lanes: [makeLane(id: "gemini.new-model.5h", scope: .gemini, cadence: .fiveHour, remaining: 0.8)],
+            fetchedAt: now)
+        let display = AntigravityDisplaySettings.default
+        let empty = AntigravityDisplaySettings.LaneListPresentationIntent(
+            orderedLaneIDs: [], hiddenLaneIDs: [], orderingPolicy: .manual)
+        let hover = AntigravityHoverDisplayPreferences(
+            stored: .data(try AntigravityHoverDisplayPreferences.inherited.encoding(empty)))
+        let presentation = AntigravityQuotaPresentationMapper.map(snapshot: source, settings: display, now: now)
+        let runtime = AntigravityRuntimeSnapshot(
+            readiness: .ready,
+            settings: .init(connection: .default, display: display, hover: hover), presentationState: .ready(source),
+            quotaPresentation: .content(presentation), managedRuntimeAvailability: .notChecked,
+            lastAttemptAt: now, lastSuccessfulAt: now)
+        XCTAssertNil(MenuBarHoverUsageContent.antigravityProvider(snapshot: runtime, basis: .remaining))
+    }
+
     private func makeSnapshot(
         lanes: [AntigravityQuotaLane],
         identity: ProviderAccountIdentity? = nil,

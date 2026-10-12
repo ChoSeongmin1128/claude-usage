@@ -83,7 +83,8 @@ final class WhatsNewTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
         WhatsNewState.prepare(defaults: defaults, isExistingInstall: false, currentVersion: "2.7.0")
         UpdateNotesQueue.enqueue(.timeFormatUnified, defaults: defaults)
-        let coordinator = WhatsNewWindowCoordinator()
+        var presentedWindows: [NSWindow] = []
+        let coordinator = WhatsNewWindowCoordinator(showWindow: { presentedWindows.append($0) })
         var actions: [WhatsNewPage.Action] = []
         var closeCount = 0
         coordinator.present(
@@ -101,7 +102,8 @@ final class WhatsNewTests: XCTestCase {
         XCTAssertEqual(actions, [.openSettings(.common)])
         XCTAssertTrue(coordinator.window === window)
         XCTAssertTrue(window.contentViewController === controller)
-        XCTAssertTrue(window.isVisible)
+        XCTAssertFalse(window.isVisible)
+        XCTAssertTrue(presentedWindows.last === window)
         XCTAssertEqual(closeCount, 0)
         XCTAssertEqual(WhatsNewState.lastSeen(defaults: defaults), "2.7.0")
         XCTAssertEqual(UpdateNotesQueue.pending(defaults: defaults), [.timeFormatUnified])
@@ -114,7 +116,8 @@ final class WhatsNewTests: XCTestCase {
             onClose: { XCTFail("The open window must keep its original close callback") })
         XCTAssertTrue(coordinator.window === window)
         XCTAssertTrue(window.contentViewController === controller)
-        XCTAssertTrue(window.isVisible)
+        XCTAssertFalse(window.isVisible)
+        XCTAssertEqual(presentedWindows.count, 2)
         XCTAssertEqual(closeCount, 0)
 
         coordinator.close()

@@ -42,7 +42,7 @@ struct MenuBarQuotaEditor: View {
                 Text("메뉴바에 표시할 한도").font(AppDesign.Typography.subheadline.weight(.semibold))
                 Spacer()
                 Text("손잡이를 위아래로 끌어 정렬")
-                    .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+                    .font(AppDesign.Typography.caption).foregroundStyle(AppDesign.Text.secondary)
             }
             VStack(spacing: 0) {
                 ForEach(displayedModel.selectedItems) { item in
@@ -51,7 +51,7 @@ struct MenuBarQuotaEditor: View {
                 }
                 if displayedModel.selectedItems.isEmpty {
                     Text("메뉴바에서 볼 한도를 추가하세요.")
-                        .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+                        .font(AppDesign.Typography.caption).foregroundStyle(AppDesign.Text.secondary)
                         .padding(AppDesign.Space.content)
                 }
             }
@@ -96,8 +96,8 @@ struct MenuBarQuotaEditor: View {
     private var preview: some View {
         let layout = renderPreview(displayedModel.arrangement, highlightedID ?? focusedID)
         return VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
-            Text(previewsEditedArrangement ? "배치 미리보기" : "메뉴바 미리보기").font(AppDesign.Typography.caption).foregroundStyle(
-                .secondary)
+            Text(previewsEditedArrangement ? "배치 미리보기" : "메뉴바 미리보기")
+                .font(AppDesign.Typography.caption).foregroundStyle(AppDesign.Text.secondary)
             ScrollView(.horizontal) {
                 MenuBarQuotaPreview(
                     layout: layout,
@@ -110,24 +110,31 @@ struct MenuBarQuotaEditor: View {
                     onReorder: { ids in onAction(.reorderUnits(ids)) },
                     onHover: { highlightedID = $0 }
                 )
-                .frame(width: max(1, layout.width), height: 30)
+                .frame(width: max(1, layout.width), height: AppDesign.Control.menuBarArrangementPreviewHeight)
             }
             .scrollIndicators(.hidden)
+            .frame(height: AppDesign.Control.menuBarArrangementPreviewHeight)
             let activeID = highlightedID ?? focusedID
             let activeItem = displayedModel.selectedItems.first { $0.id == activeID }
-            Text(
-                activeItem.map { item in
-                    [item.title, displayedModel.role(for: item.id)?.title].compactMap { $0 }.joined(separator: " / ")
-                } ?? " "
-            )
-            .font(AppDesign.Typography.caption).foregroundStyle(Color.accentColor).lineLimit(1)
-            .accessibilityHidden(activeItem == nil)
-            Text(
+            let instruction =
                 previewsEditedArrangement
-                    ? "목록에서 표시 방식이나 순서를 바꾸면 이 배치가 적용됩니다."
-                    : "미리보기에서 끌어 순서를 바꾸고, 눌러 표시 방식을 바꿉니다."
-            )
-            .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+                ? "목록에서 표시 방식이나 순서를 바꾸면 이 배치가 적용됩니다."
+                : "미리보기에서 끌어 순서를 바꾸고, 눌러 표시 방식을 바꿉니다."
+            Text(instruction)
+                .font(AppDesign.Typography.caption)
+                .foregroundStyle(AppDesign.Text.secondary)
+                .opacity(activeItem == nil ? 1 : 0)
+                .accessibilityHidden(activeItem != nil)
+                .overlay(alignment: .leading) {
+                    if let activeItem {
+                        Text(
+                            [activeItem.title, displayedModel.role(for: activeItem.id)?.title]
+                                .compactMap { $0 }.joined(separator: " / ")
+                        )
+                        .font(AppDesign.Typography.caption).foregroundStyle(Color.accentColor)
+                        .lineLimit(1)
+                    }
+                }
         }
         .padding(AppDesign.Space.row)
         .background(
@@ -142,7 +149,7 @@ struct MenuBarQuotaEditor: View {
                 Button {
                     focusedID = item.id
                 } label: {
-                    Image(systemName: "line.3.horizontal").foregroundStyle(.secondary)
+                    Image(systemName: "line.3.horizontal").foregroundStyle(AppDesign.Text.secondary)
                         .frame(width: 22, height: 30).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain).focused($focusedID, equals: item.id)
@@ -165,7 +172,7 @@ struct MenuBarQuotaEditor: View {
                             item.usedPercentage == nil && !item.canSelect
                                 ? "데이터 없음" : displayedModel.summary(for: item.id)
                         )
-                        .font(AppDesign.Typography.caption).foregroundStyle(.secondary).lineLimit(1)
+                        .font(AppDesign.Typography.caption).foregroundStyle(AppDesign.Text.secondary).lineLimit(1)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }.buttonStyle(.plain).help(item.title)
                 Button(expandedID == item.id ? "접기" : "편집") {
@@ -289,7 +296,7 @@ private struct MenuBarQuotaRoleGlyph: View {
     let isCircular: Bool
 
     var body: some View {
-        VStack(spacing: 2) {
+        VStack(spacing: AppDesign.Space.tight) {
             if isCircular {
                 ZStack {
                     Circle().stroke(role == .inner ? Color.secondary : Color.accentColor, lineWidth: 2)
@@ -299,7 +306,7 @@ private struct MenuBarQuotaRoleGlyph: View {
                     }
                 }.frame(width: 26, height: 26)
             } else {
-                VStack(spacing: 3) {
+                VStack(spacing: AppDesign.Space.micro) {
                     Capsule().fill(role == .bottom ? Color.secondary : Color.accentColor).frame(height: 7)
                     if role != .single {
                         Capsule().fill(role == .bottom ? Color.accentColor : Color.secondary).frame(height: 7)

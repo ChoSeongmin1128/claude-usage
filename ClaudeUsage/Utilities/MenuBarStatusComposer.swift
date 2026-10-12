@@ -482,8 +482,8 @@ enum MenuBarStatusComposer {
         secondaryColor: NSColor,
         appearance: NSAppearance
     ) -> MenuBarRenderedContent {
-        let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
-        let resetFont = NSFont.systemFont(ofSize: 11)
+        let valueFont = AppDesign.MenuBar.valueFont(compact: false)
+        let resetFont = AppDesign.MenuBar.resetFont(compact: false)
         var elements = renderElements(
             for: snapshot,
             text: snapshot.regularText,
@@ -509,8 +509,8 @@ enum MenuBarStatusComposer {
         appearance: NSAppearance
     ) -> MenuBarRenderedContent {
         let separatorFont = NSFont.systemFont(ofSize: 11, weight: .regular)
-        let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
-        let resetFont = NSFont.systemFont(ofSize: 10, weight: .regular)
+        let valueFont = AppDesign.MenuBar.valueFont(compact: true)
+        let resetFont = AppDesign.MenuBar.resetFont(compact: true)
         let resolvedSnapshots = snapshots.filter { $0.kind.isRuntimeProvider }
         let elements = resolvedSnapshots.enumerated().flatMap { index, snapshot -> [MenuBarElement] in
             var rendered = renderElements(

@@ -19,7 +19,7 @@ extension SettingsView {
 
             Text("메뉴바와 팝오버에 함께 적용합니다.")
                 .font(AppDesign.Typography.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesign.Text.secondary)
         }
         .controlSize(.small)
     }
@@ -31,23 +31,29 @@ extension SettingsView {
         } else if let displayConfig = settings.menuBarDisplayConfig(for: provider) {
             VStack(alignment: .leading, spacing: AppDesign.Space.content) {
                 Text("메뉴바 표시").font(AppDesign.Typography.headline)
-                Picker(
-                    "빠른 설정",
-                    selection: Binding(
-                        get: { settings.menuBarDisplayPreset(for: provider) },
-                        set: { settings.applyMenuBarDisplayPreset($0, for: provider) })
-                ) {
-                    ForEach(ProviderMenuBarDisplayPreset.allCases) { preset in
-                        Text(preset.displayName).tag(preset).disabled(preset == .custom)
-                    }
-                }
-                .pickerStyle(.menu)
-                .controlSize(.small)
+                menuBarPresetsSection(for: provider)
                 providerMenuBarQuotaEditor(for: provider)
                 menuBarAppearanceControls(for: provider, displayConfig: displayConfig)
                 menuBarResetCreditControls(for: provider)
             }
         }
+    }
+
+    private func menuBarPresetsSection(for provider: AppProviderKind) -> some View {
+        MenuBarPresetsSection(
+            provider: provider, settings: settings, antigravity: antigravitySettings,
+            limits: providerUsageLimits(provider), codexUsage: provider == .codex ? codexLastUsage?() : nil,
+            preview: { display in
+                let appearance =
+                    NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua) ?? NSApp.effectiveAppearance
+                return MenuBarPresetPreviewRenderer.render(
+                    display, provider: provider, settings: settings,
+                    claudeUsage: provider == .claude ? claudeLastUsage?() : nil,
+                    codexUsage: provider == .codex ? codexLastUsage?() : nil,
+                    antigravityState: antigravitySettings.state, appearance: appearance,
+                    resetCreditsAreNew: provider.runtimeService.map(resetCreditsAreNew) ?? false)
+            }
+        ).id(provider)
     }
 
     private func menuBarAppearanceControls(for provider: AppProviderKind, displayConfig: ProviderMenuBarDisplayConfig)
@@ -102,6 +108,7 @@ extension SettingsView {
         VStack(alignment: .leading, spacing: AppDesign.Space.row) {
             Text("메뉴바 표시").font(AppDesign.Typography.headline)
             if let display = antigravitySettings.state.display {
+                menuBarPresetsSection(for: .antigravity)
                 providerMenuBarQuotaEditor(for: .antigravity)
                 HStack(spacing: AppDesign.Space.section) {
                     Toggle("메뉴바에 표시", isOn: antigravityMenuBarBinding(display, keyPath: \.isVisible))
@@ -143,7 +150,7 @@ extension SettingsView {
                 }
                 menuBarGaugeArrangementControls(for: .antigravity)
             } else {
-                Text("불러오는 중").foregroundStyle(.secondary)
+                Text("불러오는 중").foregroundStyle(AppDesign.Text.secondary)
             }
         }
         .font(AppDesign.Typography.subheadline)
@@ -261,19 +268,9 @@ extension SettingsView {
     }
 
     func settingsToggleRow(_ title: String, subtitle: String? = nil, isOn: Binding<Bool>) -> some View {
-        Toggle(isOn: isOn) {
-            VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
-                Text(title)
-                if let subtitle {
-                    Text(subtitle)
-                        .font(AppDesign.Typography.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+        AppSettingRow(title, detail: subtitle) {
+            Toggle(title, isOn: isOn).labelsHidden().toggleStyle(.switch)
         }
-        .toggleStyle(.switch)
-        .padding(.vertical, AppDesign.Space.tight)
     }
 
     /// macOS SwiftUI Picker(.radioGroup)의 Binding set 미호출 버그 우회용 수동 라디오 그룹
@@ -312,7 +309,7 @@ private struct ProviderPopoverDisplaySection: View {
 
     var body: some View {
         ProviderDisplayEditorShell(
-            title: "팝오버 표시 항목",
+            title: "표시 항목",
             selectedMode: $selectedMode
         ) {
             ProviderPopoverPreviewView(
@@ -329,7 +326,7 @@ private struct ProviderPopoverDisplaySection: View {
             PopoverDisplayItemsListView(
                 settings: settings,
                 service: service,
-                isCompact: selectedMode.isCompact,
+                surface: selectedMode,
                 unavailableItemIDs: unavailableItemIDs,
                 codexUsage: codexUsage
             )
@@ -337,7 +334,7 @@ private struct ProviderPopoverDisplaySection: View {
 
             Text("드래그해 순서를 바꿉니다.")
                 .font(AppDesign.Typography.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesign.Text.secondary)
         }
     }
 
@@ -372,7 +369,24 @@ private struct ProviderPopoverPreviewView: View {
     let codexUsage: CodexUsageResponse?
     let codexError: APIError?
 
-    var body: some View { popoverFrame }
+    @ViewBuilder
+    var body: some View {
+        if mode == .hover {
+            let payload: RuntimeProviderPayload? =
+                service == .claude
+                ? claudeUsage.map(RuntimeProviderPayload.claude) : codexUsage.map(RuntimeProviderPayload.codex)
+            let snapshot = RuntimeProviderSnapshot(
+                service: service, payload: payload, error: codexError,
+                credentialState: .usable, isDetected: true, canAttemptRefresh: true,
+                hasAuthError: codexError?.isDefinitiveAuthFailure == true, claudeOverage: claudeOverage)
+            let provider = MenuBarHoverUsageContent.catalogProvider(snapshot: snapshot, settings: settings)
+            MenuBarHoverUsageView(content: MenuBarHoverUsageContent(providers: provider.map { [$0] } ?? []))
+                .padding(AppDesign.Hover.inset).frame(width: AppDesign.Hover.width)
+                .background(.regularMaterial).clipShape(RoundedRectangle(cornerRadius: AppDesign.Radius.panel))
+        } else {
+            popoverFrame
+        }
+    }
 
     @ViewBuilder
     private var popoverFrame: some View {
@@ -459,7 +473,7 @@ private struct ProviderPopoverPreviewView: View {
             }
         }
         .font(AppDesign.Typography.caption)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(AppDesign.Text.secondary)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
@@ -472,9 +486,7 @@ private struct ProviderPopoverPreviewView: View {
         else {
             return []
         }
-        let items = mode.isCompact
-            ? settings.compactPopoverItems(for: service)
-            : settings.popoverItems(for: service)
+        let items = settings.displayItems(for: service, surface: mode)
         return catalog.sections(from: items, context: context)
     }
 

@@ -129,7 +129,7 @@ struct PopoverMetricValue: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: AppDesign.Space.micro) {
             Text(text)
-                .font(compact ? AppDesign.Typography.compactValue : AppDesign.Typography.headline)
+                .font(compact ? AppDesign.Typography.compactValue : AppDesign.Typography.number)
                 .foregroundStyle(color)
                 .monospacedDigit()
                 .lineLimit(1)
@@ -137,7 +137,7 @@ struct PopoverMetricValue: View {
                 .frame(maxWidth: .infinity, alignment: .trailing)
             Text(caption ?? "")
                 .font(AppDesign.Typography.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesign.Text.secondary)
                 .frame(width: PopoverLayoutMetrics.metricCaptionWidth, alignment: .trailing)
         }
     }

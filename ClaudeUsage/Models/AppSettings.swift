@@ -274,6 +274,7 @@ class AppSettings: ObservableObject {
     }
 
     private let defaults: UserDefaults
+    let menuBarPresets: MenuBarPresetStore
     private let launchAtLoginController: LaunchAtLoginController
     private let popoverDisplayPreferencesStore:
         PopoverDisplayPreferencesStore
@@ -549,6 +550,10 @@ class AppSettings: ObservableObject {
     // MARK: - Snapshot
 
     struct Snapshot {
+        let antigravityHoverObject: Any?
+        let hoverPreferences: PopoverHoverPreferences.Snapshot
+        let menuBarPresets: MenuBarPresetStore.Snapshot
+        let resetCreditMenuBarModes: [String: String]
         let menuBarDesign: MenuBarDesign
         let menuBarDesignIntroductionDismissed: Bool
         let welcomeState: WelcomeState
@@ -602,6 +607,10 @@ class AppSettings: ObservableObject {
 
     func createSnapshot() -> Snapshot {
         Snapshot(
+            antigravityHoverObject: defaults.object(forKey: AntigravityHoverDisplayPreferences.key),
+            hoverPreferences: popoverDisplayPreferencesStore.hoverSnapshot(),
+            menuBarPresets: menuBarPresets.snapshot(),
+            resetCreditMenuBarModes: resetCreditMenuBarModes,
             menuBarDesign: menuBarDesign,
             menuBarDesignIntroductionDismissed: menuBarDesignIntroductionDismissed,
             welcomeState: welcomeState, welcomeStep: welcomeStep,
@@ -662,6 +671,14 @@ class AppSettings: ObservableObject {
     }
 
     func restore(from snapshot: Snapshot) {
+        if let object = snapshot.antigravityHoverObject {
+            defaults.set(object, forKey: AntigravityHoverDisplayPreferences.key)
+        } else {
+            defaults.removeObject(forKey: AntigravityHoverDisplayPreferences.key)
+        }
+        popoverDisplayPreferencesStore.restoreHover(snapshot.hoverPreferences)
+        menuBarPresets.restore(snapshot.menuBarPresets)
+        resetCreditMenuBarModes = snapshot.resetCreditMenuBarModes
         menuBarDesign = snapshot.menuBarDesign
         menuBarDesignIntroductionDismissed = snapshot.menuBarDesignIntroductionDismissed
         welcomeState = snapshot.welcomeState
@@ -775,6 +792,26 @@ class AppSettings: ObservableObject {
             ?? catalog.defaultItems
         let normalized = catalog.normalized(stored)
         return normalized
+    }
+
+    func displayItems(for service: PopoverService, surface: ProviderDisplaySurface) -> [PopoverItemConfig] {
+        switch surface {
+        case .standard: popoverItems(for: service)
+        case .compact: compactPopoverItems(for: service)
+        case .hover: popoverDisplayPreferencesStore.items(for: service, surface: .hover)
+        }
+    }
+
+    func setDisplayItems(_ items: [PopoverItemConfig], for service: PopoverService, surface: ProviderDisplaySurface)
+        throws
+    {
+        switch surface {
+        case .standard: setPopoverItems(items, for: service)
+        case .compact: setCompactPopoverItems(items, for: service)
+        case .hover:
+            try popoverDisplayPreferencesStore.setHoverItems(items, for: service)
+            objectWillChange.send()
+        }
     }
 
     /// density에 맞춰 실제로 사용할 항목 배열.
@@ -994,39 +1031,53 @@ class AppSettings: ObservableObject {
 
     func menuBarDisplayPreset(for kind: AppProviderKind) -> ProviderMenuBarDisplayPreset {
         guard let config = menuBarDisplayConfig(for: kind) else { return .custom }
-        return ProviderMenuBarDisplayPreset.resolved(for: config)
+        let current = CatalogMenuBarPresetDisplay(config: config, resetCredits: resetCreditMenuBarMode(for: kind))
+        let choices: [(ProviderMenuBarDisplayPreset, MenuBarBuiltinPreset)] = [
+            (.basic, .number), (.battery, .battery), (.dual, .twoLimits),
+        ]
+        for (legacy, builtin) in choices {
+            let definition = MenuBarPresetCatalog.catalogDisplay(builtin, provider: kind)
+            if config.style == definition.style,
+                MenuBarPresetCatalog.matches(current, definition, config: config, limits: [], codexUsage: nil)
+            {
+                return legacy
+            }
+        }
+        return .custom
     }
 
     func applyMenuBarDisplayPreset(_ preset: ProviderMenuBarDisplayPreset, for kind: AppProviderKind) {
-        guard Self.ownsGenericMenuBarDisplay(kind) else { return }
-        if preset != .custom {
-            var preferences = menuBarQuotaPreferences
-            preferences.providers[kind.rawValue] = nil
-            preferences.gauges?[kind.rawValue] = nil
-            if preferences != menuBarQuotaPreferences { menuBarQuotaPreferences = preferences }
+        guard Self.ownsGenericMenuBarDisplay(kind), preset != .custom else { return }
+        let builtin: MenuBarBuiltinPreset =
+            switch preset {
+            case .basic: .number
+            case .battery: .battery
+            case .dual: .twoLimits
+            case .custom: .number
+            }
+        applyMenuBarPresetDisplay(MenuBarPresetCatalog.catalogDisplay(builtin, provider: kind), for: kind)
+        try? menuBarPresets.record(.builtin(builtin), for: kind)
+    }
+
+    func applyMenuBarPresetDisplay(_ value: CatalogMenuBarPresetDisplay, for kind: AppProviderKind) {
+        guard Self.ownsGenericMenuBarDisplay(kind), value.isValid else { return }
+        setProviderShowIcon(value.showsLogo, for: kind)
+        setStoredMenuBarStyle(value.style, for: kind)
+        setProviderPercentageDisplay(value.percentage, for: kind)
+        setProviderShowBatteryPercent(value.gaugeNumber, for: kind)
+        setProviderResetTimeDisplay(value.resetTime, for: kind)
+        setProviderIconMetric(value.iconMetric, for: kind)
+        if let resetCredits = ResetCreditMenuBarMode(rawValue: value.resetCredits) {
+            setResetCreditMenuBarMode(resetCredits, for: kind)
         }
-        switch preset {
-        case .basic:
-            setProviderShowIcon(true, for: kind)
-            setProviderPercentageDisplay(.fiveHour, for: kind)
-            setProviderResetTimeDisplay(.none, for: kind)
-            setMenuBarStyle(.none, for: kind)
-        case .battery:
-            setProviderShowIcon(true, for: kind)
-            setProviderPercentageDisplay(.none, for: kind)
-            setProviderResetTimeDisplay(.none, for: kind)
-            setMenuBarStyle(.batteryBar, for: kind)
-            setProviderShowBatteryPercent(true, for: kind)
-            setProviderIconMetric(.fiveHour, for: kind)
-            setProviderCircularDisplayMode(.remaining, for: kind)
-        case .dual:
-            setProviderShowIcon(true, for: kind)
-            setProviderPercentageDisplay(.dual, for: kind)
-            setProviderResetTimeDisplay(.none, for: kind)
-            setMenuBarStyle(.none, for: kind)
-        case .custom:
-            break
+        var preferences = menuBarQuotaPreferences
+        preferences.providers[kind.rawValue] = value.selection
+        if value.gauges != nil || preferences.gauges != nil {
+            var gauges = preferences.gauges ?? [:]
+            gauges[kind.rawValue] = value.gauges
+            preferences.gauges = gauges.isEmpty ? nil : gauges
         }
+        if preferences != menuBarQuotaPreferences { menuBarQuotaPreferences = preferences }
     }
 
     func setActiveProvider(_ kind: AppProviderKind?) {
@@ -1280,15 +1331,9 @@ class AppSettings: ObservableObject {
     /// 표시, 알림, 동작 설정을 처음 설치한 상태로 되돌린다. 계정 연결, 서비스 사용 여부, 조직 선택,
     /// 로그인 시 자동 시작은 사용자의 환경이라 건드리지 않는다.
     func resetToDefaults() {
-        menuBarStyle = .none
         menuBarColorMode = .always
-        for kind in [AppProviderKind.claude, .codex] { setResetCreditMenuBarMode(.always, for: kind) }
-        percentageDisplay = .fiveHour
-        showBatteryPercent = true
-        resetTimeDisplay = .none
         timeFormat = .h24
         circularDisplayMode = .usage
-        iconMetric = .fiveHour
         autoRefresh = true
         notificationsEnabled = false
         notificationPresets = Self.defaultNotificationPresets
@@ -1297,7 +1342,6 @@ class AppSettings: ObservableObject {
         alertRemainingMode = false
         usageDisplayMode = .remaining
         defaults.removeObject(forKey: "hasCompletedSetupWizard")
-        showClaudeIcon = true
         menuBarTextHighContrast = false
         updateCheckInterval = .enforced
         claudeAlertEnabled = true
@@ -1308,19 +1352,19 @@ class AppSettings: ObservableObject {
         popoverPinned = false
         popoverCompact = false
         motion = AppMotionPreferences()
+        popoverDisplayPreferencesStore.restoreHoverDefaults()
         popoverItemsByProvider = Self.defaultPopoverItemsDict()
         separateCompactConfig = false
         compactPopoverItemsByProvider = Self.defaultPopoverItemsDict()
-        showCodexIcon = true
-        codexPercentageDisplay = .fiveHour
-        codexResetTimeDisplay = .none
         codexTimeFormat = .h24
-        codexMenuBarStyle = .none
         codexCircularDisplayMode = .usage
-        codexIconMetric = .fiveHour
-        codexShowBatteryPercent = true
         codexAlertEnabled = false
         Self.legacyAntigravityKeys.forEach(defaults.removeObject(forKey:))
+        for provider in [AppProviderKind.claude, .codex] {
+            applyMenuBarPresetDisplay(MenuBarPresetCatalog.catalogDisplay(.number, provider: provider), for: provider)
+            // Unreadable/future preset data remains untouched even during an explicit display reset.
+            try? menuBarPresets.record(.builtin(.number), for: provider)
+        }
         settingsLastTab = "common"
     }
 
@@ -1375,6 +1419,7 @@ class AppSettings: ObservableObject {
         self.welcomeState = experience.welcomeState
         self.welcomeStep = experience.welcomeStep
         self.defaults = defaults
+        self.menuBarPresets = MenuBarPresetStore(defaults: defaults)
         self.popoverDisplayPreferencesStore =
             PopoverDisplayPreferencesStore(
                 defaults: defaults

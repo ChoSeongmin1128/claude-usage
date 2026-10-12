@@ -198,6 +198,62 @@ final class AntigravitySettingsStoreTests: XCTestCase {
             [AntigravitySettingsMigrationKeys.displaySettings]
         )
     }
+    func testHoverLoadDoesNotCreateStorageAndInvalidHoverDoesNotBreakDisplayLoad() async throws {
+        let persistence = SettingsPersistenceDouble()
+        persistence.seed(connection: .default, display: .default)
+        let store = AntigravitySettingsStore(persistence: persistence)
+        let missing = try await store.load()
+        XCTAssertEqual(missing.hover, .inherited)
+        XCTAssertTrue(persistence.writes.isEmpty)
+        persistence.values[AntigravityHoverDisplayPreferences.key] = .invalidType
+        let invalid = try await store.load()
+        XCTAssertEqual(invalid.display, .default)
+        XCTAssertFalse(invalid.hover.isWritable)
+        XCTAssertTrue(persistence.writes.isEmpty)
+    }
+
+    func testHoverSaveIsIndependentAndDetectsExternalChanges() async throws {
+        let persistence = SettingsPersistenceDouble()
+        persistence.seed(connection: .default, display: .default)
+        let store = AntigravitySettingsStore(persistence: persistence)
+        var intent = AntigravityDisplaySettings.default.compact
+        intent.hiddenLaneIDs = Set(AntigravityDisplaySettings.builtInLaneIDs)
+        let saved = try await store.saveHover(intent, replacing: .inherited)
+        let loaded = try await store.load()
+        XCTAssertEqual(saved.selection, intent)
+        XCTAssertEqual(loaded.hover, saved)
+        XCTAssertEqual(loaded.display, .default)
+        XCTAssertEqual(persistence.writes, [AntigravityHoverDisplayPreferences.key])
+        var display = loaded.display
+        display.menuBar.showsProviderIcon.toggle()
+        _ = try await store.saveDisplay(display)
+        let afterDisplay = try await store.load()
+        XCTAssertEqual(afterDisplay.hover, saved)
+        await XCTAssertThrowsErrorAsync(try await store.saveHover(intent, replacing: .inherited)) {
+            XCTAssertEqual($0 as? HoverDisplayPreferencesError, .changedElsewhere)
+        }
+    }
+
+    func testFailedHoverReadbackRollsBackMissingAndExistingStorage() async throws {
+        for hasExisting in [false, true] {
+            let persistence = SettingsPersistenceDouble()
+            persistence.seed(connection: .default, display: .default)
+            let store = AntigravitySettingsStore(persistence: persistence)
+            if hasExisting {
+                _ = try await store.saveHover(AntigravityDisplaySettings.default.compact, replacing: .inherited)
+            }
+            let before = try await store.load()
+            var intent = before.display.compact
+            intent.hiddenLaneIDs = Set(AntigravityDisplaySettings.builtInLaneIDs)
+            persistence.corruptReadbackAfterNextWrite.insert(AntigravityHoverDisplayPreferences.key)
+            await XCTAssertThrowsErrorAsync(try await store.saveHover(intent, replacing: before.hover)) {
+                XCTAssertEqual($0 as? HoverDisplayPreferencesError, .writeFailed)
+            }
+            let after = try await store.load()
+            XCTAssertEqual(after.hover, before.hover)
+        }
+    }
+
 }
 
 private final class SettingsPersistenceDouble:
@@ -231,6 +287,8 @@ private final class SettingsPersistenceDouble:
             pendingCorruptReadback.insert(key)
         }
     }
+
+    nonisolated func removeData(forKey key: String) throws { values.removeValue(forKey: key) }
 
     func seed(
         connection: AntigravityConnectionSettings,

@@ -160,6 +160,7 @@ final class PopoverResizeTests: XCTestCase {
             contentRect: NSRect(
                 x: screen.visibleFrame.minX + 200, y: screen.visibleFrame.maxY - 160, width: 400, height: 100),
             styleMask: .borderless, backing: .buffered, defer: false)
+        anchorWindow.alphaValue = 0
         anchorWindow.isReleasedWhenClosed = false
         anchorWindow.animationBehavior = .none
         let anchor = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 100))
@@ -170,6 +171,12 @@ final class PopoverResizeTests: XCTestCase {
             coordinator.close()
             anchorWindow.close()
         }
+        let concealObserver = NotificationCenter.default.addObserver(
+            forName: NSPopover.willShowNotification, object: popover, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { host.view.window?.alphaValue = 0 }
+        }
+        defer { NotificationCenter.default.removeObserver(concealObserver) }
         popover.show(relativeTo: NSRect(x: 180, y: 50, width: 20, height: 20), of: anchor, preferredEdge: .minY)
         let popoverWindow = try XCTUnwrap(host.view.window)
         popoverWindow.displayIfNeeded()
@@ -179,6 +186,8 @@ final class PopoverResizeTests: XCTestCase {
         XCTAssertFalse(popoverWindow.isKeyWindow)
         XCTAssertFalse(NSApplication.shared.isActive)
         XCTAssertTrue(popover.isShown)
+        XCTAssertEqual(anchorWindow.alphaValue, 0)
+        XCTAssertEqual(popoverWindow.alphaValue, 0, "Native geometry tests must not show any visible pixels")
 
         if settleInitialPresentation { RunLoop.current.run(until: Date().addingTimeInterval(0.35)) }
         try body(settings, coordinator, host, anchor)

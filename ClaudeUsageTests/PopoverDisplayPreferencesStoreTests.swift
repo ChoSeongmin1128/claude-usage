@@ -130,7 +130,7 @@ final class PopoverDisplayPreferencesStoreTests: XCTestCase {
         try withDefaults { defaults in
             let preferences = PopoverDisplayPreferencesStore(defaults: defaults)
             let chosen = items(oldClaudeOrder)
-            preferences.setItems(chosen, for: .claude, surface: .standard)
+            try preferences.setItems(chosen, for: .claude, surface: .standard)
 
             XCTAssertEqual(preferences.fullItemsByProvider["claude"], chosen)
             XCTAssertEqual(PopoverDisplayPreferencesStore(defaults: defaults).fullItemsByProvider["claude"], chosen)

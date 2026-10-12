@@ -33,7 +33,7 @@ struct AccountBadgeView: View {
             Text(badge.title)
         }
         .font(AppDesign.Typography.caption2)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(AppDesign.Text.secondary)
         .help(badge.help)
     }
 }
@@ -46,7 +46,7 @@ struct InUseAccountLabel: View {
             Text("사용 중")
         }
         .font(AppDesign.Typography.caption2)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(AppDesign.Text.secondary)
         .help("메뉴바와 팝오버에 나오는 계정")
     }
 }
@@ -130,7 +130,7 @@ struct OtherAccountRow: View {
             Text("Claude Code 없음").font(AppDesign.Typography.caption).foregroundStyle(.orange)
                 .help(ClaudeCodeCredentialIssue.executableNotFoundExplanation)
         case .checking where data.usage == nil:
-            Text("확인 중").font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+            Text("확인 중").font(AppDesign.Typography.caption).foregroundStyle(AppDesign.Text.secondary)
         case .failed:
             Text("확인 실패").font(AppDesign.Typography.caption).foregroundStyle(.orange)
         default:
@@ -149,7 +149,7 @@ struct OtherAccountRow: View {
                 .font(AppDesign.Typography.caption2).foregroundStyle(.orange)
         case .archived:
             Text(Self.labeled("보관", since: data.fetchedAt))
-                .font(AppDesign.Typography.caption2).foregroundStyle(.secondary)
+                .font(AppDesign.Typography.caption2).foregroundStyle(AppDesign.Text.secondary)
         case .loginExpired:
             Text("로그인 만료").font(AppDesign.Typography.caption2).foregroundStyle(.red)
         case .executableNotFound where data.usage != nil:
@@ -177,7 +177,7 @@ struct OtherAccountRow: View {
     private func miniGauge(label: String, window: UsageAccountUsage.Window?, isWeekly: Bool) -> some View {
         HStack(spacing: 4) {
             if !density.isCompact {
-                Text(label).font(AppDesign.Typography.caption2).foregroundStyle(.secondary)
+                Text(label).font(AppDesign.Typography.caption2).foregroundStyle(AppDesign.Text.secondary)
             }
             if let window {
                 let value = window.usedPercent
@@ -194,7 +194,7 @@ struct OtherAccountRow: View {
                     if let resetText = exhaustedQuotaText(for: window, isWeekly: isWeekly) {
                         Text(resetText).foregroundStyle(.red)
                     } else {
-                        Text(data.basis.text(fromUsed: value)).foregroundStyle(.secondary)
+                        Text(data.basis.text(fromUsed: value)).foregroundStyle(AppDesign.Text.secondary)
                     }
                 }
                 .font(AppDesign.Typography.caption2.monospacedDigit())

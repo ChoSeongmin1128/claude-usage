@@ -31,7 +31,9 @@ struct StatusPanelView: View {
                 leadingIndicator
 
                 Text(title)
-                    .font(density.isCompact ? .caption.weight(.semibold) : .title3.weight(.semibold))
+                    .font(
+                        density.isCompact ? AppDesign.Typography.caption.weight(.semibold) : AppDesign.Typography.title3
+                    )
                     .lineLimit(1)
                     .minimumScaleFactor(density.isCompact ? 0.85 : 1.0)
 
@@ -49,8 +51,8 @@ struct StatusPanelView: View {
 
             if let message {
                 Text(message)
-                    .font(density.isCompact ? .system(size: 10, weight: .medium) : .subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(density.isCompact ? AppDesign.Typography.metadata.weight(.medium) : AppDesign.Typography.body)
+                    .foregroundStyle(AppDesign.Text.secondary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(
@@ -76,7 +78,7 @@ struct StatusPanelView: View {
                 .frame(width: density.isCompact ? 14 : 18, height: density.isCompact ? 14 : 18, alignment: .center)
         } else if let icon {
             Image(systemName: icon)
-                .font(.system(size: density.isCompact ? 12 : 15, weight: .semibold))
+                .font(density.isCompact ? AppDesign.Typography.icon.weight(.semibold) : AppDesign.Typography.title3)
                 .foregroundStyle(iconColor)
                 .frame(width: density.isCompact ? 14 : 18, height: density.isCompact ? 14 : 18, alignment: .center)
         }
@@ -155,7 +157,7 @@ struct PopoverDisplaySectionView: View {
         case .accountSummary(let summary):
             Text(summary.text)
                 .font(AppDesign.Typography.caption.weight(summary.isWarning ? .semibold : .regular))
-                .foregroundStyle(summary.isWarning ? Color.orange : .secondary)
+                .appStatusTextColor(summary.isWarning ? Color.orange : AppDesign.Text.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -169,7 +171,7 @@ struct AccountSectionView: View {
         VStack(alignment: .leading, spacing: density.isCompact ? 4 : 6) {
             Label(account.title, systemImage: account.systemIcon)
                 .font(AppDesign.Typography.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesign.Text.secondary)
             if let email = account.email {
                 Text(email)
                     .font(density.isCompact ? .caption : .subheadline)
@@ -178,7 +180,7 @@ struct AccountSectionView: View {
             if let plan = account.plan {
                 Text("플랜: \(plan)")
                     .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesign.Text.secondary)
                     .lineLimit(1)
             }
         }
@@ -199,7 +201,7 @@ struct ProviderStatusSectionView: View {
                 Spacer(minLength: 8)
                 Text(statusText)
                     .font(AppDesign.Typography.caption)
-                    .foregroundStyle(statusColor)
+                    .appStatusTextColor(statusColor)
                     .lineLimit(1)
             }
             .frame(
@@ -221,14 +223,15 @@ struct PopoverDisplayItemsListView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var settings: AppSettings
     let service: PopoverService
-    let isCompact: Bool
+    var isCompact: Bool = false
+    var surface: ProviderDisplaySurface? = nil
+    @State private var saveError: String?
+    private var editingSurface: ProviderDisplaySurface { surface ?? (isCompact ? .compact : .standard) }
     /// 프로바이더 응답은 정상인데 현재 표시할 데이터가 없는 항목 (설정 목록에 안내 표시)
     var unavailableItemIDs: Set<String> = []
     var codexUsage: CodexUsageResponse? = nil
     private var items: [PopoverItemConfig] {
-        isCompact
-            ? settings.compactPopoverItems(for: service)
-            : settings.popoverItems(for: service)
+        settings.displayItems(for: service, surface: editingSurface)
     }
 
     var body: some View {
@@ -236,7 +239,7 @@ struct PopoverDisplayItemsListView: View {
             .editorModel(
                 service: service,
                 surface:
-                    isCompact ? .compact : .standard,
+                    editingSurface,
                 settings: settings,
                 unavailableItemIDs:
                     unavailableItemIDs,
@@ -254,13 +257,15 @@ struct PopoverDisplayItemsListView: View {
                 onMoveToItem: moveItem
             )
         }
+        if let saveError { Text(saveError).font(AppDesign.Typography.caption).foregroundStyle(.red) }
     }
 
-    private func applyItems(_ items: [PopoverItemConfig], isCompact: Bool) {
-        if isCompact {
-            settings.setCompactPopoverItems(items, for: service)
-        } else {
-            settings.setPopoverItems(items, for: service)
+    private func applyItems(_ items: [PopoverItemConfig]) {
+        do {
+            try settings.setDisplayItems(items, for: service, surface: editingSurface)
+            saveError = nil
+        } catch {
+            saveError = (error as? HoverDisplayPreferencesError)?.message ?? "표시 설정을 저장하지 못했습니다."
         }
     }
 
@@ -285,7 +290,7 @@ struct PopoverDisplayItemsListView: View {
     private func applyReorderedItems(_ updated: [PopoverItemConfig]) {
         guard updated != items else { return }
         withAnimation(settings.motion.animation(for: .itemChanges, reduceMotion: reduceMotion)) {
-            applyItems(updated, isCompact: isCompact)
+            applyItems(updated)
         }
     }
 
@@ -298,7 +303,7 @@ struct PopoverDisplayItemsListView: View {
         }
         withAnimation(settings.motion.animation(for: .itemChanges, reduceMotion: reduceMotion)) {
             updated[index].visible.toggle()
-            applyItems(updated, isCompact: isCompact)
+            applyItems(updated)
         }
     }
 }
@@ -309,7 +314,7 @@ struct ProviderStatusRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: AppDesign.Space.row) {
             Image(systemName: "info.circle")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesign.Text.secondary)
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: AppDesign.Space.micro) {
                 Text(status.title)
@@ -317,7 +322,7 @@ struct ProviderStatusRow: View {
                 if let message = status.message {
                     Text(message)
                         .font(AppDesign.Typography.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppDesign.Text.secondary)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -325,7 +330,7 @@ struct ProviderStatusRow: View {
             Spacer()
             Text(statusText)
                 .font(AppDesign.Typography.caption)
-                .foregroundStyle(statusColor)
+                .appStatusTextColor(statusColor)
                 .padding(.top, 1)
         }
         .padding(.vertical, AppDesign.Space.compact)
@@ -441,7 +446,7 @@ struct ResetCreditsView: View {
             if summary.availableCount > 0 {
                 Text(summary.expirationDescription())
                     .font(AppDesign.Typography.caption)
-                    .foregroundStyle(expiring ? Color.red : .secondary)
+                    .appStatusTextColor(expiring ? Color.red : AppDesign.Text.secondary)
                     .lineLimit(1)
             }
         }
@@ -470,7 +475,7 @@ struct CompactResetCreditsRow: View {
                     let expiry = summary.expirationDescription().replacingOccurrences(of: " 뒤 만료", with: "")
                     Text("· " + expiry)
                         .font(AppDesign.Typography.metadata)
-                        .foregroundStyle(expiring ? Color.red : .secondary)
+                        .appStatusTextColor(expiring ? Color.red : AppDesign.Text.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
@@ -495,7 +500,7 @@ private struct ResetCreditScopeText: View {
     var body: some View {
         Text(text)
             .font(AppDesign.Typography.caption2)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(AppDesign.Text.secondary)
             .lineLimit(1)
             .minimumScaleFactor(0.85)
     }
@@ -563,7 +568,7 @@ struct OverageUsageView: View {
         } detail: {
             Text(overage.formattedUsageLimitSummary)
                 .font(AppDesign.Typography.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesign.Text.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
         }

@@ -69,7 +69,7 @@ extension SettingsView {
                     ? "서비스별로 정했던 기준을 그대로 씁니다."
                     : "메뉴바, 팝오버, 알림에 함께 적용합니다. 알림 시점과 경고 색상은 바뀌지 않습니다."
             )
-            .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+            .font(AppDesign.Typography.caption).foregroundStyle(AppDesign.Text.secondary)
         }
     }
 
@@ -81,36 +81,36 @@ extension SettingsView {
             HStack(alignment: .center, spacing: AppDesign.Space.content) {
                 Text("현재 버전 \(updateRuntimeState.currentVersionText)")
                     .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesign.Text.secondary)
 
                 Spacer()
 
-                if updateRuntimeState.isChecking {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Button("지금 확인") {
-                        updateRuntimeState.checkNow()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(!updateRuntimeState.canCheckNow)
+                Button {
+                    updateRuntimeState.checkNow()
+                } label: {
+                    Label(updateRuntimeState.isChecking ? "확인 중" : "지금 확인", systemImage: "arrow.clockwise")
+                        .frame(minWidth: AppDesign.Control.updateActionWidth)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(!updateRuntimeState.canCheckNow)
 
-                    if updateRuntimeState.showsPrimaryAction {
-                        Button(updateRuntimeState.primaryActionTitle) {
-                            updateRuntimeState.performPrimaryAction()
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                        .disabled(!updateRuntimeState.isPrimaryActionEnabled)
+                if updateRuntimeState.showsPrimaryAction {
+                    Button {
+                        updateRuntimeState.performPrimaryAction()
+                    } label: {
+                        Text(updateRuntimeState.primaryActionTitle).frame(minWidth: AppDesign.Control.updateActionWidth)
                     }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(!updateRuntimeState.isPrimaryActionEnabled)
                 }
             }
 
             if let summary = updateRuntimeState.statusSummary {
                 Text(summary)
                     .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesign.Text.secondary)
             }
 
             UpdateHistoryActions(onShowWhatsNew: onShowWhatsNew)
@@ -147,7 +147,7 @@ extension SettingsView {
 
             Text(settings.menuBarColorMode.detail)
                 .font(AppDesign.Typography.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesign.Text.secondary)
 
             settingsToggleRow(
                 "보조 텍스트 강조",

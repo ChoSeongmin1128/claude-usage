@@ -53,6 +53,7 @@ nonisolated struct ProviderSystemStatus: Sendable, Equatable {
         let latestUpdateAt: Date?
         let affectedComponents: [String]
         let isPriority: Bool
+        var id: String? = nil
 
         init(
             name: String,
@@ -62,7 +63,8 @@ nonisolated struct ProviderSystemStatus: Sendable, Equatable {
             latestUpdateBody: String?,
             latestUpdateAt: Date?,
             affectedComponents: [String],
-            isPriority: Bool = false
+            isPriority: Bool = false,
+            id: String? = nil
         ) {
             self.name = name
             self.status = status
@@ -72,6 +74,7 @@ nonisolated struct ProviderSystemStatus: Sendable, Equatable {
             self.latestUpdateAt = latestUpdateAt
             self.affectedComponents = affectedComponents
             self.isPriority = isPriority
+            self.id = id
         }
     }
 
@@ -208,6 +211,7 @@ nonisolated struct StatusPageResponse: Sendable {
     }
 
     struct StatusIncident: Sendable {
+        var id: String? = nil
         let name: String
         let status: String
         let impact: String
@@ -256,6 +260,7 @@ nonisolated struct StatusPageResponse: Sendable {
             }
 
             struct _Incident: Codable {
+                let id: String?
                 let name: String
                 let status: String
                 let impact: String
@@ -265,7 +270,7 @@ nonisolated struct StatusPageResponse: Sendable {
                 let components: [_Component]?
 
                 enum CodingKeys: String, CodingKey {
-                    case name
+                    case id, name
                     case status
                     case impact
                     case shortlink
@@ -299,6 +304,7 @@ nonisolated struct StatusPageResponse: Sendable {
         let components = (r.components ?? []).map { StatusComponent(name: $0.name, status: $0.status) }
         let incidents = (r.incidents ?? []).map { incident in
             StatusIncident(
+                id: incident.id,
                 name: incident.name,
                 status: incident.status,
                 impact: incident.impact,
@@ -441,7 +447,8 @@ nonisolated enum StatusPageInterpreter {
             isPriority: priorityRule.isPriority(
                 title: incident.name,
                 componentNames: incidentComponents + updateComponents
-            )
+            ),
+            id: incident.id
         )
     }
 

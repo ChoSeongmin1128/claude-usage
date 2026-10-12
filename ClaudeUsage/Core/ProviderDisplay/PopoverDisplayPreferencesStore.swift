@@ -23,6 +23,7 @@ final class PopoverDisplayPreferencesStore {
         "codexCompactPopoverItems"
 
     private let defaults: UserDefaults
+    private let hoverPreferences: PopoverHoverPreferences
 
     private(set) var fullItemsByProvider:
         [String: [PopoverItemConfig]]
@@ -32,6 +33,7 @@ final class PopoverDisplayPreferencesStore {
 
     init(defaults: UserDefaults) {
         self.defaults = defaults
+        hoverPreferences = PopoverHoverPreferences(defaults: defaults)
         usesSeparateCompactItems =
             defaults.object(
                 forKey: "separateCompactConfig"
@@ -118,6 +120,8 @@ final class PopoverDisplayPreferencesStore {
                     service.rawValue
                 ] ?? catalog.defaultItems
             )
+        case .hover:
+            return hoverPreferences.items(for: catalog)
         case .compact:
             let stored =
                 compactItemsByProvider[
@@ -135,7 +139,7 @@ final class PopoverDisplayPreferencesStore {
         _ items: [PopoverItemConfig],
         for service: PopoverService,
         surface: ProviderDisplaySurface
-    ) {
+    ) throws {
         guard let catalog =
                 UsageItemCatalogRegistry.catalog(
                     for: service
@@ -146,6 +150,8 @@ final class PopoverDisplayPreferencesStore {
         let normalized = catalog.normalized(items)
 
         switch surface {
+        case .hover:
+            try hoverPreferences.setItems(items, for: catalog)
         case .standard:
             var value = fullItemsByProvider
             value[service.rawValue] = normalized
@@ -156,6 +162,15 @@ final class PopoverDisplayPreferencesStore {
             setCompactItemsByProvider(value)
         }
     }
+
+    func setHoverItems(_ items: [PopoverItemConfig], for service: PopoverService) throws {
+        guard let catalog = UsageItemCatalogRegistry.catalog(for: service) else { return }
+        try hoverPreferences.setItems(items, for: catalog)
+    }
+
+    func hoverSnapshot() -> PopoverHoverPreferences.Snapshot { hoverPreferences.snapshot() }
+    func restoreHover(_ snapshot: PopoverHoverPreferences.Snapshot) { hoverPreferences.restore(snapshot) }
+    func restoreHoverDefaults() { hoverPreferences.restoreDefaults() }
 
     static func defaultsDictionary()
         -> [String: [PopoverItemConfig]]

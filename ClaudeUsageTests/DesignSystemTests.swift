@@ -1,6 +1,5 @@
 import AppKit
 import CoreFoundation
-import ScreenCaptureKit
 import SwiftUI
 import XCTest
 
@@ -8,6 +7,103 @@ import XCTest
 
 @MainActor
 final class DesignSystemTests: XCTestCase {
+    func testCodexBrandIconUsesTheViewAppearanceAcrossThemeChanges() throws {
+        for scheme in [ColorScheme.dark, .light, .dark] {
+            let view = ProviderBrandIconView(provider: .codex, kind: .settings, size: 32)
+                .padding(8).background(scheme == .dark ? Color.black : Color.white)
+                .preferredColorScheme(scheme)
+            let image = try renderHosted(view, appearance: scheme == .dark ? .darkAqua : .aqua)
+            let bitmap = try XCTUnwrap(image.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)))
+            var visiblePixels = 0
+            for y in 0..<bitmap.pixelsHigh {
+                for x in 0..<bitmap.pixelsWide {
+                    guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+                    let level = (color.redComponent + color.greenComponent + color.blueComponent) / 3
+                    if scheme == .dark ? level > 0.7 : level < 0.3 { visiblePixels += 1 }
+                }
+            }
+            XCTAssertGreaterThan(visiblePixels, 80, "Codex logo must remain visible after switching to \(scheme)")
+            attach(image, "Codex-brand-appearance-\(scheme)")
+        }
+    }
+
+    func testSemanticTextAndPresetBoundaryMeetContrastRequirements() throws {
+        func rgb(_ color: NSColor) throws -> [Double] {
+            let value = try XCTUnwrap(color.usingColorSpace(.deviceRGB))
+            return [value.redComponent, value.greenComponent, value.blueComponent].map(Double.init)
+        }
+        func composite(_ foreground: NSColor, on background: [Double]) throws -> [Double] {
+            let value = try XCTUnwrap(foreground.usingColorSpace(.deviceRGB))
+            let channels = try rgb(value)
+            return zip(channels, background).map {
+                $0 * Double(value.alphaComponent) + $1 * (1 - Double(value.alphaComponent))
+            }
+        }
+        func luminance(_ color: [Double]) -> Double {
+            let linear = color.map { $0 <= 0.04045 ? $0 / 12.92 : pow(($0 + 0.055) / 1.055, 2.4) }
+            return zip(linear, [0.2126, 0.7152, 0.0722]).map(*).reduce(0, +)
+        }
+        func contrast(_ first: [Double], _ second: [Double]) -> Double {
+            let a = luminance(first), b = luminance(second)
+            return (max(a, b) + 0.05) / (min(a, b) + 0.05)
+        }
+        for scheme in [ColorScheme.light, .dark] {
+            let appearance = try XCTUnwrap(NSAppearance(named: scheme == .light ? .aqua : .darkAqua))
+            var problem: Error?
+            appearance.performAsCurrentDrawingAppearance {
+                do {
+                    let canvas = try rgb(.windowBackgroundColor)
+                    let editable = try composite(NSColor(AppDesign.Surface.editable), on: canvas)
+                    let low = try composite(NSColor(AppDesign.Surface.group), on: canvas)
+                    for background in [canvas, editable, low] {
+                        let text = try composite(NSColor(AppDesign.Text.secondary), on: background)
+                        XCTAssertGreaterThanOrEqual(contrast(text, background), 4.5, "Small secondary text: \(scheme)")
+                    }
+                    let boundary = try composite(NSColor(AppDesign.Surface.boundary), on: editable)
+                    XCTAssertGreaterThanOrEqual(contrast(boundary, editable), 3, "Editable boundary: \(scheme)")
+                    for color: NSColor in [.systemGreen, .systemOrange, .systemRed] {
+                        let text = try composite(
+                            NSColor(AppDesign.Text.status(Color(nsColor: color), scheme: scheme)), on: canvas)
+                        XCTAssertGreaterThanOrEqual(contrast(text, canvas), 4.5, "Status text: \(scheme)")
+                    }
+                } catch { problem = error }
+            }
+            if let problem { throw problem }
+        }
+    }
+
+    func testPresetOriginSurfacesAndSelectionRemainDistinctInBothAppearances() throws {
+        try withSettings { settings in
+            for scheme in [ColorScheme.light, .dark] {
+                let appearance: NSAppearance.Name = scheme == .dark ? .darkAqua : .aqua
+                let native = try XCTUnwrap(NSAppearance(named: appearance))
+                let definition = MenuBarPresetCatalog.catalogDisplay(.number, provider: .claude)
+                let snapshot = MenuBarStatusComposer.claudeSnapshot(
+                    config: definition.config(preserving: try XCTUnwrap(settings.menuBarDisplayConfig(for: .claude))),
+                    usage: self.usage,
+                    error: nil, hasAuthError: false, hasCredential: true, secondaryColor: .secondaryLabelColor,
+                    icon: nil, appearance: native)
+                let image = MenuBarStatusComposer.singleProviderContent(
+                    snapshot: snapshot, secondaryColor: .secondaryLabelColor, appearance: native
+                ).image
+                let view = HStack(spacing: AppDesign.Space.content) {
+                    MenuBarPresetTile(title: "숫자", isBuiltin: true, isSelected: true, apply: {}) {
+                        Image(nsImage: image)
+                    } editing: {
+                        EmptyView()
+                    }
+                    MenuBarPresetTile(title: "집중 모드", isBuiltin: false, isSelected: false, apply: {}) {
+                        Image(nsImage: image)
+                    } editing: {
+                        Image(systemName: "pencil").padding(AppDesign.Space.row)
+                    }
+                }.padding(AppDesign.Space.content).frame(width: 420)
+                    .background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(scheme)
+                attach(try renderHosted(view, appearance: appearance), "Preset-origin-surfaces-\(scheme)")
+            }
+        }
+    }
+
     func testDesignComparisonRendersAtNarrowWidths() throws {
         for width: CGFloat in [320, 520] {
             for scheme in [ColorScheme.light, .dark] {
@@ -586,7 +682,7 @@ final class DesignSystemTests: XCTestCase {
             // provider assemblies, numeric/caption baselines and track edges are
             // visually reviewed from these two unmodified original images.
             attach(
-                try await renderSettingsNativeVerified(gallery, size: size, appearance: .darkAqua),
+                try await renderSettingsOffscreen(gallery, size: size, appearance: .darkAqua),
                 "Popover-row-boundaries-\(density.isCompact ? "compact" : "standard")")
         }
     }
@@ -858,7 +954,7 @@ final class DesignSystemTests: XCTestCase {
         let field = NSTextField(frame: NSRect(x: 20, y: 100, width: 100, height: 24))
         content.addSubview(field)
         window.contentView = content
-        window.makeKeyAndOrderFront(nil)
+        // Hidden-window responder behavior; real keyboard focus is separate app QA.
         defer { window.close() }
 
         XCTAssertTrue(window.makeFirstResponder(field))
@@ -947,8 +1043,8 @@ final class DesignSystemTests: XCTestCase {
             .background(Color(nsColor: .windowBackgroundColor))
             .preferredColorScheme(scheme)
             let slide = try renderHosted(whatsNew, appearance: appearance)
-            XCTAssertEqual(slide.size.width, 340, accuracy: 0.5)
-            XCTAssertEqual(slide.size.height, 360, accuracy: 0.5)
+            XCTAssertEqual(slide.size.width, AppDesign.Window.whatsNew.width, accuracy: 0.5)
+            XCTAssertEqual(slide.size.height, AppDesign.Window.whatsNew.height, accuracy: 0.5)
             attach(slide, "Whats-new-settings-page-\(appearance.rawValue)")
             var historyImages: [Data] = []
             for version in ["2.8.0", "2.7.0"] {
@@ -1010,7 +1106,7 @@ final class DesignSystemTests: XCTestCase {
                 claudeOAuthMigrationCoordinator: dependencies.migration,
                 codexLastUsage: { usage }, codexLastError: { nil },
                 initialPanel: .codex, initialSection: section)
-            let image = try await renderSettingsNativeVerified(
+            let image = try await renderSettingsOffscreen(
                 view.frame(width: size.width, height: size.height)
                     .background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(.light),
                 size: size, appearance: .aqua,
@@ -1241,7 +1337,7 @@ final class DesignSystemTests: XCTestCase {
         XCTAssertEqual(view.menuBarQuotaEditorModel(for: .claude)?.selectedItems.map(\.id), ordered)
         usage = fullUsage
         let size = AppDesign.Window.settingsMinimum
-        let image = try await renderSettingsNativeVerified(
+        let image = try await renderSettingsOffscreen(
             view.frame(width: size.width, height: size.height)
                 .background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(.dark),
             size: size, appearance: .darkAqua,
@@ -1286,7 +1382,7 @@ final class DesignSystemTests: XCTestCase {
                         .background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(scheme)
                     let codexCalls = dependencies.codex.calls
                     let claudeReads = dependencies.reader.readCountSync
-                    let image = try await renderSettingsNativeVerified(
+                    let image = try await renderSettingsOffscreen(
                         content, size: size, appearance: scheme == .dark ? .darkAqua : .aqua,
                         onFailure: {
                             self.attach($0, "Settings-native-failure-\(panel.rawValue)-\(Int(size.width))-\(scheme)")
@@ -1333,7 +1429,7 @@ final class DesignSystemTests: XCTestCase {
             claudeLastUsage: { self.usage }, initialPanel: .updates)
         let size = AppDesign.Window.settingsIdeal
         let panels = SettingsProviderRegistry.appPanels + SettingsProviderRegistry.servicePanels
-        _ = try await renderSettingsNativeVerified(
+        _ = try await renderSettingsOffscreen(
             view.frame(width: size.width, height: size.height), size: size, appearance: .aqua,
             interaction: { window, host in
                 let outline = try XCTUnwrap(settingsSidebarOutline(in: host))
@@ -1363,7 +1459,7 @@ final class DesignSystemTests: XCTestCase {
                     await yieldSettingsNativeMainQueue()
                     XCTAssertEqual(outline.selectedRow, row)
                     self.attach(
-                        try await captureOwnSettingsWindow(window, hostView: host),
+                        try await captureSettingsOffscreen(window, hostView: host),
                         "Settings-sidebar-action-\(panel.rawValue)")
                     XCTAssertFalse(window.isKeyWindow)
                     XCTAssertFalse(NSApplication.shared.isActive)
@@ -1376,7 +1472,7 @@ final class DesignSystemTests: XCTestCase {
                 XCTAssertEqual(outline.row(forItem: appChild), -1)
                 XCTAssertEqual(outline.numberOfRows, 5)
                 self.attach(
-                    try await captureOwnSettingsWindow(window, hostView: host), "Settings-sidebar-apps-collapsed")
+                    try await captureSettingsOffscreen(window, hostView: host), "Settings-sidebar-apps-collapsed")
                 outline.expandItem(try XCTUnwrap(outline.child(0, ofItem: nil)))
                 await yieldSettingsNativeMainQueue()
                 let expandedGroup = try XCTUnwrap(outline.child(0, ofItem: nil))
@@ -1419,7 +1515,7 @@ final class DesignSystemTests: XCTestCase {
                         .background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(scheme)
                     let codexCalls = dependencies.codex.calls
                     let claudeReads = dependencies.reader.readCountSync
-                    let image = try await renderSettingsNativeVerified(
+                    let image = try await renderSettingsOffscreen(
                         content, size: size, appearance: scheme == .dark ? .darkAqua : .aqua,
                         ready: {
                             dependencies.updates.engineStatus != nil
@@ -1466,7 +1562,7 @@ final class DesignSystemTests: XCTestCase {
             let size = AppDesign.Window.settingsIdeal
             let content = view.frame(width: size.width, height: size.height)
                 .background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(scheme)
-            let image = try await renderSettingsNativeVerified(
+            let image = try await renderSettingsOffscreen(
                 content, size: size, appearance: scheme == .dark ? .darkAqua : .aqua,
                 change: { settings.welcomeStep = .appearance },
                 ready: { dependencies.antigravity.state.display != nil && detector.calls > 0 })
@@ -1506,7 +1602,7 @@ final class DesignSystemTests: XCTestCase {
             let size = AppDesign.Window.settingsIdeal
             let content = view.frame(width: size.width, height: size.height)
                 .background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(scheme)
-            let image = try await renderSettingsNativeVerified(
+            let image = try await renderSettingsOffscreen(
                 content, size: size, appearance: scheme == .dark ? .darkAqua : .aqua,
                 ready: { dependencies.antigravity.state.display != nil })
             XCTAssertEqual(dependencies.antigravity.state.display, AntigravityDisplaySettings.default)
@@ -1548,7 +1644,7 @@ final class DesignSystemTests: XCTestCase {
                     .background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(scheme)
                 var released = false
                 do {
-                    let image = try await renderSettingsNativeVerified(
+                    let image = try await renderSettingsOffscreen(
                         content, size: size, appearance: scheme == .dark ? .darkAqua : .aqua,
                         initialCapture: .init(
                             ready: {
@@ -1978,7 +2074,7 @@ private struct SettingsInitialCapture {
 }
 
 @MainActor
-private func renderSettingsNativeVerified<V: View>(
+private func renderSettingsOffscreen<V: View>(
     _ content: V,
     size: CGSize,
     appearance: NSAppearance.Name,
@@ -1990,9 +2086,6 @@ private func renderSettingsNativeVerified<V: View>(
     file: StaticString = #filePath,
     line: UInt = #line
 ) async throws -> NSImage {
-    guard #available(macOS 14.4, *) else {
-        throw XCTSkip("Own-process WindowServer gallery requires macOS 14.4+. Production supports macOS 14.0.")
-    }
     let application = NSApplication.shared
     let originalAppearance = application.appearance
     application.appearance = NSAppearance(named: appearance)
@@ -2015,7 +2108,7 @@ private func renderSettingsNativeVerified<V: View>(
     window.setContentSize(size)
     controller.view.frame = NSRect(origin: .zero, size: size)
     window.setFrameOrigin(origin)
-    window.orderFront(nil)
+    // Never order automated gallery windows on screen.
     defer { window.orderOut(nil); window.close() }
     controller.view.layoutSubtreeIfNeeded()
     window.displayIfNeeded()
@@ -2027,7 +2120,7 @@ private func renderSettingsNativeVerified<V: View>(
         let initialReady = await waitForSettingsReady(initialCapture.ready)
         controller.view.layoutSubtreeIfNeeded()
         await yieldSettingsNativeMainQueue()
-        let initial = try await captureOwnSettingsWindow(window, hostView: controller.view)
+        let initial = try await captureSettingsOffscreen(window, hostView: controller.view)
         if !initialReady { onFailure(initial) }
         _ = try XCTUnwrap(
             initialReady ? true : nil, "Initial settings phase did not become ready", file: file, line: line)
@@ -2038,7 +2131,7 @@ private func renderSettingsNativeVerified<V: View>(
     controller.view.layoutSubtreeIfNeeded()
     await yieldSettingsNativeMainQueue()
     if let interaction { try await interaction(window, controller.view) }
-    let image = try await captureOwnSettingsWindow(window, hostView: controller.view)
+    let image = try await captureSettingsOffscreen(window, hostView: controller.view)
     XCTAssertFalse(application.isActive, file: file, line: line)
     XCTAssertFalse(window.isKeyWindow, file: file, line: line)
     XCTAssertEqual(window.contentLayoutRect.width, size.width, accuracy: 0.5, file: file, line: line)
@@ -2083,71 +2176,17 @@ private nonisolated final class SettingsGalleryMetadataDirectory {
     }
 }
 
-private enum OwnWindowCaptureError: Error {
-    case hostNotInSpecifiedWindow
-    case ownWindowNotAvailable
-    case invalidCanvas(contentRect: CGRect, pixelScale: CGFloat)
-    case emptyCapturedImage(pixelSize: CGSize)
-    case geometryChangedDuringCapture
-}
-
-// Capture only this test process's window, preserving the WindowServer's native canvas.
-@available(macOS 14.4, *)
+// Offscreen geometry/pixel evidence. Native composited material and real input require app QA.
 @MainActor
-private func captureOwnSettingsWindow(_ window: NSWindow, hostView: NSView) async throws -> NSImage {
-    guard hostView.window === window, window.windowNumber > 0, !hostView.bounds.isEmpty else {
-        throw OwnWindowCaptureError.hostNotInSpecifiedWindow
-    }
-    let windowID = CGWindowID(window.windowNumber)
-    let windowFrame = window.frame
-    let hostBounds = hostView.bounds
-    let clock = ContinuousClock()
-    let deadline = clock.now + .seconds(1)
-    var filter: SCContentFilter?
-    var captureSize = CGSize.zero
-    var nativeScale: CGFloat = 0
-    var lastCanvas = CGRect.zero
-    repeat {
-        let content = try await SCShareableContent.currentProcess
-        guard
-            let own = content.windows.first(where: {
-                $0.windowID == windowID && $0.owningApplication?.processID == getpid()
-            })
-        else { throw OwnWindowCaptureError.ownWindowNotAvailable }
-        let candidate = SCContentFilter(desktopIndependentWindow: own)
-        lastCanvas = candidate.contentRect
-        nativeScale = CGFloat(candidate.pointPixelScale)
-        captureSize = lastCanvas.size
-        if nativeScale.isFinite, nativeScale > 0,
-            captureSize.width.isFinite, captureSize.width > 0,
-            captureSize.height.isFinite, captureSize.height > 0
-        {
-            filter = candidate
-            break
-        }
-        window.displayIfNeeded()
-        await yieldSettingsNativeMainQueue()
-    } while clock.now < deadline
-    guard let filter else {
-        throw OwnWindowCaptureError.invalidCanvas(contentRect: lastCanvas, pixelScale: nativeScale)
-    }
-    let configuration = SCStreamConfiguration()
-    configuration.width = Int(ceil(captureSize.width * nativeScale))
-    configuration.height = Int(ceil(captureSize.height * nativeScale))
-    configuration.showsCursor = false
-    configuration.capturesAudio = false
-    configuration.includeChildWindows = false
-    configuration.ignoreShadowsSingleWindow = true
-    configuration.capturesShadowsOnly = false
-    let captured = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
-    guard window.windowNumber == Int(windowID), window.frame == windowFrame,
-        hostView.window === window, hostView.bounds == hostBounds
-    else { throw OwnWindowCaptureError.geometryChangedDuringCapture }
-    guard captured.width > 0, captured.height > 0 else {
-        throw OwnWindowCaptureError.emptyCapturedImage(
-            pixelSize: CGSize(width: captured.width, height: captured.height))
-    }
-    return NSImage(cgImage: captured, size: captureSize)
+private func captureSettingsOffscreen(_ window: NSWindow, hostView: NSView) async throws -> NSImage {
+    XCTAssertFalse(window.isVisible)
+    XCTAssertTrue(hostView.window === window)
+    hostView.layoutSubtreeIfNeeded()
+    let bitmap = try XCTUnwrap(hostView.bitmapImageRepForCachingDisplay(in: hostView.bounds))
+    hostView.cacheDisplay(in: hostView.bounds, to: bitmap)
+    let image = NSImage(size: hostView.bounds.size)
+    image.addRepresentation(bitmap)
+    return image
 }
 
 private nonisolated struct PopoverRowFramesPreferenceKey: PreferenceKey {
@@ -2242,7 +2281,7 @@ extension DesignSystemTests {
         XCTAssertTrue(
             settings.menuBarDisplayConfig(for: .claude)?.quotaSelection?.percentageIDs.contains(model.id) == true)
         XCTAssertTrue(settings.menuBarDisplayConfig(for: .claude)?.quotaSelection?.resetIDs.contains(model.id) == true)
-        let image = try await renderSettingsNativeVerified(
+        let image = try await renderSettingsOffscreen(
             view.frame(width: AppDesign.Window.settingsMinimum.width, height: AppDesign.Window.settingsMinimum.height)
                 .background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(.dark),
             size: AppDesign.Window.settingsMinimum, appearance: .darkAqua)

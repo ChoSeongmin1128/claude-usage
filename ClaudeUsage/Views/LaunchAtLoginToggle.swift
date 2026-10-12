@@ -17,7 +17,7 @@ struct LaunchAtLoginToggle: View {
                     if let notice = settings.launchAtLoginState.notice {
                         Text(notice)
                             .font(AppDesign.Typography.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(AppDesign.Text.secondary)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

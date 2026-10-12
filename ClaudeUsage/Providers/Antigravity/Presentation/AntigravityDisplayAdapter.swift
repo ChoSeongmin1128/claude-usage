@@ -13,6 +13,34 @@ nonisolated struct AntigravityLaneEditorItem:
 }
 
 nonisolated enum AntigravityDisplayAdapter {
+    /// Projection only: hover edits reuse lane operations on a detached compact intent.
+    /// The caller saves that intent through saveHover, never saveDisplay.
+    static func hoverEditorSettings(
+        _ settings: AntigravityDisplaySettings,
+        hover: AntigravityHoverDisplayPreferences,
+        presentation: AntigravityQuotaPresentation?
+    ) -> AntigravityDisplaySettings {
+        var projection = settings
+        projection.compact = hover.effectiveSelection(compact: settings.compact)
+        let lanes = presentation?.allGroups.flatMap(\.lanes) ?? []
+        let visible: [AntigravityQuotaLaneID]
+        if hover.selection == nil {
+            visible = presentation?.compact.metrics.map(\.laneID) ?? []
+        } else {
+            visible = AntigravityQuotaPresentationMapper.displayedLanes(intent: projection.compact, from: lanes).map(
+                \.id)
+        }
+        let allIDs = editorItems(settings: projection, presentation: presentation, surface: .compact).map(\.id)
+        if hover.selection == nil {
+            projection.compact.hiddenLaneIDs.formUnion(allIDs.filter { !visible.contains($0) })
+        } else if projection.compact.orderedLaneIDs.allSatisfy({ projection.compact.hiddenLaneIDs.contains($0) }) {
+            // Explicit empty selection does not start displaying new lanes from a later report.
+            projection.compact.hiddenLaneIDs.formUnion(allIDs)
+        }
+        projection.compact.orderedLaneIDs = visible + allIDs.filter { !visible.contains($0) }
+        return projection
+    }
+
     static func editorItems(
         settings: AntigravityDisplaySettings,
         presentation: AntigravityQuotaPresentation?,
@@ -217,7 +245,7 @@ nonisolated enum AntigravityDisplayAdapter {
         switch surface {
         case .standard:
             settings.standard
-        case .compact:
+        case .compact, .hover:
             settings.compact
         }
     }
@@ -232,7 +260,7 @@ nonisolated enum AntigravityDisplayAdapter {
         switch surface {
         case .standard:
             settings.standard = intent
-        case .compact:
+        case .compact, .hover:
             settings.compact = intent
         }
     }

@@ -24,8 +24,24 @@ nonisolated protocol
             AntigravityDisplaySettings
     ) async throws -> AntigravityRuntimeSnapshot
 
+    func updateHover(
+        _ selection: AntigravityDisplaySettings.LaneListPresentationIntent,
+        replacing expected: AntigravityHoverDisplayPreferences,
+        expectedDisplay: AntigravityDisplaySettings
+    ) async throws -> AntigravityRuntimeSnapshot
+
     func consumePendingSettingsNotice() async
         -> AntigravityRuntimeSnapshot
+}
+
+extension AntigravitySettingsRuntimeControlling {
+    nonisolated func updateHover(
+        _ selection: AntigravityDisplaySettings.LaneListPresentationIntent,
+        replacing expected: AntigravityHoverDisplayPreferences,
+        expectedDisplay: AntigravityDisplaySettings
+    ) async throws -> AntigravityRuntimeSnapshot {
+        throw HoverDisplayPreferencesError.writeFailed
+    }
 }
 
 extension AntigravityRuntimeController:
@@ -73,6 +89,7 @@ nonisolated struct AntigravitySettingsViewState:
     var activity: Activity
     var connection: AntigravityConnectionSettings?
     var display: AntigravityDisplaySettings?
+    var hover: AntigravityHoverDisplayPreferences = .inherited
     var presentation: AntigravityPresentationState
     var quotaPresentation:
         AntigravityQuotaPresentationMappingResult
@@ -231,6 +248,24 @@ final class AntigravitySettingsViewModel:
         }
     }
 
+    @discardableResult
+    func updateHover(
+        _ selection: AntigravityDisplaySettings.LaneListPresentationIntent,
+        replacing expected: AntigravityHoverDisplayPreferences,
+        expectedDisplay: AntigravityDisplaySettings
+    ) async -> Bool {
+        guard begin(.changingDisplay) else { return false }
+        return await performMutation(
+            activity: .changingDisplay,
+            success: AntigravitySettingsNotice(
+                tone: .success, title: "호버 설정을 저장했습니다",
+                message: "호버의 표시 항목을 갱신했습니다.", action: .dismiss)
+        ) {
+            try await self.runtimeController.updateHover(
+                selection, replacing: expected, expectedDisplay: expectedDisplay)
+        }
+    }
+
     func acknowledgeDisplayMigrationNotice() async {
         guard begin(.changingDisplay) else { return }
         let snapshot = await displayCommands
@@ -322,6 +357,7 @@ final class AntigravitySettingsViewModel:
         state.connection =
             snapshot.settings?.connection
         state.display = snapshot.settings?.display
+        state.hover = snapshot.settings?.hover ?? .inherited
         state.presentation =
             snapshot.presentationState
         state.lastAttemptAt = snapshot.lastAttemptAt

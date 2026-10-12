@@ -8,18 +8,21 @@ struct AntigravityPopoverDisplaySettingsSection: View {
 
     var body: some View {
         ProviderDisplayEditorShell(
-            title: "팝오버 표시 항목",
+            title: "표시 항목",
             selectedMode: $selectedMode
         ) {
             preview
         } controls: {
             if let display = viewModel.state.display {
-                if selectedMode == .compact {
+                if selectedMode != .standard {
                     compactOrderingPicker(
                         display: display
                     )
                 }
 
+                if selectedMode == .hover, viewModel.state.hover.selection == nil {
+                    Text("간소화 설정을 따름").font(AppDesign.Typography.caption).foregroundStyle(AppDesign.Text.secondary)
+                }
                 displayItemsList(display: display)
                     .frame(
                         maxWidth: 420,
@@ -28,14 +31,34 @@ struct AntigravityPopoverDisplaySettingsSection: View {
 
                 Text("드래그해 순서를 바꿉니다.")
                 .font(AppDesign.Typography.caption)
-                .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesign.Text.secondary)
             }
         }
     }
 
     @ViewBuilder
     private var preview: some View {
-        switch viewModel.state.quotaPresentation {
+        if selectedMode == .hover, let display = viewModel.state.display {
+            let editing = editingDisplay(display)
+            let lanes = quotaPresentation?.allGroups.flatMap(\.lanes) ?? []
+            let byID = Dictionary(lanes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            let basis = AppSettings.shared.usageDisplayMode.basis ?? UsageValueBasis.antigravity(display.menuBar)
+            let items = AntigravityDisplayAdapter.editorItems(
+                settings: editing, presentation: quotaPresentation, surface: .hover
+            )
+            .filter(\.isVisible).map { item in
+                let value = byID[item.id]?.value.usedPercentage
+                return MenuBarHoverUsageContent.Item(
+                    id: item.id.rawValue, title: item.title, compactTitle: item.title,
+                    value: value.map { basis.text(fromUsed: $0) } ?? "미확인", isUnknown: value == nil)
+            }
+            MenuBarHoverUsageView(
+                content: MenuBarHoverUsageContent(providers: [
+                    .init(kind: .antigravity, basis: basis, items: items)
+                ])
+            ).padding(AppDesign.Hover.inset).frame(width: AppDesign.Hover.width)
+        } else {
+            switch viewModel.state.quotaPresentation {
         case .content(let presentation):
             if selectedMode == .compact {
                 AntigravityCompactQuotaView(
@@ -54,7 +77,7 @@ struct AntigravityPopoverDisplaySettingsSection: View {
                     if presentation.groups.isEmpty {
                         Text("표시할 사용량 한도 없음")
                             .font(AppDesign.Typography.caption)
-                            .foregroundStyle(.secondary)
+                                .foregroundStyle(AppDesign.Text.secondary)
                     } else {
                         AntigravityQuotaGroupsView(
                             groups:
@@ -66,11 +89,12 @@ struct AntigravityPopoverDisplaySettingsSection: View {
         case .unavailable(let state):
             Text(unavailableTitle(state))
                 .font(AppDesign.Typography.caption)
-                .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesign.Text.secondary)
                 .frame(
                     maxWidth: .infinity,
                     alignment: .leading
                 )
+        }
         }
     }
 
@@ -104,9 +128,10 @@ struct AntigravityPopoverDisplaySettingsSection: View {
         display: AntigravityDisplaySettings
     ) -> some View {
         let surface = selectedSurface
+        let editing = editingDisplay(display)
         let model = AntigravityDisplayAdapter
             .editorModel(
-                settings: display,
+                settings: editing,
                 presentation: quotaPresentation,
                 surface: surface
             )
@@ -131,7 +156,7 @@ struct AntigravityPopoverDisplaySettingsSection: View {
                             surface: surface,
                             presentation:
                                 quotaPresentation,
-                            in: display
+                            in: editing
                         ),
                     replacing: display
                 )
@@ -176,12 +201,17 @@ struct AntigravityPopoverDisplaySettingsSection: View {
         )
     }
 
+    private func editingDisplay(_ display: AntigravityDisplaySettings) -> AntigravityDisplaySettings {
+        guard selectedMode == .hover else { return display }
+        return AntigravityDisplayAdapter.hoverEditorSettings(
+            display, hover: viewModel.state.hover,
+            presentation: quotaPresentation)
+    }
+
     private var selectedSurface:
         ProviderDisplaySurface
     {
-        selectedMode == .compact
-            ? .compact
-            : .standard
+        selectedMode
     }
 
     private var quotaPresentation:
@@ -203,17 +233,17 @@ struct AntigravityPopoverDisplaySettingsSection: View {
     > {
         Binding(
             get: {
-                display.compact.orderingPolicy
+                editingDisplay(display).compact.orderingPolicy
             },
             set: { policy in
                 save(
                     AntigravityDisplayAdapter
                         .settingOrderingPolicy(
                             policy,
-                            surface: .compact,
+                            surface: selectedSurface,
                             presentation:
                                 quotaPresentation,
-                            in: display
+                            in: editingDisplay(display)
                         ),
                     replacing: display
                 )
@@ -232,7 +262,7 @@ struct AntigravityPopoverDisplaySettingsSection: View {
                 offset: offset,
                 surface: selectedSurface,
                 presentation: quotaPresentation,
-                in: display
+                in: editingDisplay(display)
             ),
             replacing: display
         )
@@ -243,14 +273,18 @@ struct AntigravityPopoverDisplaySettingsSection: View {
         replacing display:
             AntigravityDisplaySettings
     ) {
-        guard updated != display else {
+        guard updated != editingDisplay(display) else {
             return
         }
+        let surface = selectedMode
+        let expectedHover = viewModel.state.hover
         Task {
-            _ = await viewModel.updateDisplay(
-                updated,
-                replacing: display
-            )
+            if surface == .hover {
+                _ = await viewModel.updateHover(
+                    updated.compact, replacing: expectedHover, expectedDisplay: display)
+            } else {
+                _ = await viewModel.updateDisplay(updated, replacing: display)
+            }
         }
     }
 

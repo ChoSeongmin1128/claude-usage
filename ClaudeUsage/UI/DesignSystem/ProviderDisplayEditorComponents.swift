@@ -131,44 +131,24 @@ struct DisplayItemRow: View {
                     .accessibilityHidden(true)
             }
 
-            Button(action: onToggleVisibility) {
-                Image(
-                    systemName:
-                        item.isVisible
-                            ? "eye"
-                            : "eye.slash"
-                )
-                .foregroundStyle(
-                    item.isVisible
-                        ? .primary
-                        : .tertiary
-                )
-                .font(AppDesign.Typography.icon)
-                .frame(width: 16, height: 16)
-            }
-            .buttonStyle(.borderless)
-            .help(item.isVisible ? "숨기기" : "보이기")
-            .accessibilityLabel(
-                "\(item.title) \(item.isVisible ? "숨기기" : "보이기")"
-            )
-
             Text(item.title)
                 .font(AppDesign.Typography.subheadline)
-                .foregroundStyle(
-                    item.isVisible
-                        ? .primary
-                        : .tertiary
-                )
+                .foregroundStyle(item.isVisible ? Color.primary : AppDesign.Text.secondary)
 
             if !item.isAvailable {
                 Text("데이터 없음")
                     .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(AppDesign.Text.secondary)
             }
 
             Spacer()
+            Toggle("표시", isOn: Binding(get: { item.isVisible }, set: { _ in onToggleVisibility() }))
+                .labelsHidden()
+                .toggleStyle(.checkbox)
+                .accessibilityLabel("\(item.title) 표시")
+
         }
-        .frame(height: 26)
+        .frame(minHeight: AppDesign.Control.settingsRowHeight)
         .padding(.horizontal, AppDesign.Space.row)
         .contentShape(Rectangle())
         .accessibilityElement(children: .contain)
@@ -222,7 +202,7 @@ struct DisplayItemList: View {
                                 .semibold
                             )
                         )
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppDesign.Text.secondary)
                         .frame(
                             maxWidth: .infinity,
                             alignment: .leading

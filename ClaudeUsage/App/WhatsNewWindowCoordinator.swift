@@ -3,6 +3,18 @@ import SwiftUI
 
 @MainActor
 final class WhatsNewWindowCoordinator: NSObject, NSWindowDelegate {
+    private let showWindow: (NSWindow) -> Void
+
+    init(
+        showWindow: @escaping (NSWindow) -> Void = { window in
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    ) {
+        self.showWindow = showWindow
+        super.init()
+    }
+
     private(set) var window: NSWindow?
     private var onClose: (() -> Void)?
     private var onAction: ((WhatsNewPage.Action) -> Void)?
@@ -13,7 +25,7 @@ final class WhatsNewWindowCoordinator: NSObject, NSWindowDelegate {
     ) {
         guard !pages.isEmpty else { return }
         if let window {
-            window.makeKeyAndOrderFront(nil)
+            showWindow(window)
             return
         }
         self.onClose = onClose
@@ -30,8 +42,7 @@ final class WhatsNewWindowCoordinator: NSObject, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.delegate = self
         self.window = window
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        showWindow(window)
     }
 
     // 설정으로 이동한 뒤 같은 안내로 돌아올 수 있어야 한다.

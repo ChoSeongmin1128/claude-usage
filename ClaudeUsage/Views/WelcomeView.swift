@@ -54,7 +54,7 @@ struct WelcomeView<Display: View>: View {
                     Text("사용량을 볼 서비스").font(AppDesign.Typography.headline)
                     ForEach(rows) { row in serviceRow(row) }
                     Text("연결한 서비스만 메뉴바에 나옵니다.")
-                        .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+                        .font(AppDesign.Typography.caption).foregroundStyle(AppDesign.Text.secondary)
                 case .appearance:
                     MenuBarDesignPicker(settings: settings, basis: settings.usageDisplayMode.basis ?? .used)
                     if !connectedServices.isEmpty {
@@ -66,7 +66,7 @@ struct WelcomeView<Display: View>: View {
                     }
                     LaunchAtLoginToggle(settings: settings)
                     Text("메뉴바 아이콘을 누르면 사용량이 나옵니다.")
-                        .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+                        .font(AppDesign.Typography.caption).foregroundStyle(AppDesign.Text.secondary)
                 }
             }
             .id(step)
@@ -106,7 +106,8 @@ struct WelcomeView<Display: View>: View {
             VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
                 Text(row.provider.displayName).font(AppDesign.Typography.subheadline.weight(.semibold))
                 if let detail = row.detail {
-                    Text(detail).font(AppDesign.Typography.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(detail).font(AppDesign.Typography.caption).foregroundStyle(AppDesign.Text.secondary).lineLimit(
+                        1)
                 }
             }
             Spacer(minLength: AppDesign.Space.row)

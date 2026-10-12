@@ -11,7 +11,7 @@ extension SettingsView {
             ProviderSettingsSectionHeader(provider: .antigravity, title: "Antigravity")
             VStack(
                 alignment: .leading,
-                spacing: 12
+                spacing: AppDesign.Space.content
             ) {
                 settingsToggleRow(
                     "Antigravity 사용",
@@ -42,7 +42,7 @@ extension SettingsView {
                 HStack(spacing: AppDesign.Space.row) {
                     Label("AGY CLI", systemImage: "terminal")
                         .font(AppDesign.Typography.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppDesign.Text.secondary)
                     Spacer(minLength: AppDesign.Space.row)
                     Button("새로고침") {
                         Task { _ = await antigravitySettings.refresh() }
@@ -54,12 +54,12 @@ extension SettingsView {
 
                 Text("Antigravity IDE는 아직 지원하지 않습니다.")
                     .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesign.Text.secondary)
 
                 DisclosureGroup("고급 진단") {
                     VStack(
                         alignment: .leading,
-                        spacing: 8
+                        spacing: AppDesign.Space.row
                     ) {
                         antigravityDiagnosticRow(
                             title: "AGY CLI",
@@ -109,7 +109,7 @@ extension SettingsView {
                 .textSelection(.enabled)
         }
         .font(AppDesign.Typography.caption)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(AppDesign.Text.secondary)
     }
 
     @ViewBuilder
@@ -118,7 +118,7 @@ extension SettingsView {
     ) -> some View {
         HStack(
             alignment: .top,
-            spacing: 10
+            spacing: AppDesign.Space.label
         ) {
             Image(
                 systemName:
@@ -144,7 +144,7 @@ extension SettingsView {
 
             VStack(
                 alignment: .leading,
-                spacing: 3
+                spacing: AppDesign.Space.micro
             ) {
                 Text(notice.title)
                     .font(
@@ -154,7 +154,7 @@ extension SettingsView {
                     )
                 Text(notice.message)
                     .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesign.Text.secondary)
             }
             Spacer(minLength: 8)
             if let action = notice.action {
@@ -218,16 +218,16 @@ extension SettingsView {
     ) -> some View {
         HStack(
             alignment: .firstTextBaseline,
-            spacing: 12
+            spacing: AppDesign.Space.content
         ) {
             Text(title)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesign.Text.secondary)
                 .frame(
                     width: 86,
                     alignment: .leading
                 )
             Text(value)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesign.Text.secondary)
             Spacer(minLength: 0)
         }
     }

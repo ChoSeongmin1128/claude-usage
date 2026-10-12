@@ -40,6 +40,7 @@ struct UsageItemContext {
 protocol UsageItemCatalog {
     var providerID: String { get }
     var defaultItems: [PopoverItemConfig] { get }
+    var defaultHoverItems: [PopoverItemConfig] { get }
     func displayName(for itemID: String) -> String?
     func section(for itemID: String, context: UsageItemContext) -> PopoverDisplaySection?
     func expandedSections(for itemID: String, context: UsageItemContext) -> [PopoverDisplaySection]
@@ -142,6 +143,10 @@ struct ClaudeItemCatalog: UsageItemCatalog {
         PopoverItemConfig(id: "overageUsage", visible: true),
         PopoverItemConfig(id: "claudeResetCredits", visible: true),
     ]
+
+    var defaultHoverItems: [PopoverItemConfig] {
+        defaultItems.map { PopoverItemConfig(id: $0.id, visible: ["currentSession", "weeklyLimit"].contains($0.id)) }
+    }
 
     func displayName(for itemID: String) -> String? {
         switch itemID {
@@ -276,6 +281,10 @@ struct CodexItemCatalog: UsageItemCatalog {
         case "codexCredits": return "크레딧 잔액"
         default: return nil
         }
+    }
+
+    var defaultHoverItems: [PopoverItemConfig] {
+        defaultItems.map { PopoverItemConfig(id: $0.id, visible: ["codexPrimary", "codexSecondary"].contains($0.id)) }
     }
 
     /// Project the current account's supported settings without rewriting saved preferences.

@@ -70,7 +70,7 @@ struct ReleaseNotesView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesign.Space.content) {
             HStack {
-                Text("변경 내역").font(AppDesign.Typography.headline)
+                Text("변경 내역").font(AppDesign.Typography.title)
                 Spacer()
                 if !notes.isEmpty {
                     Picker("버전", selection: $selectedVersion) {
@@ -90,7 +90,7 @@ struct ReleaseNotesView: View {
                         .font(AppDesign.Typography.subheadline.weight(.semibold))
                     Text("이 앱에 포함된 변경 내역이 없습니다.")
                         .font(AppDesign.Typography.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppDesign.Text.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else if let selectedNote {
@@ -105,13 +105,13 @@ struct ReleaseNotesView: View {
             HStack {
                 Text("앱에 포함된 버전별 변경 내역")
                     .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesign.Text.secondary)
                 Spacer()
                 Button("닫기", action: onClose).keyboardShortcut(.cancelAction)
             }
         }
         .padding(AppDesign.Space.window)
-        .frame(width: 720, height: 540)
+        .frame(width: AppDesign.Window.releaseNotes.width, height: AppDesign.Window.releaseNotes.height)
     }
 }
 
@@ -133,7 +133,7 @@ private struct ReleaseNotesDocumentView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 case .bullet:
                     HStack(alignment: .top, spacing: AppDesign.Space.row) {
-                        Text("\u{2022}").foregroundStyle(.secondary).accessibilityHidden(true)
+                        Text("\u{2022}").foregroundStyle(AppDesign.Text.secondary).accessibilityHidden(true)
                         Text(inlineMarkdown(block.text))
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)

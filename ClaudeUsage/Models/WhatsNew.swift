@@ -57,6 +57,15 @@ nonisolated enum WhatsNewCatalog {
             body:
                 "한도를 추가하고 각 항목의 게이지, 숫자와 초기화 시간을 고릅니다. 목록이나 미리보기에서 드래그해 순서를 바꿀 수 있습니다. 동심원은 바깥쪽과 안쪽을 표시합니다. 기존 설정과 이름 숨김은 유지됩니다.",
             action: .openSettings(.claude, section: .menuBar), actionTitle: "Claude 메뉴바 설정 열기"),
+        WhatsNewPage(
+            version: "2.10.0", symbol: "square.grid.2x2", title: "나만의 메뉴바 프리셋",
+            body: "한도와 표시 방식을 프리셋으로 저장하고 필요할 때 적용하세요. 세부 값을 바꿔도 저장한 프리셋은 유지됩니다. 기본 제공은 잠금 표시로, 내 프리셋은 편집 버튼으로 구분합니다.",
+            action: .openSettings(.claude, section: .menuBar), actionTitle: "프리셋 살펴보기"),
+        WhatsNewPage(
+            version: "2.10.0", symbol: "menubar.rectangle", title: "마우스를 올려 사용량 확인",
+            body:
+                "메뉴바에 마우스를 올리면 선택한 사용량과 서비스 장애를 함께 볼 수 있습니다. 일반, 간소화와 호버의 표시 항목을 각각 고르고 순서를 바꾸세요. 긴 호버 내용은 마우스를 패널로 옮겨 스크롤해서 읽을 수 있습니다.",
+            action: .openSettings(.claude, section: .popover), actionTitle: "표시 항목 설정 열기"),
     ]
 
     static func notesText(_ note: UpdateNotesQueue.Note) -> (version: String, title: String, text: String) {

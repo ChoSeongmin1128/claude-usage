@@ -45,7 +45,7 @@ struct ClaudeOrganizationStatusSectionShell<Content: View>: View {
             if let summary {
                 Text(summary)
                     .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesign.Text.secondary)
             }
 
             content

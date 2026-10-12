@@ -6,7 +6,7 @@ struct ProviderIdentityRail: View {
     var compact = false
 
     var body: some View {
-        HStack(spacing: compact ? 3 : 4) {
+        HStack(spacing: AppDesign.Space.compact) {
             ForEach(
                 Array(projection.visibleSegments.enumerated()),
                 id: \.offset
@@ -43,10 +43,7 @@ struct ProviderIdentityRail: View {
     }
 
     private var font: Font {
-        .system(
-            size: compact ? 8 : 9,
-            weight: .medium
-        )
+        AppDesign.Typography.metadata
     }
 
     private var baseSegmentCount: Int {

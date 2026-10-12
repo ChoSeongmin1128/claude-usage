@@ -508,6 +508,7 @@ extension AppDelegate {
         else {
             return
         }
+        refreshServiceStatusPresentation()
         renderMenuBar(force: force)
     }
 
@@ -535,7 +536,7 @@ extension AppDelegate {
         let compactKeySnapshots = runtimeKinds.compactMap {
             menuBarProviderSnapshot(
                 for: $0,
-                iconSize: NSSize(width: 14, height: 14),
+                iconSize: AppDesign.MenuBar.multipleProviderIconSize,
                 secondaryColor: secondaryColor,
                 appearance: appearance,
                 renderImages: false
@@ -559,7 +560,7 @@ extension AppDelegate {
                 menuBarProviderSnapshot(
                     for: $0,
                     iconSize:
-                        NSSize(width: 14, height: 14),
+                        AppDesign.MenuBar.multipleProviderIconSize,
                     secondaryColor: secondaryColor,
                     appearance: appearance,
                     renderImages: true
@@ -591,7 +592,7 @@ extension AppDelegate {
 
         guard let keySnapshot = menuBarProviderSnapshot(
             for: activeService.providerKind,
-            iconSize: NSSize(width: 18, height: 18),
+                iconSize: AppDesign.MenuBar.singleProviderIconSize,
             secondaryColor: secondaryColor,
             appearance: appearance,
             renderImages: false
@@ -621,7 +622,7 @@ extension AppDelegate {
         }
         guard let snapshot = menuBarProviderSnapshot(
             for: activeService.providerKind,
-            iconSize: NSSize(width: 18, height: 18),
+                iconSize: AppDesign.MenuBar.singleProviderIconSize,
             secondaryColor: secondaryColor,
             appearance: appearance,
             renderImages: true

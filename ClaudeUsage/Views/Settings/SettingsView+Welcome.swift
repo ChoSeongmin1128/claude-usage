@@ -276,7 +276,7 @@ struct OnboardingInstallGuide: View {
             VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
                 Text(title).font(AppDesign.Typography.subheadline.weight(.semibold))
                 if let detail {
-                    Text(detail).font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+                    Text(detail).font(AppDesign.Typography.caption).foregroundStyle(AppDesign.Text.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }

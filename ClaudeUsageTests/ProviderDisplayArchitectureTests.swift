@@ -156,6 +156,7 @@ final class ProviderDisplayArchitectureTests:
             settings.setPopoverItems(full, for: .codex)
             settings.separateCompactConfig = true
             settings.setCompactPopoverItems(compact, for: .codex)
+            try settings.setDisplayItems(full, for: .codex, surface: .hover)
             let fullData = defaults.data(forKey: "popoverItemsV2")
             let compactData = defaults.data(forKey: "compactPopoverItemsV2")
 

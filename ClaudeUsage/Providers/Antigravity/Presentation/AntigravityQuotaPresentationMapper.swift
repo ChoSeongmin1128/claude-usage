@@ -341,7 +341,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         return selected
     }
 
-    private static func displayedLanes(
+    static func displayedLanes(
         intent:
             AntigravityDisplaySettings.LaneListPresentationIntent,
         from lanes: [AntigravityQuotaLanePresentation]

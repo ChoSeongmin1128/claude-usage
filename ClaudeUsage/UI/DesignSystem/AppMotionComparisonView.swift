@@ -58,7 +58,7 @@ struct AppMotionComparisonView: View {
                     Text("고급 진단")
                 }
                 if changed {
-                    Text("조회 상태 · 연결 정보").foregroundStyle(.secondary)
+                    Text("조회 상태 · 연결 정보").foregroundStyle(AppDesign.Text.secondary)
                         .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }

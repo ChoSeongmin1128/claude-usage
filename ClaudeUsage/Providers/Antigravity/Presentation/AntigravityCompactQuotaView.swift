@@ -15,7 +15,7 @@ struct AntigravityCompactQuotaView: View {
                         ?? "확인 가능한 사용량 한도 없음"
                 )
                 .font(AppDesign.Typography.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesign.Text.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityLabel("Antigravity 사용량 한도")
                 .accessibilityValue(

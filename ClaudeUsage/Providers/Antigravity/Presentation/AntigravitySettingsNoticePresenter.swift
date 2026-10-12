@@ -40,7 +40,9 @@ nonisolated enum AntigravitySettingsNoticePresenter {
         let message: String
         let controllerError =
             error as? AntigravityRuntimeControllerError
-        if controllerError == .appShuttingDown {
+        if let hoverError = error as? HoverDisplayPreferencesError {
+            message = hoverError.message
+        } else if controllerError == .appShuttingDown {
             message =
                 "앱이 종료 중이라 변경을 시작하지 않았습니다."
         } else if controllerError

@@ -172,7 +172,7 @@ struct NotificationThresholdEditor: View {
                     : "이상 사용했을 때 알립니다."
             )
             .font(AppDesign.Typography.caption)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(AppDesign.Text.secondary)
         }
         .onAppear {
             editor.rebase(settings: settings)
@@ -261,7 +261,7 @@ struct NotificationThresholdEditor: View {
             .accessibilityLabel("\(settings.notificationValueBasis.label) 알림 기준 퍼센트")
 
             Text("%")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesign.Text.secondary)
         }
     }
 

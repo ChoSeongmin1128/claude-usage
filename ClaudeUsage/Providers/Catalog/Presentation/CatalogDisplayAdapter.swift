@@ -15,15 +15,7 @@ enum CatalogDisplayAdapter {
             return nil
         }
 
-        let storedItems =
-            switch surface {
-        case .standard:
-            settings.popoverItems(for: service)
-        case .compact:
-            settings.compactPopoverItems(
-                for: service
-            )
-        }
+        let storedItems = settings.displayItems(for: service, surface: surface)
 
         let items =
             service == .codex

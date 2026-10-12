@@ -129,7 +129,10 @@ extension AppDelegate {
                 self?.showLoginWindow(startChromeImportOnOpen: true, importFamily: family)
             },
             onOpenEmbeddedLogin: { [weak self] in self?.showLoginWindow(startEmbeddedWebOnOpen: true) },
-            usageAccounts: usageAccountsController
+            usageAccounts: usageAccountsController,
+            resetCreditsAreNew: { [weak self] service in
+                ResetCreditSeenStore.isNew(accountKey: self?.resetCreditAccountKey(for: service))
+            }
         )
     }
 

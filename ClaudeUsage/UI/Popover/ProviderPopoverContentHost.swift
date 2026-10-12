@@ -68,7 +68,7 @@ struct ProviderPopoverContentHost: View {
                 if let message = copy.message {
                     Text(message)
                         .font(AppDesign.Typography.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppDesign.Text.secondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, AppDesign.Space.section)
                         .fixedSize(horizontal: false, vertical: true)
