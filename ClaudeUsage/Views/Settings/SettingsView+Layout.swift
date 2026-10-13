@@ -362,6 +362,8 @@ extension SettingsView {
             Divider()
             commonPopoverSection
             Divider()
+            commonHoverSection
+            Divider()
             AppMotionSettingsView(settings: settings)
         case .updates:
             updateSection

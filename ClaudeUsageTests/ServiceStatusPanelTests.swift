@@ -316,13 +316,25 @@ final class ServiceStatusHoverControllerTests: XCTestCase {
 
         controller.pointerEntered()
 
-        XCTAssertEqual(scheduler.delays, [ServiceStatusHoverController.showDelay])
-        XCTAssertEqual(ServiceStatusHoverController.showDelay, 0.5)
+        XCTAssertEqual(scheduler.delays, [0.1])
         XCTAssertFalse(presenter.isVisible)
         scheduler.fireAll()
         XCTAssertTrue(presenter.isVisible)
         XCTAssertEqual(presenter.shown.count, 1)
         XCTAssertEqual(presenter.shown.first?.anchor, anchor)
+    }
+
+    func testReadsCurrentDelayOnEachPointerEntry() {
+        let (controller, _, scheduler) = makeController()
+        var delay: TimeInterval = 0.8
+        controller.showDelayProvider = { delay }
+        controller.pointerEntered()
+        controller.pointerExited()
+        delay = 0.4
+        controller.pointerEntered()
+        XCTAssertEqual(scheduler.delays.count, 2)
+        XCTAssertEqual(scheduler.delays[0], 0.8, accuracy: 0.0001)
+        XCTAssertEqual(scheduler.delays[1], 0.4, accuracy: 0.0001)
     }
 
     func testLeavingBeforeDelayCancelsAndLeavingAfterShowHidesImmediately() {

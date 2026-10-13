@@ -46,7 +46,7 @@ struct AppExperiencePreferences {
             "popoverTransitionStyle", "notificationPresets", "notificationRulesV2", "alertRemainingMode",
             "alert1Threshold", "codexCircularDisplayMode", "usageDisplayMode",
             MenuBarQuotaPreferences.key, ResetCreditSeenStore.key, MenuBarPresetStore.key,
-            PopoverHoverPreferences.key, AntigravityHoverDisplayPreferences.key,
+            PopoverHoverPreferences.key, AntigravityHoverDisplayPreferences.key, MenuBarHoverDelay.key,
         ]
         let existing = hasAccountStorage || legacyKeys.contains { defaults.object(forKey: $0) != nil }
         let result = Self(

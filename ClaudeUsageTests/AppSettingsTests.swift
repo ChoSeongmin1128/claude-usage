@@ -4,6 +4,58 @@ import XCTest
 
 @MainActor
 final class AppSettingsTests: XCTestCase {
+    func testHoverDelayPersistsRestoresSnapshotAndResets() throws {
+        let suite = "AppSettingsTests.hoverDelay.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults)
+        XCTAssertEqual(settings.menuBarHoverDelay, 0.1)
+        XCTAssertNil(defaults.object(forKey: MenuBarHoverDelay.key))
+        settings.setMenuBarHoverDelay(0.7)
+        XCTAssertEqual(AppSettings(defaults: defaults).menuBarHoverDelay, 0.7, accuracy: 0.0001)
+        let snapshot = settings.createSnapshot()
+        settings.setMenuBarHoverDelay(1.0)
+        settings.restore(from: snapshot)
+        XCTAssertEqual(settings.menuBarHoverDelay, 0.7, accuracy: 0.0001)
+        XCTAssertEqual(defaults.double(forKey: MenuBarHoverDelay.key), 0.7, accuracy: 0.0001)
+        settings.resetToDefaults()
+        XCTAssertEqual(settings.menuBarHoverDelay, 0.1)
+        XCTAssertNil(defaults.object(forKey: MenuBarHoverDelay.key))
+    }
+
+    func testHoverDelayPreservesUnreadableStorageAndSnapshot() throws {
+        let suite = "AppSettingsTests.hoverDelayUnreadable.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        for value: Any in ["future-format", true, ["delay": 0.8]] {
+            defaults.set(value, forKey: MenuBarHoverDelay.key)
+            let original = try XCTUnwrap(defaults.object(forKey: MenuBarHoverDelay.key) as? NSObject)
+            let settings = AppSettings(defaults: defaults)
+            XCTAssertEqual(settings.menuBarHoverDelay, 0.1)
+            XCTAssertEqual(defaults.object(forKey: MenuBarHoverDelay.key) as? NSObject, original)
+            let snapshot = settings.createSnapshot()
+            settings.setMenuBarHoverDelay(0.5)
+            settings.restore(from: snapshot)
+            XCTAssertEqual(settings.menuBarHoverDelay, 0.1)
+            XCTAssertEqual(defaults.object(forKey: MenuBarHoverDelay.key) as? NSObject, original)
+        }
+    }
+
+    func testHoverDelayBoundsAreEnforcedWhenLoadingAndEditing() throws {
+        let suite = "AppSettingsTests.hoverDelayBounds.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(3.0, forKey: MenuBarHoverDelay.key)
+        let settings = AppSettings(defaults: defaults)
+        XCTAssertEqual(settings.menuBarHoverDelay, 1.0)
+        XCTAssertEqual(defaults.double(forKey: MenuBarHoverDelay.key), 3.0)
+        for (value, expected) in [(0.0, 0.1), (2.0, 1.0), (0.26, 0.3), (.nan, 0.1), (.infinity, 0.1)] {
+            settings.setMenuBarHoverDelay(value)
+            XCTAssertEqual(settings.menuBarHoverDelay, expected, accuracy: 0.0001)
+            XCTAssertEqual(defaults.double(forKey: MenuBarHoverDelay.key), expected, accuracy: 0.0001)
+        }
+    }
+
     func testLegacyCountdownFormatsLoadAndPersistAsRemaining() throws {
         for rawValue in ["remaining_clock", "remaining_total_clock"] {
             let suite = "AppSettingsTests.legacyTimeFormat.\(UUID().uuidString)"

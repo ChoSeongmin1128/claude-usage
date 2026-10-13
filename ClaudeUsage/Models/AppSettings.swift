@@ -435,6 +435,14 @@ class AppSettings: ObservableObject {
     @Published var popoverPinned: Bool {
         didSet { defaults.set(popoverPinned, forKey: "popoverPinned") }
     }
+    @Published private(set) var menuBarHoverDelay: TimeInterval
+
+    func setMenuBarHoverDelay(_ delay: TimeInterval) {
+        let value = MenuBarHoverDelay.normalized(delay)
+        defaults.set(value, forKey: MenuBarHoverDelay.key)
+        menuBarHoverDelay = value
+    }
+
     @Published var motion: AppMotionPreferences {
         didSet { motion.persist(to: defaults) }
     }
@@ -574,6 +582,7 @@ class AppSettings: ObservableObject {
     // MARK: - Snapshot
 
     struct Snapshot {
+        let menuBarHoverDelayObject: Any?
         let antigravityHoverObject: Any?
         let hoverPreferences: PopoverHoverPreferences.Snapshot
         let menuBarPresets: MenuBarPresetStore.Snapshot
@@ -632,6 +641,7 @@ class AppSettings: ObservableObject {
 
     func createSnapshot() -> Snapshot {
         Snapshot(
+            menuBarHoverDelayObject: defaults.object(forKey: MenuBarHoverDelay.key),
             antigravityHoverObject: defaults.object(forKey: AntigravityHoverDisplayPreferences.key),
             hoverPreferences: popoverDisplayPreferencesStore.hoverSnapshot(),
             menuBarPresets: menuBarPresets.snapshot(),
@@ -697,6 +707,12 @@ class AppSettings: ObservableObject {
     }
 
     func restore(from snapshot: Snapshot) {
+        if let object = snapshot.menuBarHoverDelayObject {
+            defaults.set(object, forKey: MenuBarHoverDelay.key)
+        } else {
+            defaults.removeObject(forKey: MenuBarHoverDelay.key)
+        }
+        menuBarHoverDelay = MenuBarHoverDelay.load(from: defaults)
         if let object = snapshot.antigravityHoverObject {
             defaults.set(object, forKey: AntigravityHoverDisplayPreferences.key)
         } else {
@@ -1337,6 +1353,8 @@ class AppSettings: ObservableObject {
         alertWeeklyEnabled = false
         popoverPinned = false
         popoverCompact = false
+        defaults.removeObject(forKey: MenuBarHoverDelay.key)
+        menuBarHoverDelay = MenuBarHoverDelay.defaultValue
         motion = AppMotionPreferences()
         popoverDisplayPreferencesStore.restoreHoverDefaults()
         popoverDisplayPreferencesStore.restoreKnownDefaults()
@@ -1457,6 +1475,7 @@ class AppSettings: ObservableObject {
         self.alertWeeklyEnabled = defaults.object(forKey: "alertWeeklyEnabled") as? Bool ?? false
         self.popoverPinned = defaults.object(forKey: "popoverPinned") as? Bool ?? false
         self.popoverCompact = defaults.object(forKey: "popoverCompact") as? Bool ?? false
+        self.menuBarHoverDelay = MenuBarHoverDelay.load(from: defaults)
         self.motion = AppMotionPreferences.load(from: defaults)
         // 시스템 상태에서 실제 등록 여부 확인
         self.launchAtLoginState = loginState

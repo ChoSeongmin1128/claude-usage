@@ -169,6 +169,36 @@ extension SettingsView {
         }
     }
 
+    var commonHoverSection: some View {
+        VStack(alignment: .leading, spacing: AppDesign.Space.content) {
+            Text("메뉴바 호버").font(AppDesign.Typography.headline)
+            HStack(spacing: AppDesign.Space.row) {
+                Text("표시 지연")
+                Slider(
+                    value: Binding(
+                        get: { settings.menuBarHoverDelay },
+                        set: { settings.setMenuBarHoverDelay($0) }),
+                    in: MenuBarHoverDelay.range,
+                    step: MenuBarHoverDelay.step
+                )
+                .accessibilityLabel("메뉴바 호버 표시 지연")
+                .accessibilityValue(menuBarHoverDelayText)
+                .accessibilityIdentifier("menu-bar-hover-delay")
+                Text(menuBarHoverDelayText)
+                    .monospacedDigit()
+                    .fixedSize()
+                    .accessibilityHidden(true)
+            }
+            Text("마우스를 올린 뒤 패널이 나타나기까지의 시간입니다.")
+                .font(AppDesign.Typography.caption)
+                .foregroundStyle(AppDesign.Text.secondary)
+        }
+    }
+
+    private var menuBarHoverDelayText: String {
+        settings.menuBarHoverDelay.formatted(.number.precision(.fractionLength(1))) + "초"
+    }
+
     private var selectedDesignPreviewBasis: UsageValueBasis {
         if let basis = settings.usageDisplayMode.basis { return basis }
         if selectedProvider == .antigravity, let display = antigravitySettings.state.display {

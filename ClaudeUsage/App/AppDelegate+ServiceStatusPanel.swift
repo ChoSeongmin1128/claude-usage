@@ -4,6 +4,7 @@ extension AppDelegate {
     // MARK: - Service Status Panel
 
     func setupServiceStatusPanel() {
+        serviceStatusHover.showDelayProvider = { AppSettings.shared.menuBarHoverDelay }
         serviceStatusHover.contentProvider = { [weak self] in
             self?.serviceStatusPanelContent()
         }

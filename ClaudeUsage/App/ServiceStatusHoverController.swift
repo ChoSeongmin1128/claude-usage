@@ -119,11 +119,11 @@ struct MainRunLoopHoverScheduler: ServiceStatusHoverScheduling {
     }
 }
 
-/// 메뉴바 아이템에 0.5초 머물면 서비스 상태 패널을 띄운다.
+/// 메뉴바 아이템에 설정한 시간 동안 머물면 서비스 상태 패널을 띄운다.
 /// 벗어나거나 누르면 바로 닫고, 다시 들어오기 전까지는 띄우지 않는다.
 @MainActor
 final class ServiceStatusHoverController {
-    static let showDelay: TimeInterval = 0.5
+    var showDelayProvider: () -> TimeInterval = { MenuBarHoverDelay.defaultValue }
 
     var contentProvider: () -> ServiceStatusPanelContent? = { nil }
     /// 팝오버나 메뉴가 열려 있으면 참이다.
@@ -223,7 +223,7 @@ final class ServiceStatusHoverController {
     func pointerEntered() {
         cancelPendingShow()
         guard !isSuppressed() else { return }
-        pendingShow = scheduler.schedule(after: Self.showDelay) { [weak self] in
+        pendingShow = scheduler.schedule(after: MenuBarHoverDelay.normalized(showDelayProvider())) { [weak self] in
             self?.showIfAllowed()
         }
     }
