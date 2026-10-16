@@ -43,6 +43,13 @@ struct ServiceStatusPanelContent: Equatable {
     let services: [Service]
     var usage = MenuBarHoverUsageContent(providers: [])
 
+    /// 사용량 표에 정상으로 이미 나온 서비스는 상태 블록을 따로 그리지 않는다.
+    var visibleServices: [Service] {
+        services.filter { service in
+            service.tone != .normal || !usage.providers.contains { $0.kind == service.kind }
+        }
+    }
+
     /// 한 번도 읽지 못한 서비스는 빠진다. 보여 줄 서비스가 없으면 패널을 띄우지 않는다.
     static func make(
         statuses: [AppProviderKind: ProviderSystemStatus],

@@ -9,24 +9,25 @@ struct ServiceStatusPanelView: View {
     var onItemFrames: ([String: CGRect]) -> Void = { _ in }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppDesign.Hover.incidentGap) {
-            if !content.usage.providers.isEmpty {
-                MenuBarHoverUsageView(content: content.usage)
-            }
-            if !content.services.isEmpty {
-                if !content.usage.providers.isEmpty { Divider() }
-                ForEach(Array(content.services.enumerated()), id: \.element.kind) { index, service in
-                    if index > 0, service.tone != .normal || content.services[index - 1].tone != .normal { Divider() }
-                    if service.tone != .normal || !content.usage.providers.contains(where: { $0.kind == service.kind })
+        let services = content.visibleServices
+        HoverPanelWidthLayout(fixedWidth: services.isEmpty ? nil : Self.width, maximumWidth: Self.width) {
+            VStack(alignment: .leading, spacing: AppDesign.Hover.incidentGap) {
+                if !content.usage.providers.isEmpty {
+                    MenuBarHoverUsageView(content: content.usage)
+                }
+                ForEach(Array(services.enumerated()), id: \.element.kind) { index, service in
+                    if index > 0
+                        ? service.tone != .normal || services[index - 1].tone != .normal
+                        : !content.usage.providers.isEmpty
                     {
-                        serviceBlock(service)
+                        Divider()
                     }
+                    serviceBlock(service)
                 }
             }
+            .padding(.trailing, reservesScrollerSpace ? AppDesign.Hover.scrollerInset : 0)
+            .padding(AppDesign.Hover.inset)
         }
-        .padding(.trailing, reservesScrollerSpace ? AppDesign.Hover.scrollerInset : 0)
-        .padding(AppDesign.Hover.inset)
-        .frame(width: Self.width, alignment: .leading)
         .onHoverItemFrames(onItemFrames)
         .accessibilityHidden(true)
     }
@@ -85,6 +86,23 @@ struct ServiceStatusPanelView: View {
         case .minor: Color(nsColor: .systemOrange)
         case .major: Color(nsColor: .systemRed)
         }
+    }
+}
+
+/// 장애 문구는 고정 폭에서 줄을 바꾸고, 사용량만 있으면 내용 폭까지만 쓴다(고정 폭을 넘으면 고정 폭에서 줄을 바꾼다).
+private struct HoverPanelWidthLayout: Layout {
+    let fixedWidth: CGFloat?
+    let maximumWidth: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let content = subviews.first else { return .zero }
+        let width = fixedWidth ?? min(maximumWidth, content.sizeThatFits(.unspecified).width.rounded(.up))
+        return CGSize(width: width, height: content.sizeThatFits(ProposedViewSize(width: width, height: nil)).height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(
+            at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(width: bounds.width, height: nil))
     }
 }
 

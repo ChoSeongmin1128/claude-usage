@@ -73,6 +73,48 @@ final class MenuBarHoverContentTests: XCTestCase {
         }
     }
 
+    func testServicesAlreadyShownAsNormalUsageAddNoDividers() throws {
+        let usage = Self.usageFixture()
+        let normal = Self.normalStatus
+        let usageOnly = ServiceStatusPanelContent(services: [], usage: usage)
+        let allNormal = try XCTUnwrap(
+            ServiceStatusPanelContent.make(statuses: [.claude: normal, .codex: normal], usage: usage))
+        XCTAssertTrue(allNormal.visibleServices.isEmpty)
+        XCTAssertEqual(Self.fittingSize(allNormal).height, Self.fittingSize(usageOnly).height)
+
+        let codexOnly = try XCTUnwrap(
+            ServiceStatusPanelContent.make(statuses: [.codex: Self.codexDegraded], usage: usage))
+        let claudeNormalCodexDegraded = try XCTUnwrap(
+            ServiceStatusPanelContent.make(statuses: [.claude: normal, .codex: Self.codexDegraded], usage: usage))
+        XCTAssertEqual(claudeNormalCodexDegraded.visibleServices.map(\.kind), [.codex])
+        XCTAssertEqual(
+            Self.fittingSize(claudeNormalCodexDegraded).height, Self.fittingSize(codexOnly).height)
+    }
+
+    func testUsageOnlyHoverFitsItsContentAndIncidentsKeepTheFixedWidth() throws {
+        let usage = Self.usageFixture()
+        let normal = try XCTUnwrap(
+            ServiceStatusPanelContent.make(
+                statuses: [.claude: Self.normalStatus, .codex: Self.normalStatus], usage: usage))
+        let degraded = try XCTUnwrap(
+            ServiceStatusPanelContent.make(
+                statuses: [.claude: Self.normalStatus, .codex: Self.codexDegraded], usage: usage))
+        let compact = Self.fittingSize(normal).width
+        XCTAssertLessThan(compact, AppDesign.Hover.width)
+        XCTAssertGreaterThan(compact, AppDesign.Hover.columnWidth * 2)
+        XCTAssertEqual(Self.fittingSize(degraded).width, AppDesign.Hover.width)
+
+        let longDetail = MenuBarHoverUsageContent.Provider(
+            kind: .claude, basis: .remaining,
+            items: [
+                .init(
+                    id: "resetCredits", title: "초기화권", compactTitle: "초기화권", value: "2개",
+                    detail: String(repeating: "만료 시각이 서로 다른 초기화권 ", count: 6))
+            ])
+        let wide = ServiceStatusPanelContent(services: [], usage: .init(providers: [longDetail]))
+        XCTAssertEqual(Self.fittingSize(wide).width, AppDesign.Hover.width)
+    }
+
     func testProductHoverRendersOffscreenInBothAppearances() throws {
         try withSettings { settings, _ in
             settings.usageDisplayMode = .remaining
@@ -88,11 +130,21 @@ final class MenuBarHoverContentTests: XCTestCase {
                 indicator: .major, description: "", activeIncidents: [incident], pageUpdatedAt: nil)
             let busy = try XCTUnwrap(
                 ServiceStatusPanelContent.make(statuses: [.claude: issue], usage: .init(providers: [provider])))
+            let usage = Self.usageFixture()
+            let allNormal = try XCTUnwrap(
+                ServiceStatusPanelContent.make(
+                    statuses: [.claude: Self.normalStatus, .codex: Self.normalStatus], usage: usage))
+            let codexDegraded = try XCTUnwrap(
+                ServiceStatusPanelContent.make(
+                    statuses: [.claude: Self.normalStatus, .codex: Self.codexDegraded], usage: usage))
             let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
                 .appendingPathComponent(".work/product-hover-render")
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             for appearance: NSAppearance.Name in [.aqua, .darkAqua] {
-                for (name, content) in [("normal", normal), ("incident", busy)] {
+                for (name, content) in [
+                    ("normal", normal), ("incident", busy), ("all-normal", allNormal),
+                    ("codex-degraded", codexDegraded),
+                ] {
                     let host = NSHostingView(
                         rootView: ServiceStatusPanelView(content: content)
                             .background(Color(nsColor: .windowBackgroundColor))
@@ -105,7 +157,7 @@ final class MenuBarHoverContentTests: XCTestCase {
                     host.cacheDisplay(in: host.bounds, to: bitmap)
                     let image = NSImage(size: size)
                     image.addRepresentation(bitmap)
-                    XCTAssertEqual(size.width, AppDesign.Hover.width)
+                    XCTAssertEqual(size.width < AppDesign.Hover.width, content.visibleServices.isEmpty)
                     XCTAssertGreaterThan(size.height, 20)
                     let attachment = XCTAttachment(image: image)
                     attachment.name = "Hover \(name) \(appearance.rawValue) offscreen"
@@ -117,6 +169,45 @@ final class MenuBarHoverContentTests: XCTestCase {
                 }
             }
         }
+    }
+
+    private static let normalStatus = ProviderSystemStatus(indicator: .none, description: "", pageUpdatedAt: nil)
+
+    private static let codexDegraded = ProviderSystemStatus(
+        indicator: .minor, description: "",
+        activeIncidents: [
+            .init(
+                name: "Delayed Costs data in the Compliance API", status: "monitoring", impact: "minor",
+                shortlink: nil, latestUpdateBody: nil, latestUpdateAt: Date().addingTimeInterval(-6 * 3600),
+                affectedComponents: [], isPriority: false)
+        ],
+        componentIssues: [.init(name: "Compliance API", indicator: .minor)], pageUpdatedAt: nil)
+
+    private static func usageFixture() -> MenuBarHoverUsageContent {
+        func limits(_ kind: AppProviderKind, _ fiveHour: String, _ weekly: String) -> MenuBarHoverUsageContent.Provider
+        {
+            MenuBarHoverUsageContent.Provider(
+                kind: kind, basis: .remaining,
+                items: [
+                    .init(
+                        id: "fiveHour", title: "5시간 한도", compactTitle: "5시간", value: fiveHour,
+                        isUnknown: fiveHour == "미확인"),
+                    .init(id: "weekly", title: "주간 한도", compactTitle: "주간", value: weekly),
+                ])
+        }
+        let agy = MenuBarHoverUsageContent.Provider(
+            kind: .antigravity, basis: .remaining,
+            items: [
+                .init(id: "gemini.weekly", title: "Gemini · 주간", compactTitle: "Gemini · 주간", value: "100%"),
+                .init(
+                    id: "shared.weekly", title: "Claude · GPT · 주간", compactTitle: "Claude · GPT · 주간",
+                    value: "100%"),
+            ])
+        return MenuBarHoverUsageContent(providers: [limits(.claude, "75%", "10%"), limits(.codex, "미확인", "15%"), agy])
+    }
+
+    private static func fittingSize(_ content: ServiceStatusPanelContent) -> NSSize {
+        NSHostingView(rootView: ServiceStatusPanelView(content: content)).fittingSize
     }
 
     private func snapshot(usage: ClaudeUsageResponse? = nil, error: APIError? = nil) -> RuntimeProviderSnapshot {
