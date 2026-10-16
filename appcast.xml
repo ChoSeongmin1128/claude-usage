@@ -4,21 +4,21 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>ClaudeUsage</title>
         <item>
-            <title>Version 2.10.2</title>
-            <pubDate>Tue, 13 Oct 2026 21:50:53 +0900</pubDate>
-            <sparkle:version>20653</sparkle:version>
-            <sparkle:shortVersionString>2.10.2</sparkle:shortVersionString>
+            <title>Version 2.10.3</title>
+            <pubDate>Fri, 16 Oct 2026 15:47:51 +0900</pubDate>
+            <sparkle:version>20654</sparkle:version>
+            <sparkle:shortVersionString>2.10.3</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.10.2/ClaudeUsage.dmg" length="7685516" type="application/octet-stream" sparkle:edSignature="kMfRqi7qZDjeFC3LhOoxiEsMu/p8tBdUt/V18hLnEVP6AeLun1cicTRS3I2nQ9lz6YqWRi+nO1ulW4OsDzlrCw=="></enclosure>
-            <description sparkle:format="plain-text"># 2.10.2
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.10.3/ClaudeUsage.dmg" length="7687336" type="application/octet-stream" sparkle:edSignature="VBSJGfcRJYcR3UPtcSxnMPPreieVx2HYYcYN+HqS8m+M08Tyfn/e8b/RgQouCPoN8G2to1qnsTnkXdodMqw+Dw=="></enclosure>
+            <description sparkle:format="plain-text"># 2.10.3
 
-- 메뉴바에 마우스를 올렸을 때 사용량과 서비스 상태 패널이 나타나는 시간을 0.5초에서 0.1초로 줄였습니다.
-- 설정의 표시 화면에서 메뉴바 호버 지연을 0.1초부터 1초까지 조절할 수 있습니다.
+- 메뉴바 호버 패널에서 서비스 상태 위의 구분선이 두 줄로 겹치거나, 모든 서비스가 정상일 때 패널 맨 아래에 구분선이 남던 문제를 고쳤습니다.
+- 장애가 없을 때는 메뉴바 호버 패널이 내용 폭에 맞게 좁아집니다. 장애가 있으면 기존 폭으로 표시합니다.
 </description>
-            <claudeusage:zipSHA256>29b2648a92a7ff74eeca5c8caf5725db13e9b0ebc3c37a191a16caec0f42775c</claudeusage:zipSHA256>
+            <claudeusage:zipSHA256>c9da77e5df786fde74c44ac1b7bef471f4a6f50dc4b52ce3feb0b01c3049fa5e</claudeusage:zipSHA256>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: meGiewMvzeTVCO2BZe0SSPzAnJI0U1kHAbhn/hAGft8kISBxkKyclKoCFbViEoyy2dmRcc+fiymcFsHZxSGCBw==
-length: 1617
+edSignature: Y4nS8opqEO5dyKb941+3QF2uDjcvIfbLIKAt4XTyWc4O+CMKcGhVrazonbpoDbtAjBFPl3n7D3QzeDGVOViXDQ==
+length: 1702
 -->
