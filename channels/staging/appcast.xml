@@ -4,21 +4,21 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>ClaudeUsage-stg</title>
         <item>
-            <title>Version 2.10.2-stg.1</title>
-            <pubDate>Tue, 13 Oct 2026 21:40:07 +0900</pubDate>
-            <sparkle:version>20653</sparkle:version>
-            <sparkle:shortVersionString>2.10.2-stg.1</sparkle:shortVersionString>
+            <title>Version 2.10.3-stg.1</title>
+            <pubDate>Fri, 16 Oct 2026 15:30:37 +0900</pubDate>
+            <sparkle:version>20654</sparkle:version>
+            <sparkle:shortVersionString>2.10.3-stg.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.10.2-stg.1/ClaudeUsage.dmg" length="7685063" type="application/octet-stream" sparkle:edSignature="ZbjsXJFxu0qiSaVC82fKr10xpX6OVdLVTAXoin7ErIs+oliZ8rxD5aqhdvgL7bn8UI0gQeZDNZVBF+QjivOBAw=="></enclosure>
-            <description sparkle:format="plain-text"># 2.10.2
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.10.3-stg.1/ClaudeUsage.dmg" length="7687195" type="application/octet-stream" sparkle:edSignature="cRvwjELbkYfv4f/Tl3MX6LN8ZeIhof7LljDbyxwgV9fth25ecJWtW5RVZqNM9vI2JdRNN1N+l2m+S7GNqf7uAA=="></enclosure>
+            <description sparkle:format="plain-text"># 2.10.3
 
-- 메뉴바에 마우스를 올렸을 때 사용량과 서비스 상태 패널이 나타나는 시간을 0.5초에서 0.1초로 줄였습니다.
-- 설정의 표시 화면에서 메뉴바 호버 지연을 0.1초부터 1초까지 조절할 수 있습니다.
+- 메뉴바 호버 패널에서 서비스 상태 위의 구분선이 두 줄로 겹치거나, 모든 서비스가 정상일 때 패널 맨 아래에 구분선이 남던 문제를 고쳤습니다.
+- 장애가 없을 때는 메뉴바 호버 패널이 내용 폭에 맞게 좁아집니다. 장애가 있으면 기존 폭으로 표시합니다.
 </description>
-            <claudeusage:zipSHA256>c38e1c6b8dbaef96b8c2593a793e2d0ff1d1fcace17bd04b4c7714584d197c1a</claudeusage:zipSHA256>
+            <claudeusage:zipSHA256>ab12028ed8f55a41335957e335834b34e105454f33eab4912c3a2a496159649d</claudeusage:zipSHA256>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: 35MHC0OWZCJO12KWohqRbt5WiCPbj7fAlBp8D4zmIfO+0VOvcvmJ5xL5gnrtQK+ywnPb0+nY17GOz3YnfJCJCg==
-length: 1639
+edSignature: dKDHkfsCAY+5HjZ+Dd+/5Qnw3jETAEabE8jPxnrOuVwkQ5meATSQe9KrSwxSrxAMAy6SpamXmCDJlSDx64NoBg==
+length: 1724
 -->
