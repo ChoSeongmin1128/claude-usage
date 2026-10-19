@@ -31,9 +31,12 @@ nonisolated struct ClaudeWebSessionReplacement: Sendable {
             let preferences = expectedPreferences.replacingWebConnection(
                 oldReference: account.id, newReference: newID,
                 previousAccountID: previousAccountID, identity: validation.identity)
-            guard store.replaceWebConnection(expected: account, replacement: replacement,
-                expectedPreferences: expectedPreferences, preferences: preferences,
-                expectedActiveAccountID: expectedActiveAccountID) else { throw CancellationError() }
+            guard
+                store.replaceWebConnection(
+                    expected: account, replacement: replacement,
+                    expectedPreferences: expectedPreferences, preferences: preferences,
+                    expectedActiveAccountID: expectedActiveAccountID)
+            else { throw CancellationError() }
             if account.id != newID { try? vault.delete(account: ClaudeKeychainStore.accountName(for: account.id)) }
             return replacement
         } catch {
@@ -44,8 +47,10 @@ nonisolated struct ClaudeWebSessionReplacement: Sendable {
 }
 
 nonisolated extension UsageAccountPreferences {
-    func mergingAccountID(from oldID: String, into destination: String, service: PopoverService,
-                          inheritVisibility: Bool, keepVisible: Bool) -> Self {
+    func mergingAccountID(
+        from oldID: String, into destination: String, service: PopoverService,
+        inheritVisibility: Bool, keepVisible: Bool
+    ) -> Self {
         var updated = self
         if oldID != destination {
             if updated.aliases[destination] == nil { updated.aliases[destination] = updated.aliases[oldID] }
@@ -71,7 +76,8 @@ nonisolated extension UsageAccountPreferences {
         let source = UsageAccountSource(role: .web, reference: newReference)
         let destination = UsageAccount.id(service: .claude, identity: identity, source: source)
         for previous in [previousAccountID, "claude:web:\(oldReference)"] {
-            updated = updated.mergingAccountID(from: previous, into: destination, service: .claude,
+            updated = updated.mergingAccountID(
+                from: previous, into: destination, service: .claude,
                 inheritVisibility: false, keepVisible: true)
         }
         if oldReference != newReference { updated.knownIdentities[oldReference] = nil }

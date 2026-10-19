@@ -28,7 +28,8 @@ struct LoginWindowView: View {
         startCLIActivationOnOpen: Bool = false,
         startEmbeddedWebOnOpen: Bool = false,
         importFamily: ClaudeBrowserFamily? = nil,
-        onSessionKeyFound: @escaping (String, String?, ClaudeAccountSource?, String?, ClaudeBrowserSource?) async throws -> Void,
+        onSessionKeyFound:
+            @escaping (String, String?, ClaudeAccountSource?, String?, ClaudeBrowserSource?) async throws -> Void,
         onActivateCLI: @escaping () async throws -> ActivationSummary,
         onLoadCLIPreview: @escaping () async -> CLIPreview?,
         onOpenAdvancedSettings: @escaping () -> Void,

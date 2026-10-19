@@ -535,7 +535,8 @@ final class ClaudeAccountStoreTests: XCTestCase {
             store.accounts().first(where: { $0.id == newer.id })?.lastUsedAt,
             newer.lastUsedAt
         )
-        XCTAssertEqual(try vault.loadString(account: ClaudeKeychainStore.accountName(for: older.id)), "sk-ant-old-cookie")
+        XCTAssertEqual(
+            try vault.loadString(account: ClaudeKeychainStore.accountName(for: older.id)), "sk-ant-old-cookie")
         XCTAssertEqual(
             try vault.loadString(account: ClaudeKeychainStore.accountName(for: newer.id)),
             "sk-ant-new-cookie"

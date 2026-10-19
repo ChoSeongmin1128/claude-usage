@@ -285,7 +285,9 @@ final class UsageAccountsControllerTests: XCTestCase {
         try await waitUntil { provider.fetches == ["web-old"] }
         let previousDiscoveries = provider.discoveries
         provider.accountRoles = [("live", .defaultLogin), ("web-new", .web)]
-        let replacement = Task { await sut.adoptWebSessionReplacement(oldReference: "web-old", newReference: "web-new") }
+        let replacement = Task {
+            await sut.adoptWebSessionReplacement(oldReference: "web-old", newReference: "web-new")
+        }
         try await waitUntil { provider.discoveries > previousDiscoveries }
         await gate.release()
         await replacement.value
@@ -442,7 +444,8 @@ private final class FakeAccountProvider: UsageAccountProvider, UsageAccountMenuB
         return input.webLogins.map { login in
             UsageAccountCandidate(
                 source: .init(
-                    role: roles[login.id] ?? (login.id == "app" || login.id == "web" || login.id.hasPrefix("web-") ? .web : .directory),
+                    role: roles[login.id]
+                        ?? (login.id == "app" || login.id == "web" || login.id.hasPrefix("web-") ? .web : .directory),
                     reference: login.id),
                 identity: login.identity)
         }

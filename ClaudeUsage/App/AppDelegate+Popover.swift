@@ -8,8 +8,11 @@ extension AppDelegate {
         popoverCoordinator.configure(
             initialService: resolvedPopoverService(),
             onRefreshService: { [weak self] service in
-                if service == .claude { self?.retryClaudeUsageFromUser() }
-                else { self?.refresh(service: service, force: true) }
+                if service == .claude {
+                    self?.retryClaudeUsageFromUser()
+                } else {
+                    self?.refresh(service: service, force: true)
+                }
             },
             onOpenSettingsDestination: { [weak self] destination in
                 self?.closePopover()

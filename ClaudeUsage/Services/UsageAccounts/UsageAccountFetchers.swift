@@ -16,9 +16,12 @@ nonisolated enum ClaudeWebUsageFetcher {
         -> Result
     {
         let account: ClaudeWebAccountSnapshot
-        do { account = try await ClaudeWebAccountClient.fetch(sessionKey: sessionKey, runner: { try await session.data(for: $0) }) }
-        catch APIError.invalidSessionKey { throw UsageAccountFetchError.loginExpired }
-        catch APIError.rateLimited(let retryAfter), APIError.cloudflareBlocked(let retryAfter) {
+        do {
+            account = try await ClaudeWebAccountClient.fetch(
+                sessionKey: sessionKey, runner: { try await session.data(for: $0) })
+        } catch APIError.invalidSessionKey { throw UsageAccountFetchError.loginExpired } catch APIError.rateLimited(
+            let retryAfter), APIError.cloudflareBlocked(let retryAfter)
+        {
             throw UsageAccountFetchError.rateLimited(retryAfter: retryAfter)
         }
         let organizations = account.organizations
@@ -123,7 +126,9 @@ nonisolated enum ClaudeWebUsageFetcher {
             throw UsageAccountFetchError.rateLimited(retryAfter: HTTPResponseClassification.retryAfterSeconds(http))
         }
         if status == 401 { throw UsageAccountFetchError.loginExpired }
-        if status == 403, case .invalidSessionKey = ClaudeHTTPTransport.classify(statusCode: status, data: data, response: http) {
+        if status == 403,
+            case .invalidSessionKey = ClaudeHTTPTransport.classify(statusCode: status, data: data, response: http)
+        {
             throw UsageAccountFetchError.loginExpired
         }
         guard (200...299).contains(status) else { throw UsageAccountFetchError.server(status) }

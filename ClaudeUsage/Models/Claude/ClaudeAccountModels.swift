@@ -803,7 +803,8 @@ final class ClaudeAccountStore: @unchecked Sendable {
         accounts.append(replacement)
         var updated = preferences
         let activeID = state.activeAccountID == expected.id ? replacement.id : state.activeAccountID
-        let saved = saveRaw(accounts: accounts, activeAccountID: activeID,
+        let saved = saveRaw(
+            accounts: accounts, activeAccountID: activeID,
             originalAccountIDs: [replacement.id: expected.id])
         guard saved, updated.commit(to: defaults, intent: .automatic).accepted else {
             PreferencePersistenceContext.restore(originalAccounts, to: defaults, key: Self.accountsDefaultsKey)

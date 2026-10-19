@@ -84,7 +84,10 @@ struct ClaudeAccountSettingsPresentation: Equatable {
             return "Claude Code"
         case .webSession:
             switch account.source {
-            case .chromeProfile: return (account.browserSource?.family ?? ClaudeBrowserFamily.family(fromSourceDetail: account.sourceDetail)).displayName
+            case .chromeProfile:
+                return
+                    (account.browserSource?.family ?? ClaudeBrowserFamily.family(fromSourceDetail: account.sourceDetail))
+                    .displayName
             case .embeddedWebLogin: return "앱에서 로그인"
             case .manualInput: return "직접 입력"
             case .legacyMigration: return "이전 버전에서 가져온 로그인"

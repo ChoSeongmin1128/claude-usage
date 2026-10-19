@@ -1004,13 +1004,13 @@ actor ClaudeAPIService {
                 if snapshot.identity(organizationID: orgID)?.mergeKey != nil, snapshot.email != nil {
                     webAccountSnapshot = snapshot
                 }
-            } catch is CancellationError { throw CancellationError() }
-            catch { try Task.checkCancellation() }
+            } catch is CancellationError { throw CancellationError() } catch { try Task.checkCancellation() }
         }
         guard isCurrentRequest(accountID: accountID, sessionKey: sessionKey, revision: revision) else {
             throw CancellationError()
         }
-        let identity = webAccountSnapshot?.identity(organizationID: orgID)
+        let identity =
+            webAccountSnapshot?.identity(organizationID: orgID)
             ?? UsageAccountIdentity(organizationID: orgID, organizationName: organizationName)
         lastValidatedWebSession = ClaudeValidatedWebSession(usage: usage, identity: identity)
         return (usage, identity)

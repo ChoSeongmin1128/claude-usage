@@ -20,7 +20,8 @@ extension AppDelegate {
         controller.onWebReconnect = { [weak self, weak controller] account in
             guard let self else { return }
             if controller?.isRuntime(account) == true,
-                ClaudeAccountStore.shared.activeAccount()?.kind == .claudeCodeExternal {
+                ClaudeAccountStore.shared.activeAccount()?.kind == .claudeCodeExternal
+            {
                 showLoginWindow(startCLIActivationOnOpen: true)
             } else {
                 retryClaudeUsageFromUser(reconnect: true, account: account)

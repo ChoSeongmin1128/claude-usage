@@ -45,7 +45,8 @@ final class ClaudeSettingsApplyCoordinatorTests: XCTestCase {
         let service = FakeClaudeSettingsService()
         let validator = FakeClaudeSettingsService(sessionKey: "new")
         do {
-            try await ClaudeSettingsApplyCoordinator.activateSessionKey("new", apiService: service,
+            try await ClaudeSettingsApplyCoordinator.activateSessionKey(
+                "new", apiService: service,
                 preferredOrganizationID: "", keychain: keychain, isCurrentActivation: { false },
                 makeValidator: { _ in validator }, refreshRequester: {})
             XCTFail("A selection changed before validation finished")

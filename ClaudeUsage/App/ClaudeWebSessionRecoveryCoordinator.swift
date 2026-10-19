@@ -8,8 +8,10 @@ final class ClaudeWebSessionRecoveryCoordinator {
         let previousAccountID: String
         let activeAccountID: String
 
-        init(account: ClaudeAccount, expectedIdentity: UsageAccountIdentity?, previousAccountID: String,
-             activeAccountID: String? = nil) {
+        init(
+            account: ClaudeAccount, expectedIdentity: UsageAccountIdentity?, previousAccountID: String,
+            activeAccountID: String? = nil
+        ) {
             self.account = account
             self.expectedIdentity = expectedIdentity
             self.previousAccountID = previousAccountID
@@ -46,7 +48,8 @@ final class ClaudeWebSessionRecoveryCoordinator {
     }
 
     private let dependencies: Dependencies
-    private var task: (id: UUID, request: Request, key: String?, source: ClaudeBrowserSource?, value: Task<Void, Error>)?
+    private var task:
+        (id: UUID, request: Request, key: String?, source: ClaudeBrowserSource?, value: Task<Void, Error>)?
 
     init(dependencies: Dependencies) { self.dependencies = dependencies }
 
@@ -82,7 +85,10 @@ final class ClaudeWebSessionRecoveryCoordinator {
         let loader = dependencies.load
         let saved = await Task.detached(priority: .utility) { loader(request.account.id) }.value
         try check(request)
-        if let saved, ClaudeAccountStore.webSessionAccountID(fingerprint: ClaudeAccountStore.fingerprint(for: saved)) != request.account.id {
+        if let saved,
+            ClaudeAccountStore.webSessionAccountID(fingerprint: ClaudeAccountStore.fingerprint(for: saved))
+                != request.account.id
+        {
             do {
                 let candidate = try await validate(saved, source: request.account.browserSource, request: request)
                 try check(request)
@@ -92,8 +98,9 @@ final class ClaudeWebSessionRecoveryCoordinator {
             }
         }
         let origin: ClaudeBrowserSource
-        if let existing = request.account.browserSource { origin = existing }
-        else {
+        if let existing = request.account.browserSource {
+            origin = existing
+        } else {
             guard request.account.source != .manualInput, request.account.source != .embeddedWebLogin
             else { throw Failure.loginRequired }
             guard let selected = await dependencies.selectSource() else { throw CancellationError() }
@@ -110,7 +117,8 @@ final class ClaudeWebSessionRecoveryCoordinator {
         default: throw Failure.loginRequired
         }
         guard imported.family == origin.family, imported.profileName == origin.profileName,
-            ClaudeAccountStore.webSessionAccountID(fingerprint: ClaudeAccountStore.fingerprint(for: imported.sessionKey)) != request.account.id
+            ClaudeAccountStore.webSessionAccountID(
+                fingerprint: ClaudeAccountStore.fingerprint(for: imported.sessionKey)) != request.account.id
         else { throw Failure.loginRequired }
         let candidate = try await validate(imported.sessionKey, source: origin, request: request)
         try check(request)

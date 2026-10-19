@@ -3,41 +3,60 @@ import XCTest
 
 @MainActor
 final class ClaudeWebSessionRecoveryTests: XCTestCase {
-    private let identity = UsageAccountIdentity(accountID: "nathan", organizationID: "team", email: "nathan@example.com", organizationName: "Team")
+    private let identity = UsageAccountIdentity(
+        accountID: "nathan", organizationID: "team", email: "nathan@example.com", organizationName: "Team")
     private let origin = ClaudeBrowserSource(family: .chrome, profileName: "Profile 2")
     private var validation: ClaudeValidatedWebSession {
         .init(usage: .init(fiveHour: .init(utilization: 12, resetsAt: nil), sevenDay: nil), identity: identity)
     }
 
-    private func request(source: ClaudeAccountSource? = .chromeProfile, known: Bool = true,
-                         origin: ClaudeBrowserSource? = nil) -> ClaudeWebSessionRecoveryCoordinator.Request {
-        .init(account: .init(id: id("old"), kind: .webSession, displayName: "Chrome Nathan",
-                            identity: .init(email: "display-only@example.com", organizationID: "team"),
-                            source: source, browserSource: origin),
-              expectedIdentity: known ? identity : nil, previousAccountID: "claude:web:old")
+    private func request(
+        source: ClaudeAccountSource? = .chromeProfile, known: Bool = true,
+        origin: ClaudeBrowserSource? = nil
+    ) -> ClaudeWebSessionRecoveryCoordinator.Request {
+        .init(
+            account: .init(
+                id: id("old"), kind: .webSession, displayName: "Chrome Nathan",
+                identity: .init(email: "display-only@example.com", organizationID: "team"),
+                source: source, browserSource: origin),
+            expectedIdentity: known ? identity : nil, previousAccountID: "claude:web:old")
     }
 
     private func id(_ key: String) -> String {
         ClaudeAccountStore.webSessionAccountID(fingerprint: ClaudeAccountStore.fingerprint(for: key))
     }
 
-    private func dependencies(_ probe: RecoveryProbe, gate: RecoveryGate? = nil) -> ClaudeWebSessionRecoveryCoordinator.Dependencies {
+    private func dependencies(_ probe: RecoveryProbe, gate: RecoveryGate? = nil)
+        -> ClaudeWebSessionRecoveryCoordinator.Dependencies
+    {
         let validation = validation
         let origin = origin
-        return .init(load: { _ in probe.record("load"); return probe.saved }, importSession: { source in
-            probe.record("import:\(source.profileName)")
-            if let error = probe.importError { throw error }
-            return .importedSession(.init(family: source.family, profileName: source.profileName, sessionKey: "new"))
-        }, validate: { key, _ in
-            probe.record("validate:\(key)")
-            if let gate { await gate.wait() }
-            if let error = probe.validationError { throw error }
-            return probe.validation ?? validation
-        }, selectSource: { probe.record("select"); return probe.selected ? origin : nil },
-        confirmIdentity: { _ in probe.record("confirm"); return probe.confirmed },
-        isCurrent: { _ in probe.current }, commit: { _, candidate in
-            probe.record("commit:\(candidate.sessionKey)")
-        })
+        return .init(
+            load: { _ in
+                probe.record("load"); return probe.saved
+            },
+            importSession: { source in
+                probe.record("import:\(source.profileName)")
+                if let error = probe.importError { throw error }
+                return .importedSession(
+                    .init(family: source.family, profileName: source.profileName, sessionKey: "new"))
+            },
+            validate: { key, _ in
+                probe.record("validate:\(key)")
+                if let gate { await gate.wait() }
+                if let error = probe.validationError { throw error }
+                return probe.validation ?? validation
+            },
+            selectSource: {
+                probe.record("select"); return probe.selected ? origin : nil
+            },
+            confirmIdentity: { _ in
+                probe.record("confirm"); return probe.confirmed
+            },
+            isCurrent: { _ in probe.current },
+            commit: { _, candidate in
+                probe.record("commit:\(candidate.sessionKey)")
+            })
     }
 
     func testOriginalProfileOnlyAndRejectedStoredKeyIsNotRetried() async throws {
@@ -49,20 +68,26 @@ final class ClaudeWebSessionRecoveryTests: XCTestCase {
 
     func testUpdatedAppStoreIsUsedBeforeReadingBrowser() async throws {
         let probe = RecoveryProbe(saved: "saved-new")
-        try await ClaudeWebSessionRecoveryCoordinator(dependencies: dependencies(probe)).recover(request(origin: origin))
+        try await ClaudeWebSessionRecoveryCoordinator(dependencies: dependencies(probe)).recover(
+            request(origin: origin))
         XCTAssertEqual(probe.events, ["load", "validate:saved-new", "commit:saved-new"])
     }
 
     func testOtherAccountOrOrganizationCannotReplaceOriginal() async {
-        for owner in [UsageAccountIdentity(accountID: "hannah", organizationID: "team", email: identity.email),
-                      UsageAccountIdentity(accountID: "nathan", organizationID: "other", email: identity.email)] {
+        for owner in [
+            UsageAccountIdentity(accountID: "hannah", organizationID: "team", email: identity.email),
+            UsageAccountIdentity(accountID: "nathan", organizationID: "other", email: identity.email),
+        ] {
             let probe = RecoveryProbe()
             probe.validation = .init(usage: validation.usage, identity: owner)
             do {
-                try await ClaudeWebSessionRecoveryCoordinator(dependencies: dependencies(probe)).recover(request(origin: origin))
+                try await ClaudeWebSessionRecoveryCoordinator(dependencies: dependencies(probe)).recover(
+                    request(origin: origin))
                 XCTFail("Mismatched owner must be rejected")
             } catch {
-                guard case .differentAccount = error as? ClaudeWebSessionRecoveryCoordinator.Failure else { return XCTFail("\(error)") }
+                guard case .differentAccount = error as? ClaudeWebSessionRecoveryCoordinator.Failure else {
+                    return XCTFail("\(error)")
+                }
             }
             XCTAssertFalse(probe.events.contains { $0.hasPrefix("commit") })
         }
@@ -78,13 +103,16 @@ final class ClaudeWebSessionRecoveryTests: XCTestCase {
         let sources: [ClaudeAccountSource?] = [nil, .legacyMigration]
         for source in sources {
             let probe = RecoveryProbe()
-            try await ClaudeWebSessionRecoveryCoordinator(dependencies: dependencies(probe)).recover(request(source: source, known: false))
-            XCTAssertEqual(probe.events, ["load", "select", "import:Profile 2", "validate:new", "confirm", "commit:new"])
+            try await ClaudeWebSessionRecoveryCoordinator(dependencies: dependencies(probe)).recover(
+                request(source: source, known: false))
+            XCTAssertEqual(
+                probe.events, ["load", "select", "import:Profile 2", "validate:new", "confirm", "commit:new"])
         }
     }
 
     func testVerifiedBrowserOriginControlsSourceLabel() {
-        let account = ClaudeAccount(id: "web", kind: .webSession, displayName: "Legacy",
+        let account = ClaudeAccount(
+            id: "web", kind: .webSession, displayName: "Legacy",
             source: .chromeProfile, sourceDetail: "Chrome Default",
             browserSource: .init(family: .firefox, profileName: "opaque-default"))
         XCTAssertEqual(ClaudeAccountSettingsPresentation.resolve(account: account).sourceLabel, "Firefox")
@@ -94,7 +122,8 @@ final class ClaudeWebSessionRecoveryTests: XCTestCase {
         let probe = RecoveryProbe()
         probe.confirmed = false
         do {
-            try await ClaudeWebSessionRecoveryCoordinator(dependencies: dependencies(probe)).recover(request(known: false))
+            try await ClaudeWebSessionRecoveryCoordinator(dependencies: dependencies(probe)).recover(
+                request(known: false))
             XCTFail()
         } catch { XCTAssertTrue(error is CancellationError) }
         XCTAssertFalse(probe.events.contains { $0.hasPrefix("commit") })
@@ -104,7 +133,8 @@ final class ClaudeWebSessionRecoveryTests: XCTestCase {
         for source in [ClaudeAccountSource.manualInput, .embeddedWebLogin] {
             let probe = RecoveryProbe()
             do {
-                try await ClaudeWebSessionRecoveryCoordinator(dependencies: dependencies(probe)).recover(request(source: source))
+                try await ClaudeWebSessionRecoveryCoordinator(dependencies: dependencies(probe)).recover(
+                    request(source: source))
                 XCTFail()
             } catch { XCTAssertNotNil(error as? ClaudeWebSessionRecoveryCoordinator.Failure) }
             XCTAssertEqual(probe.events, ["load"])
@@ -112,11 +142,15 @@ final class ClaudeWebSessionRecoveryTests: XCTestCase {
     }
 
     func testRateLimitAndPermissionFailureDoNotImportFromAnotherSource() async {
-        for error in [APIError.rateLimited(retryAfter: 42), .permissionDenied("team"), .networkError("offline"), .cloudflareBlocked(retryAfter: nil)] {
+        for error in [
+            APIError.rateLimited(retryAfter: 42), .permissionDenied("team"), .networkError("offline"),
+            .cloudflareBlocked(retryAfter: nil),
+        ] {
             let probe = RecoveryProbe(saved: "saved-new")
             probe.validationError = error
             do {
-                try await ClaudeWebSessionRecoveryCoordinator(dependencies: dependencies(probe)).recover(request(origin: origin))
+                try await ClaudeWebSessionRecoveryCoordinator(dependencies: dependencies(probe)).recover(
+                    request(origin: origin))
                 XCTFail()
             } catch {}
             XCTAssertEqual(probe.events, ["load", "validate:saved-new"])
@@ -148,8 +182,9 @@ final class ClaudeWebSessionRecoveryTests: XCTestCase {
         await gate.waitUntilEntered()
         caller.cancel()
         await gate.release()
-        do { try await caller.value; XCTFail("Cancelled caller must not replace the connection") }
-        catch { XCTAssertTrue(error is CancellationError) }
+        do { try await caller.value; XCTFail("Cancelled caller must not replace the connection") } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
         XCTAssertFalse(probe.events.contains { $0.hasPrefix("commit") })
     }
 
@@ -203,8 +238,12 @@ final class ClaudeWebSessionRecoveryTests: XCTestCase {
     func testExplicitAccountAdditionBypassesExpiredOrPendingRecovery() {
         for pending in [false, true] {
             for failed in [false, true] {
-                XCTAssertFalse(ClaudeWebSessionSaveIntent.addAccount.shouldRecover(hasPendingRequest: pending, authenticationFailed: failed))
-                XCTAssertEqual(ClaudeWebSessionSaveIntent.recoverExisting.shouldRecover(hasPendingRequest: pending, authenticationFailed: failed), pending || failed)
+                XCTAssertFalse(
+                    ClaudeWebSessionSaveIntent.addAccount.shouldRecover(
+                        hasPendingRequest: pending, authenticationFailed: failed))
+                XCTAssertEqual(
+                    ClaudeWebSessionSaveIntent.recoverExisting.shouldRecover(
+                        hasPendingRequest: pending, authenticationFailed: failed), pending || failed)
             }
         }
     }
@@ -212,23 +251,37 @@ final class ClaudeWebSessionRecoveryTests: XCTestCase {
     func testMergedRowRecoversActiveWebConnectionBeforeOlderProfile() throws {
         let old = UsageAccountSource(role: .web, reference: "old")
         let active = UsageAccountSource(role: .web, reference: "active")
-        let row = try XCTUnwrap(UsageAccount.merge([.init(source: old, identity: identity), .init(source: active, identity: identity)], service: .claude).first)
+        let row = try XCTUnwrap(
+            UsageAccount.merge(
+                [.init(source: old, identity: identity), .init(source: active, identity: identity)], service: .claude
+            ).first)
         XCTAssertEqual(ClaudeUsageAccountProvider.webRecoveryReference(in: row, activeAccountID: "active"), "active")
         XCTAssertEqual(ClaudeUsageAccountProvider.webRecoveryReference(in: row, activeAccountID: "unrelated"), "old")
     }
 
     func testExpiredRuntimeCLIInMergedRowCannotSelectAHealthyWebConnectionForRecovery() throws {
-        let row = try XCTUnwrap(UsageAccount.merge([
-            .init(source: .init(role: .web, reference: "web-healthy"), identity: identity),
-            .init(source: .init(role: .defaultLogin, reference: "/fixture/cli"), identity: identity)
-        ], service: .claude).first)
-        XCTAssertNil(ClaudeUsageAccountProvider.webRecoveryReference(in: row, activeAccountID: ClaudeAccountStore.claudeCodeExternalAccountID))
-        let separateWebRow = try XCTUnwrap(UsageAccount.merge([
-            .init(source: .init(role: .web, reference: "web-expired-other-owner"),
-                  identity: .init(accountID: "other", organizationID: "team"))
-        ], service: .claude).first)
-        XCTAssertEqual(ClaudeUsageAccountProvider.webRecoveryReference(in: separateWebRow,
-            activeAccountID: ClaudeAccountStore.claudeCodeExternalAccountID), "web-expired-other-owner")
+        let row = try XCTUnwrap(
+            UsageAccount.merge(
+                [
+                    .init(source: .init(role: .web, reference: "web-healthy"), identity: identity),
+                    .init(source: .init(role: .defaultLogin, reference: "/fixture/cli"), identity: identity),
+                ], service: .claude
+            ).first)
+        XCTAssertNil(
+            ClaudeUsageAccountProvider.webRecoveryReference(
+                in: row, activeAccountID: ClaudeAccountStore.claudeCodeExternalAccountID))
+        let separateWebRow = try XCTUnwrap(
+            UsageAccount.merge(
+                [
+                    .init(
+                        source: .init(role: .web, reference: "web-expired-other-owner"),
+                        identity: .init(accountID: "other", organizationID: "team"))
+                ], service: .claude
+            ).first)
+        XCTAssertEqual(
+            ClaudeUsageAccountProvider.webRecoveryReference(
+                in: separateWebRow,
+                activeAccountID: ClaudeAccountStore.claudeCodeExternalAccountID), "web-expired-other-owner")
     }
 
     func testFirstWebUUIDMergePreservesPreferencesWithExistingCanonicalAlias() throws {
@@ -246,8 +299,11 @@ final class ClaudeWebSessionRecoveryTests: XCTestCase {
         preferences[.claude].pinnedTop = oldID
         XCTAssertTrue(preferences.commit(to: defaults, intent: .automatic).accepted)
         let controller = UsageAccountsController(providers: [], defaults: defaults, isServiceEnabled: { _ in true })
-        controller.bindRuntimeAccount(.init(source: source, identity: .init(organizationID: "team", email: "profile-label@example.com")), for: .claude)
-        controller.bindRuntimeAccount(.init(source: .init(role: .defaultLogin, reference: "/fixture"), identity: identity), for: .claude)
+        controller.bindRuntimeAccount(
+            .init(source: source, identity: .init(organizationID: "team", email: "profile-label@example.com")),
+            for: .claude)
+        controller.bindRuntimeAccount(
+            .init(source: .init(role: .defaultLogin, reference: "/fixture"), identity: identity), for: .claude)
         controller.bindRuntimeAccount(.init(source: source, identity: identity), for: .claude)
         XCTAssertEqual(controller.accounts[.claude]?.count, 1)
         XCTAssertEqual(controller.preferences.aliases[target], "Existing CLI alias")
@@ -273,15 +329,19 @@ final class ClaudeWebSessionRecoveryTests: XCTestCase {
     }
 
     func testFreshValidatedIdentitySurvivesWithoutKnownIdentityAndMergesOnlyUUIDAndOrganization() throws {
-        let candidate = try XCTUnwrap(ClaudeUsageAccountProvider.runtimeAccount(
-            provenance: .init(source: .webSession, accountID: "web", attemptedSources: [.webSession]),
-            validatedIdentity: identity, resolvedOrganizationID: "team", knownIdentities: [:]))
+        let candidate = try XCTUnwrap(
+            ClaudeUsageAccountProvider.runtimeAccount(
+                provenance: .init(source: .webSession, accountID: "web", attemptedSources: [.webSession]),
+                validatedIdentity: identity, resolvedOrganizationID: "team", knownIdentities: [:]))
         XCTAssertEqual(candidate.identity, identity)
         let cli = UsageAccountCandidate(source: .init(role: .defaultLogin, reference: "/fixture"), identity: identity)
         XCTAssertEqual(UsageAccount.merge([candidate, cli], service: .claude).count, 1)
-        for other in [UsageAccountIdentity(accountID: "other", organizationID: "team", email: identity.email),
-                      UsageAccountIdentity(accountID: "nathan", organizationID: "other", email: identity.email)] {
-            XCTAssertEqual(UsageAccount.merge([candidate, .init(source: cli.source, identity: other)], service: .claude).count, 2)
+        for other in [
+            UsageAccountIdentity(accountID: "other", organizationID: "team", email: identity.email),
+            UsageAccountIdentity(accountID: "nathan", organizationID: "other", email: identity.email),
+        ] {
+            XCTAssertEqual(
+                UsageAccount.merge([candidate, .init(source: cli.source, identity: other)], service: .claude).count, 2)
         }
     }
 
@@ -291,7 +351,8 @@ final class ClaudeWebSessionRecoveryTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let store = ClaudeAccountStore(defaults: defaults, keychainVault: vault, postsNotifications: false)
-        let account = store.upsertWebSessionAccount(sessionKey: "old", preferredOrganizationID: "team", source: .chromeProfile)
+        let account = store.upsertWebSessionAccount(
+            sessionKey: "old", preferredOrganizationID: "team", source: .chromeProfile)
         try vault.saveString("old", account: ClaudeKeychainStore.accountName(for: account.id))
         var preferences = UsageAccountPreferences()
         let oldID = "claude:web:\(account.id)"
@@ -317,7 +378,9 @@ final class ClaudeWebSessionRecoveryTests: XCTestCase {
         XCTAssertEqual(store.activeAccount()?.id, replacement.id)
         XCTAssertEqual(store.activeAccount()?.userSelectedPreferredOrganizationID, "team")
         XCTAssertNil(try vault.loadString(account: ClaudeKeychainStore.accountName(for: account.id)))
-        XCTAssertEqual(ClaudeAccountStore(defaults: defaults, keychainVault: vault, postsNotifications: false).activeAccount()?.browserSource, origin)
+        XCTAssertEqual(
+            ClaudeAccountStore(defaults: defaults, keychainVault: vault, postsNotifications: false).activeAccount()?
+                .browserSource, origin)
     }
 
     func testFailedWriteOrChangedSelectionKeepsOldCredentialAndPreferences() throws {
@@ -330,11 +393,16 @@ final class ClaudeWebSessionRecoveryTests: XCTestCase {
             let account = store.upsertWebSessionAccount(sessionKey: "old")
             try vault.saveString("old", account: ClaudeKeychainStore.accountName(for: account.id))
             let preferences = UsageAccountPreferences.load(from: defaults)
-            if failWrite { vault.rejectWrites = true }
-            else { _ = store.upsertClaudeCodeExternalAccount(); store.setActiveAccountID(ClaudeAccountStore.claudeCodeExternalAccountID) }
-            XCTAssertThrowsError(try ClaudeWebSessionReplacement(store: store, vault: vault).replace(
-                account: account, sessionKey: "new", validation: validation, browserSource: origin,
-                expectedPreferences: preferences, previousAccountID: "old"))
+            if failWrite {
+                vault.rejectWrites = true
+            } else {
+                _ = store.upsertClaudeCodeExternalAccount();
+                store.setActiveAccountID(ClaudeAccountStore.claudeCodeExternalAccountID)
+            }
+            XCTAssertThrowsError(
+                try ClaudeWebSessionReplacement(store: store, vault: vault).replace(
+                    account: account, sessionKey: "new", validation: validation, browserSource: origin,
+                    expectedPreferences: preferences, previousAccountID: "old"))
             XCTAssertNotNil(store.accounts().first { $0.id == account.id })
             XCTAssertEqual(try vault.loadString(account: ClaudeKeychainStore.accountName(for: account.id)), "old")
             XCTAssertEqual(UsageAccountPreferences.load(from: defaults), preferences)
@@ -355,22 +423,34 @@ final class ClaudeWebSessionRecoveryTests: XCTestCase {
         let suite = "ClaudeWebIdentity.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let service = ClaudeAPIService(sessionKey: "fixture", cacheStorage: .init(defaults: defaults, profileMetadataDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(suite)), httpRunner: { request in
-            let url = request.url!
-            let body: String
-            if url.path == "/api/account" {
-                body = #"{"uuid":"nathan","email_address":"nathan@example.com","memberships":[{"organization":{"uuid":"team","name":"Team"}}]}"#
-            } else if url.path == "/api/organizations" { body = #"[{"uuid":"team","name":"Team"}]"# }
-            else { body = #"{"five_hour":{"utilization":12}}"# }
-            return (Data(body.utf8), HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!)
-        })
+        let service = ClaudeAPIService(
+            sessionKey: "fixture",
+            cacheStorage: .init(
+                defaults: defaults,
+                profileMetadataDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(suite)),
+            httpRunner: { request in
+                let url = request.url!
+                let body: String
+                if url.path == "/api/account" {
+                    body =
+                        #"{"uuid":"nathan","email_address":"nathan@example.com","memberships":[{"organization":{"uuid":"team","name":"Team"}}]}"#
+                } else if url.path == "/api/organizations" {
+                    body = #"[{"uuid":"team","name":"Team"}]"#
+                } else {
+                    body = #"{"five_hour":{"utilization":12}}"#
+                }
+                return (
+                    Data(body.utf8), HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                )
+            })
         await service.updatePreferredOrganizationID("team")
         _ = try await service.validateCurrentSessionUsage()
         let observed = await service.resolvedSessionIdentityForLastValidation()
         XCTAssertEqual(observed, identity)
         let controller = UsageAccountsController(providers: [], defaults: defaults, isServiceEnabled: { _ in true })
         XCTAssertFalse(controller.isMultiAccountEnabled(.claude))
-        controller.bindRuntimeAccount(.init(source: .init(role: .web, reference: "web"), identity: identity), for: .claude)
+        controller.bindRuntimeAccount(
+            .init(source: .init(role: .web, reference: "web"), identity: identity), for: .claude)
         XCTAssertEqual(UsageAccountPreferences.load(from: defaults).knownIdentities["web"], identity)
     }
 
@@ -389,15 +469,23 @@ final class ClaudeWebSessionRecoveryTests: XCTestCase {
     func testTargetedImportNeverReadsAnotherProfileOrRequestsPermissionWhenMissing() throws {
         let probe = RecoveryProbe()
         let candidates = ["Default", "Profile 2"].map {
-            ClaudeBrowserSessionCandidate(family: .chrome, profileName: $0,
+            ClaudeBrowserSessionCandidate(
+                family: .chrome, profileName: $0,
                 cookiesPath: URL(fileURLWithPath: "/fixture/\($0)/Cookies"), supportsAutomaticImport: true)
         }
-        let importer = ClaudeChromeCookieImportService(candidateProvider: { candidates }, decryptionKeyProvider: {
-            probe.record("permission"); return [Data([1])]
-        }, cookieReader: { _, profile, _ in
-            probe.record("read:\(profile)")
-            return [.init(domain: ".claude.ai", name: "sessionKey", path: "/", value: "sk-ant-fixture-session-key-long-enough", expiresAt: nil, isSecure: true)]
-        })
+        let importer = ClaudeChromeCookieImportService(
+            candidateProvider: { candidates },
+            decryptionKeyProvider: {
+                probe.record("permission"); return [Data([1])]
+            },
+            cookieReader: { _, profile, _ in
+                probe.record("read:\(profile)")
+                return [
+                    .init(
+                        domain: ".claude.ai", name: "sessionKey", path: "/",
+                        value: "sk-ant-fixture-session-key-long-enough", expiresAt: nil, isSecure: true)
+                ]
+            })
         _ = try importer.attemptImport(source: origin)
         XCTAssertEqual(probe.events, ["permission", "read:Profile 2"])
         _ = try importer.attemptImport(source: .init(family: .chrome, profileName: "Missing"))
@@ -405,11 +493,22 @@ final class ClaudeWebSessionRecoveryTests: XCTestCase {
     }
 
     func testAuthenticationClassificationDoesNotConfuseOrganizationPermissionOrChallenge() {
-        guard case .invalidSessionKey = ClaudeHTTPTransport.classify(statusCode: 401, data: nil, response: nil) else { return XCTFail() }
-        guard case .invalidSessionKey = ClaudeHTTPTransport.classify(statusCode: 403,
-            data: Data(#"{"error":{"type":"permission_error","message":"Invalid authorization"}}"#.utf8), response: nil) else { return XCTFail() }
-        guard case .permissionDenied = ClaudeHTTPTransport.classify(statusCode: 403, data: Data("{}".utf8), response: nil) else { return XCTFail() }
-        guard case .cloudflareBlocked = ClaudeHTTPTransport.classify(statusCode: 403, data: Data("<title>Just a moment...</title>".utf8), response: nil) else { return XCTFail() }
+        guard case .invalidSessionKey = ClaudeHTTPTransport.classify(statusCode: 401, data: nil, response: nil) else {
+            return XCTFail()
+        }
+        guard
+            case .invalidSessionKey = ClaudeHTTPTransport.classify(
+                statusCode: 403,
+                data: Data(#"{"error":{"type":"permission_error","message":"Invalid authorization"}}"#.utf8),
+                response: nil)
+        else { return XCTFail() }
+        guard
+            case .permissionDenied = ClaudeHTTPTransport.classify(statusCode: 403, data: Data("{}".utf8), response: nil)
+        else { return XCTFail() }
+        guard
+            case .cloudflareBlocked = ClaudeHTTPTransport.classify(
+                statusCode: 403, data: Data("<title>Just a moment...</title>".utf8), response: nil)
+        else { return XCTFail() }
     }
 }
 

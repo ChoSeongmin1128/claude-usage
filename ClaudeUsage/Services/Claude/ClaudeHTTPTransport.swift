@@ -37,7 +37,9 @@ nonisolated struct ClaudeHTTPTransport: Sendable {
                 let error = root["error"] as? [String: Any],
                 (error["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
                     .lowercased() == "invalid authorization"
-            { return .invalidSessionKey }
+            {
+                return .invalidSessionKey
+            }
             return .permissionDenied("")
         default: return .serverError(statusCode)
         }

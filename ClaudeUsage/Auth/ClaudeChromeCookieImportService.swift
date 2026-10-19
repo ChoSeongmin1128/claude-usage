@@ -92,11 +92,14 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
 
     nonisolated func attemptImport(source: ClaudeBrowserSource) throws -> ClaudeBrowserImportOutcome {
         guard source.family == family else { return .unavailable(message: "원래 로그인 출처를 찾지 못했습니다.") }
-        let selected = discoverCandidates().filter { $0.family == source.family && $0.profileName == source.profileName }
+        let selected = discoverCandidates().filter {
+            $0.family == source.family && $0.profileName == source.profileName
+        }
         guard !selected.isEmpty else { return .unavailable(message: "원래 브라우저 프로필을 찾지 못했습니다.") }
         return try ClaudeChromeCookieImportService(
             family: family, candidateProvider: { selected }, decryptionKeyProvider: decryptionKeyProvider,
-            cookieReader: cookieReader).attemptImport()
+            cookieReader: cookieReader
+        ).attemptImport()
     }
 
     nonisolated func attemptImport() throws -> ClaudeBrowserImportOutcome {
@@ -339,13 +342,17 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
 
 extension ClaudeBrowserCookieImporting {
     nonisolated func attemptImport(source: ClaudeBrowserSource) throws -> ClaudeBrowserImportOutcome {
-        let candidates = discoverCandidates().filter { $0.family == source.family && $0.profileName == source.profileName }
+        let candidates = discoverCandidates().filter {
+            $0.family == source.family && $0.profileName == source.profileName
+        }
         switch source.family {
         case .firefox:
-            return ClaudeBrowserImportCollector.collect(family: .firefox, candidates: candidates,
+            return ClaudeBrowserImportCollector.collect(
+                family: .firefox, candidates: candidates,
                 read: { try ClaudeFirefoxCookieReader.readCookies(cookiesURL: $0.cookiesPath) })
         case .safari:
-            return ClaudeBrowserImportCollector.collect(family: .safari, candidates: candidates,
+            return ClaudeBrowserImportCollector.collect(
+                family: .safari, candidates: candidates,
                 read: { try ClaudeSafariBinaryCookies.parse(Data(contentsOf: $0.cookiesPath)) })
         default: return .unavailable(message: "이 출처의 로그인을 다시 연결하세요.")
         }

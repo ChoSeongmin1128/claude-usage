@@ -9,16 +9,21 @@ extension AppDelegate {
 
     func webRecoveryRequest(account: UsageAccount? = nil) -> ClaudeWebSessionRecoveryCoordinator.Request? {
         let state = ClaudeAccountStore.shared.state()
-        let reference = account.flatMap {
-            ClaudeUsageAccountProvider.webRecoveryReference(in: $0, activeAccountID: state.activeAccountID)
-        } ?? state.activeAccount?.id
+        let reference =
+            account.flatMap {
+                ClaudeUsageAccountProvider.webRecoveryReference(in: $0, activeAccountID: state.activeAccountID)
+            } ?? state.activeAccount?.id
         guard let stored = state.accounts.first(where: { $0.id == reference }), stored.isWebSession,
-              let activeID = state.activeAccountID else { return nil }
+            let activeID = state.activeAccountID
+        else { return nil }
         let identity = usageAccountsController.preferences.knownIdentities[stored.id]
         let source = UsageAccountSource(role: .web, reference: stored.id)
-        return .init(account: stored, expectedIdentity: identity,
-            previousAccountID: account?.id ?? UsageAccount.id(service: .claude,
-                identity: identity ?? .init(), source: source), activeAccountID: activeID)
+        return .init(
+            account: stored, expectedIdentity: identity,
+            previousAccountID: account?.id
+                ?? UsageAccount.id(
+                    service: .claude,
+                    identity: identity ?? .init(), source: source), activeAccountID: activeID)
     }
 
     /// Only explicit user actions enter this path. Periodic refresh never reads browser credentials.
@@ -38,8 +43,7 @@ extension AppDelegate {
             claudeManualSessionIntent = .recoverExisting
             do {
                 try await claudeWebRecovery.recover(request)
-            } catch is CancellationError { return }
-            catch ClaudeWebSessionRecoveryCoordinator.Failure.loginRequired {
+            } catch is CancellationError { return } catch ClaudeWebSessionRecoveryCoordinator.Failure.loginRequired {
                 guard ClaudeAccountStore.shared.state().activeAccountID == request.activeAccountID else { return }
                 if request.account.source == .embeddedWebLogin {
                     showLoginWindow(startEmbeddedWebOnOpen: true, replacingWebConnection: request)
@@ -55,41 +59,47 @@ extension AppDelegate {
     }
 
     func makeClaudeWebRecovery() -> ClaudeWebSessionRecoveryCoordinator {
-        ClaudeWebSessionRecoveryCoordinator(dependencies: .init(
-            load: { KeychainManager.shared.load(for: $0, bypassCache: true) },
-            importSession: { try ClaudeBrowserLoginDetector.importer(for: $0.family).attemptImport(source: $0) },
-            validate: { key, organization in
-                let validator = ClaudeAPIService(sessionKey: key)
-                await validator.updatePreferredOrganizationID(organization ?? "")
-                return try await validator.validateWebSession()
-            },
-            selectSource: { await Self.selectWebRecoverySource() },
-            confirmIdentity: { identity in
-                let alert = NSAlert()
-                alert.messageText = "이 계정으로 기존 웹 연결을 복구할까요?"
-                alert.informativeText = "기존 연결에는 확인된 계정 정보가 없습니다.\n\(identity.email ?? "")\n\(identity.organizationName ?? "")"
-                alert.addButton(withTitle: "연결")
-                alert.addButton(withTitle: "취소")
-                return alert.runModal() == .alertFirstButtonReturn
-            },
-            isCurrent: { [weak self] request in
-                let state = ClaudeAccountStore.shared.state()
-                return self?.isTerminating == false && state.activeAccountID == request.activeAccountID
-                    && state.accounts.contains(request.account)
-            },
-            commit: { [weak self] request, candidate in
-                guard let self else { throw CancellationError() }
-                let replacement = try ClaudeWebSessionReplacement(store: .shared, vault: ClaudeKeychainStore.shared).replace(
-                    account: request.account, sessionKey: candidate.sessionKey, validation: candidate.validation,
-                    browserSource: candidate.browserSource,
-                    expectedPreferences: UsageAccountPreferences.load(), previousAccountID: request.previousAccountID,
-                    expectedActiveAccountID: request.activeAccountID)
-                KeychainManager.shared.invalidateSessionCache(for: [request.account.id])
-                await usageAccountsController.adoptWebSessionReplacement(oldReference: request.account.id,
-                    newReference: replacement.id)
-                await apiService.reloadActiveAccount()
-                refreshUsage(force: true)
-            }))
+        ClaudeWebSessionRecoveryCoordinator(
+            dependencies: .init(
+                load: { KeychainManager.shared.load(for: $0, bypassCache: true) },
+                importSession: { try ClaudeBrowserLoginDetector.importer(for: $0.family).attemptImport(source: $0) },
+                validate: { key, organization in
+                    let validator = ClaudeAPIService(sessionKey: key)
+                    await validator.updatePreferredOrganizationID(organization ?? "")
+                    return try await validator.validateWebSession()
+                },
+                selectSource: { await Self.selectWebRecoverySource() },
+                confirmIdentity: { identity in
+                    let alert = NSAlert()
+                    alert.messageText = "이 계정으로 기존 웹 연결을 복구할까요?"
+                    alert.informativeText =
+                        "기존 연결에는 확인된 계정 정보가 없습니다.\n\(identity.email ?? "")\n\(identity.organizationName ?? "")"
+                    alert.addButton(withTitle: "연결")
+                    alert.addButton(withTitle: "취소")
+                    return alert.runModal() == .alertFirstButtonReturn
+                },
+                isCurrent: { [weak self] request in
+                    let state = ClaudeAccountStore.shared.state()
+                    return self?.isTerminating == false && state.activeAccountID == request.activeAccountID
+                        && state.accounts.contains(request.account)
+                },
+                commit: { [weak self] request, candidate in
+                    guard let self else { throw CancellationError() }
+                    let replacement = try ClaudeWebSessionReplacement(store: .shared, vault: ClaudeKeychainStore.shared)
+                        .replace(
+                            account: request.account, sessionKey: candidate.sessionKey,
+                            validation: candidate.validation,
+                            browserSource: candidate.browserSource,
+                            expectedPreferences: UsageAccountPreferences.load(),
+                            previousAccountID: request.previousAccountID,
+                            expectedActiveAccountID: request.activeAccountID)
+                    KeychainManager.shared.invalidateSessionCache(for: [request.account.id])
+                    await usageAccountsController.adoptWebSessionReplacement(
+                        oldReference: request.account.id,
+                        newReference: replacement.id)
+                    await apiService.reloadActiveAccount()
+                    refreshUsage(force: true)
+                }))
     }
 
     private static func selectWebRecoverySource() async -> ClaudeBrowserSource? {

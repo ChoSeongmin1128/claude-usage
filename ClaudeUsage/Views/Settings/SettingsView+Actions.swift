@@ -121,7 +121,8 @@ extension SettingsView {
                 if let onSaveClaudeSession {
                     try await onSaveClaudeSession(normalizedKey, normalizeOrganizationID(selectedOrganizationID))
                 } else {
-                    try KeychainManager.shared.save(normalizedKey,
+                    try KeychainManager.shared.save(
+                        normalizedKey,
                         preferredOrganizationID: normalizeOrganizationID(selectedOrganizationID),
                         displayName: nil, source: .manualInput, sourceDetail: nil)
                 }

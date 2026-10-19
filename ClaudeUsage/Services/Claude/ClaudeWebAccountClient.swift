@@ -30,7 +30,8 @@ nonisolated struct ClaudeWebAccountSnapshot: Sendable {
 }
 
 nonisolated enum ClaudeWebAccountClient {
-    static func fetch(sessionKey: String, runner: ClaudeAPIService.HTTPRunner) async throws -> ClaudeWebAccountSnapshot {
+    static func fetch(sessionKey: String, runner: ClaudeAPIService.HTTPRunner) async throws -> ClaudeWebAccountSnapshot
+    {
         var request = URLRequest(url: ClaudeEndpoints.accountURL)
         request.timeoutInterval = ClaudeEndpoints.requestTimeout
         ClaudeEndpoints.applyWebHeaders(to: &request, sessionKey: sessionKey)

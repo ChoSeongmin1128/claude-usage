@@ -182,7 +182,9 @@ final class UsageAccountsController: ObservableObject {
         if runtimeAccounts[.claude]?.source.reference == oldReference { runtimeAccounts[.claude] = nil }
         accounts[.claude] = (accounts[.claude] ?? []).compactMap { account in
             let sources = account.sources.filter { !($0.role == .web && $0.reference == oldReference) }
-            return UsageAccount.merge(sources.map { UsageAccountCandidate(source: $0, identity: account.identity) }, service: .claude).first
+            return UsageAccount.merge(
+                sources.map { UsageAccountCandidate(source: $0, identity: account.identity) }, service: .claude
+            ).first
         }
         await rediscover().value
         let previous = refreshTask
@@ -201,7 +203,11 @@ final class UsageAccountsController: ObservableObject {
             await refresh(account, preferredWebReference: newReference)
         }
         refreshTask = next
-        await withTaskCancellationHandler { await next.value } onCancel: { next.cancel() }
+        await withTaskCancellationHandler {
+            await next.value
+        } onCancel: {
+            next.cancel()
+        }
     }
 
     private func candidatesWithRuntimeAccount(
@@ -354,15 +360,19 @@ final class UsageAccountsController: ObservableObject {
                 }
                 for old in oldAccounts {
                     let sameWebCredential = old.sources.contains { $0.role == .web && account.sources.contains($0) }
-                    guard sameWebCredential || (successfulBindings[old.id]?.matchesOwner(of: account.identity)
-                            ?? UsageAccountFetchBinding.matches(expected: old.identity, observed: account.identity))
+                    guard
+                        sameWebCredential
+                            || (successfulBindings[old.id]?.matchesOwner(of: account.identity)
+                                ?? UsageAccountFetchBinding.matches(expected: old.identity, observed: account.identity))
                     else { continue }
-                    updated = updated.mergingAccountID(from: old.id, into: account.id, service: service,
+                    updated = updated.mergingAccountID(
+                        from: old.id, into: account.id, service: service,
                         inheritVisibility: previous[service]?.contains(where: { $0.id == account.id }) != true,
                         keepVisible: runtimeAccounts[service].map(account.matches) == true)
                     // Existing canonical quota/binding belongs to its validated owner and wins.
                     if states[account.id] == nil, let binding = successfulBindings[old.id],
-                        binding.matchesOwner(of: account.identity) {
+                        binding.matchesOwner(of: account.identity)
+                    {
                         states[account.id] = states[old.id]
                         successfulBindings[account.id] = binding
                     }
@@ -527,7 +537,10 @@ final class UsageAccountsController: ObservableObject {
         do {
             var queryAccount = account
             if let preferredWebReference,
-                let preferred = account.sources.first(where: { $0.role == .web && $0.reference == preferredWebReference }) {
+                let preferred = account.sources.first(where: {
+                    $0.role == .web && $0.reference == preferredWebReference
+                })
+            {
                 queryAccount.sources = [preferred] + account.sources.filter { $0 != preferred }
             }
             let result = try await provider.fetchUsage(for: queryAccount, interactive: interactive)

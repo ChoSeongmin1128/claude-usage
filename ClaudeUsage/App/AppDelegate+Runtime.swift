@@ -447,8 +447,10 @@ extension AppDelegate {
         usageAccountsController.bindRuntimeAccount(scopedMetadata.account, for: .claude)
         if let candidate = scopedMetadata.account, candidate.source.role == .web {
             ClaudeAccountStore.shared.mergeIdentity(
-                ClaudeAccountIdentity(email: candidate.identity.email,
-                    organizationName: candidate.identity.organizationName, organizationID: candidate.identity.organizationID),
+                ClaudeAccountIdentity(
+                    email: candidate.identity.email,
+                    organizationName: candidate.identity.organizationName,
+                    organizationID: candidate.identity.organizationID),
                 for: candidate.source.reference)
         }
         currentClaudeProfileMetadata = scopedMetadata.claudeProfileMetadata

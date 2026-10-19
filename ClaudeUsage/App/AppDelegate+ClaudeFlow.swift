@@ -94,12 +94,14 @@ extension AppDelegate {
                     self.pendingClaudeWebRecovery = nil
                 } else {
                     let initial = ClaudeAccountStore.shared.activeAccount()
-                    try await ClaudeSettingsApplyCoordinator.activateSessionKey(key, apiService: self.apiService,
+                    try await ClaudeSettingsApplyCoordinator.activateSessionKey(
+                        key, apiService: self.apiService,
                         preferredOrganizationID: organization ?? "", source: .manualInput,
                         isCurrentActivation: {
                             let current = ClaudeAccountStore.shared.activeAccount()
                             return current?.id == initial?.id
-                                && current?.userSelectedPreferredOrganizationID == initial?.userSelectedPreferredOrganizationID
+                                && current?.userSelectedPreferredOrganizationID
+                                    == initial?.userSelectedPreferredOrganizationID
                         })
                 }
                 self.claudeManualSessionIntent = .recoverExisting
@@ -307,7 +309,8 @@ extension AppDelegate {
                             isCurrentActivation: {
                                 let current = ClaudeAccountStore.shared.activeAccount()
                                 return current?.id == initial?.id
-                                    && current?.userSelectedPreferredOrganizationID == initial?.userSelectedPreferredOrganizationID
+                                    && current?.userSelectedPreferredOrganizationID
+                                        == initial?.userSelectedPreferredOrganizationID
                             }
                         )
                         // 저장 완료 알림이 AppRuntimeObservationCoordinator의 단일

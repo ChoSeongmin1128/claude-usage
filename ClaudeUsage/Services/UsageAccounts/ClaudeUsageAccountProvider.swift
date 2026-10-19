@@ -130,7 +130,8 @@ final class ClaudeUsageAccountProvider: UsageAccountProvider, UsageAccountMenuBa
             guard let reference = provenance.accountID else { return nil }
             let identity: UsageAccountIdentity
             if let validatedIdentity, validatedIdentity.mergeKey != nil,
-                validatedIdentity.organizationID == resolvedOrganizationID {
+                validatedIdentity.organizationID == resolvedOrganizationID
+            {
                 identity = validatedIdentity
             } else if let known = knownIdentities[reference], let organization = resolvedOrganizationID,
                 known.organizationID == organization
