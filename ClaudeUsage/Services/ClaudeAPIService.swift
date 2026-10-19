@@ -77,6 +77,8 @@ actor ClaudeAPIService {
     private var lastSuccessfulUsageSource: ClaudeUsageSource?
     private var lastFetchMetadata: RuntimeProviderFetchMetadata?
     private var lastResolvedSessionOrganization: OrganizationSummary?
+    private var webAccountSnapshot: ClaudeWebAccountSnapshot?
+    private var lastValidatedWebSession: ClaudeValidatedWebSession?
     private let accountStoreObserver = ClaudeAccountStoreNotificationObserver()
 
     // MARK: - Init
@@ -211,6 +213,8 @@ actor ClaudeAPIService {
                 sessionContextRevision &+= 1
                 cachedOrganizationID = nil
                 lastResolvedSessionOrganization = nil
+                webAccountSnapshot = nil
+                lastValidatedWebSession = nil
             }
             activeAccount = nextAccount
             return
@@ -223,6 +227,8 @@ actor ClaudeAPIService {
         health = ClaudeAuthPathHealthRecorder(accountID: nextAccount?.id, cacheStorage: cacheStorage)
         cachedOrganizationID = nil
         lastResolvedSessionOrganization = nil
+        webAccountSnapshot = nil
+        lastValidatedWebSession = nil
         lastKnownUsagePercent = nil
         lastSuccessfulUsageSource = nil
         sessionCooldown.reset()
@@ -272,6 +278,8 @@ actor ClaudeAPIService {
         self.sessionKey = key
         self.cachedOrganizationID = nil  // 캐시 초기화
         self.lastResolvedSessionOrganization = nil
+        webAccountSnapshot = nil
+        lastValidatedWebSession = nil
         self.sessionCooldown.reset()
         if previousFingerprint != currentSessionFingerprint() {
             self.clearCachedOrganizations()
@@ -284,6 +292,8 @@ actor ClaudeAPIService {
         self.sessionKey = nil
         self.cachedOrganizationID = nil
         self.lastResolvedSessionOrganization = nil
+        webAccountSnapshot = nil
+        lastValidatedWebSession = nil
         self.sessionCooldown.reset()
         self.clearCachedOrganizations()
     }
@@ -302,6 +312,8 @@ actor ClaudeAPIService {
         preferredOrganizationID = normalized
         cachedOrganizationID = nil
         lastResolvedSessionOrganization = nil
+        webAccountSnapshot = nil
+        lastValidatedWebSession = nil
         Logger.info("선호 Organization ID 임시 업데이트: \(normalized ?? "자동 선택")")
     }
 
@@ -606,7 +618,7 @@ actor ClaudeAPIService {
         guard let sessionKey, !sessionKey.isEmpty else {
             throw APIError.invalidSessionKey
         }
-        return try await fetchUsageWithSessionKey(sessionKey)
+        return try await fetchSessionUsage(sessionKey).usage
     }
 
     func resolvedSessionOrganizationForLastValidation() async -> OrganizationSummary? {
@@ -983,7 +995,35 @@ actor ClaudeAPIService {
         guard isCurrentRequest(accountID: accountID, sessionKey: sessionKey, revision: revision) else {
             throw CancellationError()
         }
-        return (usage, UsageAccountIdentity(organizationID: orgID, organizationName: organizationName))
+        if webAccountSnapshot == nil {
+            do {
+                let snapshot = try await ClaudeWebAccountClient.fetch(sessionKey: sessionKey, runner: transport.runner)
+                guard isCurrentRequest(accountID: accountID, sessionKey: sessionKey, revision: revision) else {
+                    throw CancellationError()
+                }
+                if snapshot.identity(organizationID: orgID)?.mergeKey != nil, snapshot.email != nil {
+                    webAccountSnapshot = snapshot
+                }
+            } catch is CancellationError { throw CancellationError() }
+            catch { try Task.checkCancellation() }
+        }
+        guard isCurrentRequest(accountID: accountID, sessionKey: sessionKey, revision: revision) else {
+            throw CancellationError()
+        }
+        let identity = webAccountSnapshot?.identity(organizationID: orgID)
+            ?? UsageAccountIdentity(organizationID: orgID, organizationName: organizationName)
+        lastValidatedWebSession = ClaudeValidatedWebSession(usage: usage, identity: identity)
+        return (usage, identity)
+    }
+
+    func resolvedSessionIdentityForLastValidation() async -> UsageAccountIdentity? {
+        lastValidatedWebSession?.identity
+    }
+
+    func validateWebSession() async throws -> ClaudeValidatedWebSession {
+        let result = try await fetchSessionUsage(sessionKey ?? "")
+        guard result.identity.mergeKey != nil, result.identity.email != nil else { throw APIError.parseError }
+        return ClaudeValidatedWebSession(usage: result.usage, identity: result.identity)
     }
 
     /// 조직 미리보기처럼 선택하지 않은 조직을 볼 때는 활성 계정의 경로 기록과 대기 시간을 남기지 않는다.

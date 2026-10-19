@@ -13,12 +13,17 @@ protocol ClaudeSessionKeyStoring: Sendable {
         source: ClaudeAccountSource?,
         sourceDetail: String?
     ) throws
+    func saveBrowserSource(_ source: ClaudeBrowserSource, sessionKey: String) throws
+    func rememberValidatedIdentity(_ identity: UsageAccountIdentity, sessionKey: String) throws
     func delete() throws
 }
 
 extension KeychainManager: ClaudeSessionKeyStoring {}
 
 extension ClaudeSessionKeyStoring {
+    func saveBrowserSource(_ source: ClaudeBrowserSource, sessionKey: String) throws {}
+    func rememberValidatedIdentity(_ identity: UsageAccountIdentity, sessionKey: String) throws {}
+
     func save(_ sessionKey: String, preferredOrganizationID: String?) throws {
         try save(sessionKey)
     }
@@ -51,6 +56,7 @@ nonisolated protocol ClaudeSettingsApplyingService: Sendable {
     func clearSession() async
     func validateCurrentSessionUsage() async throws -> ClaudeUsageResponse
     func resolvedSessionOrganizationForLastValidation() async -> ClaudeAPIService.OrganizationSummary?
+    func resolvedSessionIdentityForLastValidation() async -> UsageAccountIdentity?
     func fetchUsageHealthSnapshot() async -> ClaudeAPIService.UsageHealthSnapshot
     func fetchCachedProfileMetadata() async -> ClaudeProfileMetadata?
 }
@@ -58,6 +64,8 @@ nonisolated protocol ClaudeSettingsApplyingService: Sendable {
 extension ClaudeAPIService: ClaudeSettingsApplyingService {}
 
 extension ClaudeSettingsApplyingService {
+    func resolvedSessionIdentityForLastValidation() async -> UsageAccountIdentity? { nil }
+
     func resolvedSessionOrganizationForLastValidation() async -> ClaudeAPIService.OrganizationSummary? {
         nil
     }
@@ -78,7 +86,9 @@ enum ClaudeSettingsApplyCoordinator {
         displayName: String? = nil,
         source: ClaudeAccountSource? = .embeddedWebLogin,
         sourceDetail: String? = nil,
+        browserSource: ClaudeBrowserSource? = nil,
         keychain: any ClaudeSessionKeyStoring = KeychainManager.shared,
+        isCurrentActivation: () -> Bool = { true },
         makeValidator: @Sendable (String) -> any ClaudeSettingsApplyingService = { ClaudeAPIService(sessionKey: $0) },
         refreshRequester: @escaping @Sendable () -> Void = {
             NotificationCenter.default.post(name: .claudeCredentialRefreshRequested, object: nil)
@@ -92,14 +102,17 @@ enum ClaudeSettingsApplyCoordinator {
 
         let resolvedOrganization = await validator.resolvedSessionOrganizationForLastValidation()
         let normalizedPreferredOrganizationID = normalizeOrganizationID(preferredOrganizationID)
+        let validatedIdentity = await validator.resolvedSessionIdentityForLastValidation()
         let identity = resolvedOrganization.map {
             ClaudeAccountIdentity(
+                email: validatedIdentity?.email,
                 organizationName: $0.name,
                 organizationID: $0.id
             )
         }
 
         try Task.checkCancellation()
+        guard isCurrentActivation() else { throw CancellationError() }
         try keychain.save(
             key,
             // 자동으로 선택된 organization은 identity로만 기록한다. 강제
@@ -111,6 +124,12 @@ enum ClaudeSettingsApplyCoordinator {
             source: source,
             sourceDetail: sourceDetail
         )
+        if let browserSource {
+            try keychain.saveBrowserSource(browserSource, sessionKey: key)
+        }
+        if let validatedIdentity, validatedIdentity.mergeKey != nil {
+            try keychain.rememberValidatedIdentity(validatedIdentity, sessionKey: key)
+        }
         await apiService.updateSessionKey(key)
 
         refreshRequester()

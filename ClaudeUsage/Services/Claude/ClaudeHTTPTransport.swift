@@ -30,8 +30,15 @@ nonisolated struct ClaudeHTTPTransport: Sendable {
         case 429: return .rateLimited(retryAfter: retryAfter)
         case 401: return .invalidSessionKey
         case 403:
-            return HTTPResponseClassification.isCloudflareChallenge(data)
-                ? .cloudflareBlocked(retryAfter: retryAfter) : .invalidSessionKey
+            if HTTPResponseClassification.isCloudflareChallenge(data) {
+                return .cloudflareBlocked(retryAfter: retryAfter)
+            }
+            if let data, let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let error = root["error"] as? [String: Any],
+                (error["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased() == "invalid authorization"
+            { return .invalidSessionKey }
+            return .permissionDenied("")
         default: return .serverError(statusCode)
         }
     }

@@ -255,6 +255,45 @@ final class UsageAccountsControllerTests: XCTestCase {
         XCTAssertEqual(codex.fetches.count, 1)
     }
 
+    func testNonRuntimeWebReplacementRefreshesNewReferenceWithoutWaitingForTimer() async throws {
+        let owner = UsageAccountIdentity(accountID: "nathan", organizationID: "team")
+        let provider = FakeAccountProvider(service: .claude, accounts: [("live", .defaultLogin), ("web-old", .web)])
+        provider.identities = ["web-old": owner, "web-new": owner, "web-spare": owner]
+        provider.failure = UsageAccountFetchError.loginExpired
+        let sut = controller([provider])
+        await sut.discoverAndWait()
+        sut.setMultiAccountEnabled(true, for: .claude)
+        try await waitUntil { sut.states["claude:nathan|team"]?.issue == .loginExpired }
+        provider.failure = nil
+        provider.accountRoles = [("live", .defaultLogin), ("web-spare", .web), ("web-new", .web)]
+        await sut.adoptWebSessionReplacement(oldReference: "web-old", newReference: "web-new")
+        XCTAssertEqual(provider.fetches, ["web-old", "web-new"])
+        XCTAssertNil(sut.states["claude:nathan|team"]?.issue)
+        XCTAssertEqual(sut.states["claude:nathan|team"]?.usage?.fiveHour?.usedPercent, 10)
+        XCTAssertFalse(provider.fetches.contains("live"))
+    }
+
+    func testReplacementRefreshIsNotLostBehindOldQueuedFetch() async throws {
+        let owner = UsageAccountIdentity(accountID: "nathan", organizationID: "team")
+        let provider = FakeAccountProvider(service: .claude, accounts: [("live", .defaultLogin), ("web-old", .web)])
+        provider.identities = ["web-old": owner, "web-new": owner]
+        let gate = ReplacementFetchGate()
+        provider.beforeFetch = { reference in if reference == "web-old" { await gate.wait() } }
+        let sut = controller([provider])
+        await sut.discoverAndWait()
+        sut.setMultiAccountEnabled(true, for: .claude)
+        try await waitUntil { provider.fetches == ["web-old"] }
+        let previousDiscoveries = provider.discoveries
+        provider.accountRoles = [("live", .defaultLogin), ("web-new", .web)]
+        let replacement = Task { await sut.adoptWebSessionReplacement(oldReference: "web-old", newReference: "web-new") }
+        try await waitUntil { provider.discoveries > previousDiscoveries }
+        await gate.release()
+        await replacement.value
+        XCTAssertEqual(provider.fetches, ["web-old", "web-new"])
+        XCTAssertNil(sut.states["claude:nathan|team"]?.issue)
+        XCTAssertNotNil(sut.states["claude:nathan|team"]?.fetchedAt)
+    }
+
     func testAccountMismatchWaitsForTheNextIntervalBeforeFetchingAgain() async throws {
         let codex = FakeAccountProvider(service: .codex, accounts: [("live", .defaultLogin), ("other", .directory)])
         codex.failure = UsageAccountFetchError.accountChanged
@@ -364,7 +403,7 @@ private final class FakeAccountProvider: UsageAccountProvider, UsageAccountMenuB
     var menuBar: (any UsageAccountMenuBarPolicy)? { hasMenuBar ? self : nil }
 
     private let hasMenuBar: Bool
-    private let accountRoles: [(String, UsageAccountSource.Role)]
+    var accountRoles: [(String, UsageAccountSource.Role)]
     var identities: [String: UsageAccountIdentity] = [:]
     var menuBarTarget: String?
     var preferredDefault: String?
@@ -403,7 +442,7 @@ private final class FakeAccountProvider: UsageAccountProvider, UsageAccountMenuB
         return input.webLogins.map { login in
             UsageAccountCandidate(
                 source: .init(
-                    role: roles[login.id] ?? (login.id == "app" || login.id == "web" ? .web : .directory),
+                    role: roles[login.id] ?? (login.id == "app" || login.id == "web" || login.id.hasPrefix("web-") ? .web : .directory),
                     reference: login.id),
                 identity: login.identity)
         }
@@ -891,4 +930,14 @@ extension UsageAccountsControllerTests {
         XCTAssertEqual(replaced.identity.email, "b@example.com")
         XCTAssertNil(sut.states[replaced.id]?.usage)
     }
+}
+
+private actor ReplacementFetchGate {
+    private var released = false
+    private var continuation: CheckedContinuation<Void, Never>?
+    func wait() async {
+        if released { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+    func release() { released = true; continuation?.resume(); continuation = nil }
 }

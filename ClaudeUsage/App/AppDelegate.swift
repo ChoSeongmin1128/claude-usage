@@ -68,6 +68,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let serviceStatusHover = ServiceStatusHoverController(presenter: ServiceStatusPanelWindowPresenter())
     var claudeCredentialRefreshTask: Task<Void, Never>?
     lazy var claudeRefreshController = makeClaudeRefreshController()
+    lazy var claudeWebRecovery = makeClaudeWebRecovery()
+    var claudeWebRetryTask: Task<Void, Never>?
+    var pendingClaudeWebRecovery: ClaudeWebSessionRecoveryCoordinator.Request?
+    var claudeManualSessionIntent: ClaudeWebSessionSaveIntent = .recoverExisting
     var claudeCredentialRefreshGeneration = 0
     var claudeCredentialRefreshRequest: ClaudeCredentialRefreshRequest?
     var antigravityRuntimeObservationTask:

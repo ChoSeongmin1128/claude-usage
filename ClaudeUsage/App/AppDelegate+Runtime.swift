@@ -358,6 +358,7 @@ extension AppDelegate {
     }
 
     func resetClaudeRuntimeAfterAccountBoundaryChange(refreshHealthSnapshot: Bool = true) {
+        claudeWebRecovery.cancel()
         withRuntimeState { $0.invalidateClaudeRequestContext() }
         popoverViewModel.nextUsageRetryAt = nil
         usageAccountsController.bindRuntimeAccount(nil, for: .claude)
@@ -444,6 +445,12 @@ extension AppDelegate {
     ) {
         let scopedMetadata = result.metadata.withClaudeProfileMetadata(profile)
         usageAccountsController.bindRuntimeAccount(scopedMetadata.account, for: .claude)
+        if let candidate = scopedMetadata.account, candidate.source.role == .web {
+            ClaudeAccountStore.shared.mergeIdentity(
+                ClaudeAccountIdentity(email: candidate.identity.email,
+                    organizationName: candidate.identity.organizationName, organizationID: candidate.identity.organizationID),
+                for: candidate.source.reference)
+        }
         currentClaudeProfileMetadata = scopedMetadata.claudeProfileMetadata
         currentClaudeNotificationPolicy = scopedMetadata.claudeProfileMetadata.map(
             ClaudeNotificationPolicy.init(metadata:))

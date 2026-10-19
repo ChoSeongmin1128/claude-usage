@@ -177,6 +177,7 @@ struct SettingsView: View {
     @State var isAdvancedAuthExpanded = false
     @State var isOrganizationAdvancedExpanded = false
     @State var codexAuthStatus: CodexAuthStatus = .checking
+    @State var sessionSaveTask: Task<Void, Never>?
     @State var codexAuthCheckTask: Task<Void, Never>?
     @State var runtimeEnvironmentRefreshTick: Int = 0
     @State var pendingDestructiveAction: SettingsDestructiveAction?
@@ -199,6 +200,8 @@ struct SettingsView: View {
     var onReconnectClaudeCode: (() -> Void)?
     var onImportClaudeFromChrome: (() -> Void)?
     var onRefreshClaudeUsage: (() -> Void)?
+    var onSaveClaudeSession: ((String, String?) async throws -> Void)?
+    var onBeginAddingClaudeSession: (() -> Void)?
     var onClaudeOAuthMigrationCompleted: (() -> Void)?
     var onCodexLogout: (() -> Void)?
     var claudeLastUsage: (() -> ClaudeUsageResponse?)?
@@ -221,6 +224,8 @@ struct SettingsView: View {
         onReconnectClaudeCode: (() -> Void)? = nil,
         onImportClaudeFromChrome: (() -> Void)? = nil,
         onRefreshClaudeUsage: (() -> Void)? = nil,
+        onSaveClaudeSession: ((String, String?) async throws -> Void)? = nil,
+        onBeginAddingClaudeSession: (() -> Void)? = nil,
         onClaudeOAuthMigrationCompleted: (() -> Void)? = nil,
         onCodexLogout: (() -> Void)? = nil,
         claudeLastUsage: (() -> ClaudeUsageResponse?)? = nil,
@@ -271,6 +276,8 @@ struct SettingsView: View {
         self.onReconnectClaudeCode = onReconnectClaudeCode
         self.onImportClaudeFromChrome = onImportClaudeFromChrome
         self.onRefreshClaudeUsage = onRefreshClaudeUsage
+        self.onSaveClaudeSession = onSaveClaudeSession
+        self.onBeginAddingClaudeSession = onBeginAddingClaudeSession
         self.onClaudeOAuthMigrationCompleted = onClaudeOAuthMigrationCompleted
         self.onCodexLogout = onCodexLogout
         self.claudeLastUsage = claudeLastUsage

@@ -82,8 +82,31 @@ extension AppDelegate {
             },
             onRefreshClaudeUsage: { [weak self] in
                 guard let self else { return }
-                self.syncUsageHealthSnapshotToUI()
-                self.refreshUsage(force: true)
+                self.retryClaudeUsageFromUser()
+            },
+            onSaveClaudeSession: { [weak self] key, organization in
+                guard let self else { throw CancellationError() }
+                let shouldRecover = self.claudeManualSessionIntent.shouldRecover(
+                    hasPendingRequest: self.pendingClaudeWebRecovery != nil,
+                    authenticationFailed: self.hasWebAuthenticationFailure)
+                if shouldRecover, let request = self.pendingClaudeWebRecovery ?? self.webRecoveryRequest() {
+                    try await self.claudeWebRecovery.recover(request, sessionKey: key)
+                    self.pendingClaudeWebRecovery = nil
+                } else {
+                    let initial = ClaudeAccountStore.shared.activeAccount()
+                    try await ClaudeSettingsApplyCoordinator.activateSessionKey(key, apiService: self.apiService,
+                        preferredOrganizationID: organization ?? "", source: .manualInput,
+                        isCurrentActivation: {
+                            let current = ClaudeAccountStore.shared.activeAccount()
+                            return current?.id == initial?.id
+                                && current?.userSelectedPreferredOrganizationID == initial?.userSelectedPreferredOrganizationID
+                        })
+                }
+                self.claudeManualSessionIntent = .recoverExisting
+            },
+            onBeginAddingClaudeSession: { [weak self] in
+                self?.pendingClaudeWebRecovery = nil
+                self?.claudeManualSessionIntent = .addAccount
             },
             onClaudeOAuthMigrationCompleted: { [weak self] in
                 self?.handleClaudeCredentialContextChanged(refreshOAuthCredentialInventory: true)
@@ -196,6 +219,10 @@ extension AppDelegate {
 
     /// 처음 설정과 같은 순서: Claude Code 로그인, 브라우저 로그인 가져오기, 없으면 로그인 방법 선택.
     func reconnectClaude() {
+        if ClaudeAccountStore.shared.activeWebAccount() != nil {
+            retryClaudeUsageFromUser(reconnect: true)
+            return
+        }
         Task { @MainActor [weak self] in
             let (claudeCode, finding) = await Task.detached(priority: .userInitiated) {
                 (await ClaudeCodeLoginDetector.hasLogin(), ClaudeBrowserLoginDetector.findLogin())
@@ -219,8 +246,11 @@ extension AppDelegate {
         startChromeImportOnOpen: Bool = false,
         startCLIActivationOnOpen: Bool = false,
         startEmbeddedWebOnOpen: Bool = false,
-        importFamily: ClaudeBrowserFamily? = nil
+        importFamily: ClaudeBrowserFamily? = nil,
+        replacingWebConnection: ClaudeWebSessionRecoveryCoordinator.Request? = nil
     ) {
+        pendingClaudeWebRecovery = replacingWebConnection
+        claudeManualSessionIntent = replacingWebConnection == nil ? .addAccount : .recoverExisting
         if loginWindowCoordinator.focusIfVisible() {
             if clearCookies || startChromeImportOnOpen || startCLIActivationOnOpen || startEmbeddedWebOnOpen {
                 loginWindowCoordinator.close()
@@ -242,7 +272,7 @@ extension AppDelegate {
                 startCLIActivationOnOpen: startCLIActivationOnOpen,
                 startEmbeddedWebOnOpen: startEmbeddedWebOnOpen,
                 importFamily: importFamily,
-                onSessionKeyFound: { [weak self] key, displayName, source, sourceDetail in
+                onSessionKeyFound: { [weak self] key, displayName, source, sourceDetail, browserSource in
                     guard let self else { return }
 
                     await MainActor.run {
@@ -257,6 +287,11 @@ extension AppDelegate {
                     }
 
                     do {
+                        if let request = replacingWebConnection {
+                            try await self.claudeWebRecovery.recover(request, sessionKey: key, source: browserSource)
+                            return
+                        }
+                        let initial = ClaudeAccountStore.shared.activeAccount()
                         try await ClaudeSettingsApplyCoordinator.activateSessionKey(
                             key,
                             apiService: self.apiService,
@@ -267,7 +302,13 @@ extension AppDelegate {
                             ),
                             displayName: displayName,
                             source: source,
-                            sourceDetail: sourceDetail
+                            sourceDetail: sourceDetail,
+                            browserSource: browserSource,
+                            isCurrentActivation: {
+                                let current = ClaudeAccountStore.shared.activeAccount()
+                                return current?.id == initial?.id
+                                    && current?.userSelectedPreferredOrganizationID == initial?.userSelectedPreferredOrganizationID
+                            }
                         )
                         // 저장 완료 알림이 AppRuntimeObservationCoordinator의 단일
                         // credential transaction을 시작한다. 여기서는 health/usage를
@@ -300,6 +341,7 @@ extension AppDelegate {
                     self?.showSettingsWindow()
                 },
                 onCancel: { [weak self] in
+                    self?.claudeWebRecovery.cancel()
                     self?.loginWindowCoordinator.close()
                 }
             )

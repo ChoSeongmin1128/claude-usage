@@ -113,6 +113,8 @@ extension AppDelegate {
         usageAccountsTimer = nil
         usageAccountsController.stop()
         claudeCredentialRefreshTask?.cancel()
+        claudeWebRecovery.cancel()
+        claudeWebRetryTask?.cancel()
         claudeRefreshController.cancel()
     }
 

@@ -40,6 +40,20 @@ final class ClaudeSettingsApplyCoordinatorTests: XCTestCase {
         XCTAssertEqual(healthSnapshotCount, 0)
     }
 
+    func testActivationRejectsASelectionChangedDuringValidation() async {
+        let keychain = FakeClaudeSessionKeyStore(initialValue: "old")
+        let service = FakeClaudeSettingsService()
+        let validator = FakeClaudeSettingsService(sessionKey: "new")
+        do {
+            try await ClaudeSettingsApplyCoordinator.activateSessionKey("new", apiService: service,
+                preferredOrganizationID: "", keychain: keychain, isCurrentActivation: { false },
+                makeValidator: { _ in validator }, refreshRequester: {})
+            XCTFail("A selection changed before validation finished")
+        } catch { XCTAssertTrue(error is CancellationError) }
+        XCTAssertEqual(keychain.currentValue, "old")
+        XCTAssertTrue(keychain.savedValues.isEmpty)
+    }
+
     func testActivateSessionKeyKeepsAutomaticOrganizationOutOfUserPreference() async throws {
         let keychain = FakeClaudeSessionKeyStore()
         let service = FakeClaudeSettingsService()

@@ -111,6 +111,12 @@ final class ClaudeUsageAccountProvider: UsageAccountProvider, UsageAccountMenuBa
         return targets(of: account).contains(current)
     }
 
+    nonisolated static func webRecoveryReference(in account: UsageAccount, activeAccountID: String?) -> String? {
+        if activeAccountID == ClaudeAccountStore.claudeCodeExternalAccountID, account.isDefaultLogin { return nil }
+        let sources = account.sources.filter { $0.role == .web }
+        return sources.first(where: { $0.reference == activeAccountID })?.reference ?? sources.first?.reference
+    }
+
     nonisolated static func runtimeAccount(
         provenance: ClaudeFetchProvenance, validatedIdentity: UsageAccountIdentity?,
         resolvedOrganizationID: String?, knownIdentities: [String: UsageAccountIdentity]
@@ -123,7 +129,10 @@ final class ClaudeUsageAccountProvider: UsageAccountProvider, UsageAccountMenuBa
         case .webSession:
             guard let reference = provenance.accountID else { return nil }
             let identity: UsageAccountIdentity
-            if let known = knownIdentities[reference], let organization = resolvedOrganizationID,
+            if let validatedIdentity, validatedIdentity.mergeKey != nil,
+                validatedIdentity.organizationID == resolvedOrganizationID {
+                identity = validatedIdentity
+            } else if let known = knownIdentities[reference], let organization = resolvedOrganizationID,
                 known.organizationID == organization
             {
                 identity = known

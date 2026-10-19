@@ -85,6 +85,7 @@ nonisolated struct ClaudeAccount: Codable, Identifiable, Equatable, Sendable {
     var identity: ClaudeAccountIdentity
     var source: ClaudeAccountSource?
     var sourceDetail: String?
+    var browserSource: ClaudeBrowserSource?
     var preferredOrganizationID: String
     /// nil은 이 필드가 생기기 전 버전이 자동 선택 결과를 preference로 저장한
     /// legacy 상태다. true인 경우에만 런타임에서 사용자 직접 선택으로 취급한다.
@@ -100,6 +101,7 @@ nonisolated struct ClaudeAccount: Codable, Identifiable, Equatable, Sendable {
         identity: ClaudeAccountIdentity = ClaudeAccountIdentity(),
         source: ClaudeAccountSource? = nil,
         sourceDetail: String? = nil,
+        browserSource: ClaudeBrowserSource? = nil,
         preferredOrganizationID: String = "",
         preferredOrganizationWasUserSelected: Bool? = nil,
         createdAt: Date = Date(),
@@ -114,6 +116,7 @@ nonisolated struct ClaudeAccount: Codable, Identifiable, Equatable, Sendable {
         self.identity = identity
         self.source = source
         self.sourceDetail = sourceDetail?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.browserSource = browserSource
         let normalizedPreferredOrganizationID = preferredOrganizationID
             .trimmingCharacters(in: .whitespacesAndNewlines)
         self.preferredOrganizationID = normalizedPreferredOrganizationID
@@ -149,6 +152,7 @@ nonisolated struct ClaudeAccount: Codable, Identifiable, Equatable, Sendable {
             && lhs.identity == rhs.identity
             && lhs.source == rhs.source
             && lhs.sourceDetail == rhs.sourceDetail
+            && lhs.browserSource == rhs.browserSource
             && lhs.preferredOrganizationID == rhs.preferredOrganizationID
             && lhs.preferredOrganizationWasUserSelected == rhs.preferredOrganizationWasUserSelected
             && lhs.createdAt == rhs.createdAt
@@ -179,7 +183,6 @@ nonisolated struct ClaudeAccountState: Equatable, Sendable {
 
 nonisolated struct ClaudeWebSessionUpsertResult: Sendable {
     let account: ClaudeAccount
-    let supersededAccountIDs: [String]
     var wasStored = true
 }
 
@@ -274,16 +277,14 @@ final class ClaudeAccountStore: @unchecked Sendable {
             source: source,
             sourceDetail: sourceDetail,
             lastValidationState: lastValidationState,
-            setActive: setActive,
-            replacesRotatedChromeSession: false
+            setActive: setActive
         ).account
     }
 
-    /// A Chrome profile can receive a new session cookie for the same Claude
-    /// account. Treat that as credential rotation instead of exposing another
-    /// indistinguishable account row.
+    /// Adding a connection never removes older credentials. Verified replacement
+    /// uses replaceWebConnection after the actual account and organization match.
     @discardableResult
-    nonisolated func upsertWebSessionAccountReplacingRotatedChromeSession(
+    nonisolated func upsertWebSessionAccountWithResult(
         sessionKey: String,
         preferredOrganizationID: String? = nil,
         identity: ClaudeAccountIdentity = ClaudeAccountIdentity(),
@@ -301,8 +302,7 @@ final class ClaudeAccountStore: @unchecked Sendable {
             source: source,
             sourceDetail: sourceDetail,
             lastValidationState: lastValidationState,
-            setActive: setActive,
-            replacesRotatedChromeSession: true
+            setActive: setActive
         )
     }
 
@@ -314,8 +314,7 @@ final class ClaudeAccountStore: @unchecked Sendable {
         source: ClaudeAccountSource?,
         sourceDetail: String?,
         lastValidationState: ClaudeCredentialValidationState,
-        setActive: Bool,
-        replacesRotatedChromeSession: Bool
+        setActive: Bool
     ) -> ClaudeWebSessionUpsertResult {
         ensureLegacyMigrationIfNeeded()
         let fingerprint = Self.fingerprint(for: sessionKey)
@@ -340,18 +339,6 @@ final class ClaudeAccountStore: @unchecked Sendable {
         let requestedSourceDetail = sourceDetail?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .nilIfEmpty
-        let supersededAccounts = replacesRotatedChromeSession
-            ? Self.rotatedChromeSessionAccounts(
-                in: accounts,
-                keepingAccountID: accountID,
-                source: source,
-                sourceDetail: requestedSourceDetail,
-                identity: resolvedIdentity
-            )
-            : []
-        let inheritedExplicitPreference = supersededAccounts
-            .filter { $0.preferredOrganizationWasUserSelected == true }
-            .max(by: Self.isOlderAccount)
 
         let account: ClaudeAccount
         if let index = accounts.firstIndex(where: { $0.id == accountID }) {
@@ -359,9 +346,6 @@ final class ClaudeAccountStore: @unchecked Sendable {
             let resolvedPreferenceWasUserSelected: Bool?
             if requestedPreferenceWasUserSelected == true {
                 resolvedPreferredOrganizationID = requestedPreferredOrganizationID ?? ""
-                resolvedPreferenceWasUserSelected = true
-            } else if let inheritedExplicitPreference {
-                resolvedPreferredOrganizationID = inheritedExplicitPreference.preferredOrganizationID
                 resolvedPreferenceWasUserSelected = true
             } else {
                 resolvedPreferredOrganizationID = requestedPreferredOrganizationID
@@ -391,9 +375,6 @@ final class ClaudeAccountStore: @unchecked Sendable {
             if requestedPreferenceWasUserSelected == true {
                 resolvedPreferredOrganizationID = requestedPreferredOrganizationID ?? ""
                 resolvedPreferenceWasUserSelected = true
-            } else if let inheritedExplicitPreference {
-                resolvedPreferredOrganizationID = inheritedExplicitPreference.preferredOrganizationID
-                resolvedPreferenceWasUserSelected = true
             } else {
                 resolvedPreferredOrganizationID = requestedPreferredOrganizationID
                     ?? legacyPreferredOrganizationID()
@@ -422,13 +403,8 @@ final class ClaudeAccountStore: @unchecked Sendable {
             accounts.append(account)
         }
 
-        let supersededAccountIDs = supersededAccounts.map(\.id)
-        if !supersededAccountIDs.isEmpty {
-            let supersededIDSet = Set(supersededAccountIDs)
-            accounts.removeAll { supersededIDSet.contains($0.id) }
-        }
         let activeID: String
-        if setActive || state.activeAccountID.map(supersededAccountIDs.contains) == true {
+        if setActive {
             activeID = accountID
         } else {
             activeID = state.activeAccountID ?? accountID
@@ -438,7 +414,6 @@ final class ClaudeAccountStore: @unchecked Sendable {
         if saved { postAccountNotifications(activeAccountChanged: activeID != state.activeAccountID) }
         return ClaudeWebSessionUpsertResult(
             account: account,
-            supersededAccountIDs: saved ? supersededAccountIDs : [],
             wasStored: saved
         )
     }
@@ -554,6 +529,10 @@ final class ClaudeAccountStore: @unchecked Sendable {
         }
     }
 
+    nonisolated func setBrowserSource(_ source: ClaudeBrowserSource?, for accountID: String) {
+        updateAccount(id: accountID) { $0.browserSource = source }
+    }
+
     nonisolated func mergeIdentity(_ identity: ClaudeAccountIdentity, for accountID: String) {
         updateAccount(id: accountID) { account in
             account.identity = account.identity.merging(identity)
@@ -593,7 +572,6 @@ final class ClaudeAccountStore: @unchecked Sendable {
         var state = rawState()
         let previousActiveAccountID = state.activeAccountID
         var shouldDeleteLegacyKeychainAccount = false
-        var supersededAccountIDs: [String] = []
         var didChangeAccounts = false
 
         if migrationVersion < 1 {
@@ -649,19 +627,7 @@ final class ClaudeAccountStore: @unchecked Sendable {
             migrationVersion = 1
         }
 
-        if migrationVersion < 2 {
-            let consolidation = Self.consolidatingRotatedChromeSessions(
-                accounts: state.accounts,
-                activeAccountID: state.activeAccountID
-            )
-            if !consolidation.supersededAccountIDs.isEmpty {
-                state.accounts = consolidation.accounts
-                state.activeAccountID = consolidation.activeAccountID
-                supersededAccountIDs = consolidation.supersededAccountIDs
-                didChangeAccounts = true
-            }
-            migrationVersion = 2
-        }
+        if migrationVersion < 2 { migrationVersion = 2 }
 
         if migrationVersion < 3 {
             let defaultsValue = defaults.string(forKey: Self.legacySessionKeyDefaultsKey)?
@@ -813,109 +779,42 @@ final class ClaudeAccountStore: @unchecked Sendable {
         if shouldDeleteLegacyKeychainAccount {
             try? keychainVault.delete(account: ClaudeKeychainStore.defaultAccount)
         }
-        for accountID in supersededAccountIDs where !storedAccountIDs().contains(accountID) {
-            do {
-                try keychainVault.delete(account: ClaudeKeychainStore.accountName(for: accountID))
-            } catch {
-                Logger.warning("교체된 Chrome credential 정리 실패")
-            }
-        }
         if didChangeAccounts {
             postAccountNotifications(activeAccountChanged: previousActiveAccountID != state.activeAccountID)
         }
     }
 
-    private nonisolated static func rotatedChromeSessionAccounts(
-        in accounts: [ClaudeAccount],
-        keepingAccountID: String,
-        source: ClaudeAccountSource?,
-        sourceDetail: String?,
-        identity: ClaudeAccountIdentity
-    ) -> [ClaudeAccount] {
-        guard source == .chromeProfile,
-              let sourceDetail = normalizedRotationIdentityComponent(sourceDetail),
-              let organizationID = normalizedRotationIdentityComponent(identity.organizationID) else {
-            return []
+    nonisolated func replaceWebConnection(
+        expected: ClaudeAccount, replacement: ClaudeAccount,
+        expectedPreferences: UsageAccountPreferences, preferences: UsageAccountPreferences,
+        expectedActiveAccountID: String? = nil
+    ) -> Bool {
+        lock.lock()
+        let state = rawState()
+        guard state.activeAccountID == (expectedActiveAccountID ?? expected.id),
+            state.accounts.first(where: { $0.id == expected.id }) == expected,
+            UsageAccountPreferences.load(from: defaults) == expectedPreferences,
+            canUseAccountID(replacement.id)
+        else { lock.unlock(); return false }
+        let originalAccounts = defaults.object(forKey: Self.accountsDefaultsKey)
+        let originalActive = defaults.object(forKey: Self.activeAccountDefaultsKey)
+        let originalPreferences = defaults.object(forKey: UsageAccountPreferences.key)
+        var accounts = state.accounts.filter { $0.id != expected.id && $0.id != replacement.id }
+        accounts.append(replacement)
+        var updated = preferences
+        let activeID = state.activeAccountID == expected.id ? replacement.id : state.activeAccountID
+        let saved = saveRaw(accounts: accounts, activeAccountID: activeID,
+            originalAccountIDs: [replacement.id: expected.id])
+        guard saved, updated.commit(to: defaults, intent: .automatic).accepted else {
+            PreferencePersistenceContext.restore(originalAccounts, to: defaults, key: Self.accountsDefaultsKey)
+            PreferencePersistenceContext.restore(originalActive, to: defaults, key: Self.activeAccountDefaultsKey)
+            PreferencePersistenceContext.restore(originalPreferences, to: defaults, key: UsageAccountPreferences.key)
+            lock.unlock()
+            return false
         }
-
-        return accounts.filter { account in
-            account.id != keepingAccountID
-                && account.kind == .webSession
-                && account.source == .chromeProfile
-                && normalizedRotationIdentityComponent(account.sourceDetail) == sourceDetail
-                && normalizedRotationIdentityComponent(account.identity.organizationID) == organizationID
-        }
-    }
-
-    private nonisolated static func consolidatingRotatedChromeSessions(
-        accounts: [ClaudeAccount],
-        activeAccountID: String?
-    ) -> (accounts: [ClaudeAccount], activeAccountID: String?, supersededAccountIDs: [String]) {
-        let grouped = Dictionary(grouping: accounts) { account -> String? in
-            guard account.kind == .webSession,
-                  account.source == .chromeProfile,
-                  let sourceDetail = normalizedRotationIdentityComponent(account.sourceDetail),
-                  let organizationID = normalizedRotationIdentityComponent(account.identity.organizationID) else {
-                return nil
-            }
-            return "\(sourceDetail)\u{1F}\(organizationID)"
-        }
-
-        var keptAccountsByID = Dictionary(uniqueKeysWithValues: accounts.map { ($0.id, $0) })
-        var resolvedActiveAccountID = activeAccountID
-        var supersededAccountIDs: [String] = []
-
-        for (key, group) in grouped {
-            guard key != nil, group.count > 1 else { continue }
-            let keeper = group.first(where: { $0.id == activeAccountID })
-                ?? group.max(by: isOlderAccount)!
-            var mergedKeeper = keeper
-            let explicitPreference = group
-                .filter { $0.preferredOrganizationWasUserSelected == true }
-                .max(by: isOlderAccount)
-            if mergedKeeper.preferredOrganizationWasUserSelected != true,
-               let explicitPreference
-            {
-                mergedKeeper.preferredOrganizationID = explicitPreference.preferredOrganizationID
-                mergedKeeper.preferredOrganizationWasUserSelected = true
-            }
-            mergedKeeper.createdAt = group.map(\.createdAt).min() ?? mergedKeeper.createdAt
-            mergedKeeper.lastUsedAt = group.map(\.lastUsedAt).max() ?? mergedKeeper.lastUsedAt
-            keptAccountsByID[keeper.id] = mergedKeeper
-
-            for account in group where account.id != keeper.id {
-                keptAccountsByID.removeValue(forKey: account.id)
-                supersededAccountIDs.append(account.id)
-                if resolvedActiveAccountID == account.id {
-                    resolvedActiveAccountID = keeper.id
-                }
-            }
-        }
-
-        let orderedAccounts = accounts.compactMap { keptAccountsByID.removeValue(forKey: $0.id) }
-        return (
-            accounts: orderedAccounts,
-            activeAccountID: resolvedActiveAccountID,
-            supersededAccountIDs: supersededAccountIDs
-        )
-    }
-
-    private nonisolated static func normalizedRotationIdentityComponent(_ value: String?) -> String? {
-        guard let value else { return nil }
-        let normalized = value
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        return normalized.isEmpty ? nil : normalized
-    }
-
-    private nonisolated static func isOlderAccount(_ lhs: ClaudeAccount, _ rhs: ClaudeAccount) -> Bool {
-        if lhs.createdAt != rhs.createdAt {
-            return lhs.createdAt < rhs.createdAt
-        }
-        if lhs.lastUsedAt != rhs.lastUsedAt {
-            return lhs.lastUsedAt < rhs.lastUsedAt
-        }
-        return lhs.id < rhs.id
+        lock.unlock()
+        postAccountNotifications(activeAccountChanged: state.activeAccountID != activeID)
+        return true
     }
 
     nonisolated static func webSessionAccountID(fingerprint: String) -> String {
@@ -1036,7 +935,8 @@ final class ClaudeAccountStore: @unchecked Sendable {
     @discardableResult
     private nonisolated func saveRaw(
         accounts: [ClaudeAccount], activeAccountID: String?,
-        replacingProtectedActive: Bool = false
+        replacingProtectedActive: Bool = false,
+        originalAccountIDs: [String: String] = [:]
     ) -> Bool {
         let stored = loadStoredAccounts()
         guard stored != nil || defaults.object(forKey: Self.accountsDefaultsKey) == nil else { return false }
@@ -1048,7 +948,8 @@ final class ClaudeAccountStore: @unchecked Sendable {
             guard let encoded = try? JSONEncoder().encode(account),
                 let after = try? JSONSerialization.jsonObject(with: encoded)
             else { return false }
-            if let original = stored?.originals[account.id], let previous = before[account.id],
+            let originalID = originalAccountIDs[account.id] ?? account.id
+            if let original = stored?.originals[originalID], let previous = before[originalID],
                 let data = try? JSONEncoder().encode(previous),
                 let previousJSON = try? JSONSerialization.jsonObject(with: data)
             {

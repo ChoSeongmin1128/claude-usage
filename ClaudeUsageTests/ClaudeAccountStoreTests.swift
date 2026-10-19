@@ -398,7 +398,7 @@ final class ClaudeAccountStoreTests: XCTestCase {
         XCTAssertEqual(updated?.identity.email, "company@example.com")
     }
 
-    func testRotatedChromeSessionReplacesSameProfileAndOrganization() {
+    func testUnverifiedRotationDoesNotRemoveSameProfileAndOrganization() {
         let store = makeStore()
         let first = store.upsertWebSessionAccount(
             sessionKey: "sk-ant-old-cookie",
@@ -412,7 +412,7 @@ final class ClaudeAccountStoreTests: XCTestCase {
             lastValidationState: .verified
         )
 
-        let result = store.upsertWebSessionAccountReplacingRotatedChromeSession(
+        let result = store.upsertWebSessionAccountWithResult(
             sessionKey: "sk-ant-new-cookie",
             identity: ClaudeAccountIdentity(
                 organizationName: "Glorang",
@@ -424,8 +424,8 @@ final class ClaudeAccountStoreTests: XCTestCase {
             lastValidationState: .verified
         )
 
-        XCTAssertEqual(result.supersededAccountIDs, [first.id])
-        XCTAssertEqual(store.accounts().map(\.id), [result.account.id])
+        XCTAssertTrue(result.wasStored)
+        XCTAssertEqual(Set(store.accounts().map(\.id)), Set([first.id, result.account.id]))
         XCTAssertEqual(store.activeAccount()?.id, result.account.id)
     }
 
@@ -438,18 +438,18 @@ final class ClaudeAccountStoreTests: XCTestCase {
             sourceDetail: "Nathan (Profile 2) · nathan@example.com"
         )
 
-        let result = store.upsertWebSessionAccountReplacingRotatedChromeSession(
+        let result = store.upsertWebSessionAccountWithResult(
             sessionKey: "sk-ant-company-cookie",
             identity: ClaudeAccountIdentity(organizationID: "org-company"),
             source: .chromeProfile,
             sourceDetail: "Nathan (Profile 2) · nathan@example.com"
         )
 
-        XCTAssertTrue(result.supersededAccountIDs.isEmpty)
+        XCTAssertTrue(result.wasStored)
         XCTAssertEqual(Set(store.accounts().map(\.id)), Set([first.id, result.account.id]))
     }
 
-    func testRotatedChromeSessionPreservesExplicitOrganizationSelection() {
+    func testNewUnverifiedConnectionDoesNotInheritOldOrganizationSelection() {
         let store = makeStore()
         _ = store.upsertWebSessionAccount(
             sessionKey: "sk-ant-old-cookie",
@@ -459,7 +459,7 @@ final class ClaudeAccountStoreTests: XCTestCase {
             sourceDetail: "Nathan (Profile 2) · nathan@example.com"
         )
 
-        let result = store.upsertWebSessionAccountReplacingRotatedChromeSession(
+        let result = store.upsertWebSessionAccountWithResult(
             sessionKey: "sk-ant-new-cookie",
             preferredOrganizationID: "",
             identity: ClaudeAccountIdentity(organizationID: "org-company"),
@@ -467,13 +467,13 @@ final class ClaudeAccountStoreTests: XCTestCase {
             sourceDetail: "Nathan (Profile 2) · nathan@example.com"
         )
 
-        XCTAssertEqual(store.accounts().count, 1)
-        XCTAssertEqual(result.account.preferredOrganizationID, "org-company")
-        XCTAssertEqual(result.account.preferredOrganizationWasUserSelected, true)
-        XCTAssertEqual(result.account.userSelectedPreferredOrganizationID, "org-company")
+        XCTAssertEqual(store.accounts().count, 2)
+        XCTAssertEqual(result.account.preferredOrganizationID, "")
+        XCTAssertEqual(result.account.preferredOrganizationWasUserSelected, false)
+        XCTAssertNil(result.account.userSelectedPreferredOrganizationID)
     }
 
-    func testVersionTwoMigrationConsolidatesExistingRotatedChromeSessions() throws {
+    func testVersionTwoMigrationKeepsUnverifiedRotatedConnections() throws {
         let cli = ClaudeAccount(
             id: ClaudeAccountStore.claudeCodeExternalAccountID,
             kind: .claudeCodeExternal,
@@ -529,13 +529,13 @@ final class ClaudeAccountStoreTests: XCTestCase {
         let store = makeStore()
         store.ensureLegacyMigrationIfNeeded()
 
-        XCTAssertEqual(store.accounts().map(\.id), [cli.id, newer.id])
+        XCTAssertEqual(store.accounts().map(\.id), [cli.id, older.id, newer.id])
         XCTAssertEqual(store.activeAccount()?.id, cli.id)
         XCTAssertEqual(
             store.accounts().first(where: { $0.id == newer.id })?.lastUsedAt,
-            older.lastUsedAt
+            newer.lastUsedAt
         )
-        XCTAssertNil(try vault.loadString(account: ClaudeKeychainStore.accountName(for: older.id)))
+        XCTAssertEqual(try vault.loadString(account: ClaudeKeychainStore.accountName(for: older.id)), "sk-ant-old-cookie")
         XCTAssertEqual(
             try vault.loadString(account: ClaudeKeychainStore.accountName(for: newer.id)),
             "sk-ant-new-cookie"

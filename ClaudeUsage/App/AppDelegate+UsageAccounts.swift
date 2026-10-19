@@ -17,6 +17,15 @@ extension AppDelegate {
         controller.onMenuBarChoiceNeeded = { [weak self] choice, completion in
             self?.askMenuBarAccount(choice, completion: completion)
         }
+        controller.onWebReconnect = { [weak self, weak controller] account in
+            guard let self else { return }
+            if controller?.isRuntime(account) == true,
+                ClaudeAccountStore.shared.activeAccount()?.kind == .claudeCodeExternal {
+                showLoginWindow(startCLIActivationOnOpen: true)
+            } else {
+                retryClaudeUsageFromUser(reconnect: true, account: account)
+            }
+        }
         controller.onDefaultLoginSwitched = { [weak self] service in self?.defaultLoginDidSwitch(service) }
         popoverViewModel.accountActions = PopoverAccountActions(
             toggle: { [weak controller] service, id in controller?.toggleSelection(id, service: service) },

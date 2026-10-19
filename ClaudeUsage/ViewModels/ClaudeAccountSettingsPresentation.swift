@@ -52,7 +52,7 @@ struct ClaudeAccountSettingsPresentation: Equatable {
     }
 
     private static func primaryTitle(for account: ClaudeAccount) -> String {
-        let email = account.identity.email ?? emailFromSourceDetail(account.sourceDetail)
+        let email = account.identity.email
         let displayName = meaningfulDisplayName(for: account)
 
         switch account.kind {
@@ -84,7 +84,7 @@ struct ClaudeAccountSettingsPresentation: Equatable {
             return "Claude Code"
         case .webSession:
             switch account.source {
-            case .chromeProfile: return ClaudeBrowserFamily.family(fromSourceDetail: account.sourceDetail).displayName
+            case .chromeProfile: return (account.browserSource?.family ?? ClaudeBrowserFamily.family(fromSourceDetail: account.sourceDetail)).displayName
             case .embeddedWebLogin: return "앱에서 로그인"
             case .manualInput: return "직접 입력"
             case .legacyMigration: return "이전 버전에서 가져온 로그인"
@@ -163,19 +163,6 @@ struct ClaudeAccountSettingsPresentation: Equatable {
         case .claudeCodeExternal:
             return ["Claude Code 계정", ClaudeAccountKind.claudeCodeExternal.displayName].contains(value) ? nil : value
         }
-    }
-
-    private static func emailFromSourceDetail(_ sourceDetail: String?) -> String? {
-        guard let sourceDetail else { return nil }
-        let separators = CharacterSet.whitespacesAndNewlines
-            .union(CharacterSet(charactersIn: "·,;()<>[]"))
-        let email = sourceDetail
-            .components(separatedBy: separators)
-            .map { $0.trimmingCharacters(in: CharacterSet.punctuationCharacters) }
-            .first { token in
-                token.contains("@") && token.contains(".")
-            }
-        return nilIfEmpty(email)
     }
 
     private static func shortOrganizationID(_ id: String) -> String {

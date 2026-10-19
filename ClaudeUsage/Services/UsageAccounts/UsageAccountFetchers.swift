@@ -15,13 +15,13 @@ nonisolated enum ClaudeWebUsageFetcher {
     static func fetch(sessionKey: String, organizationID: String?, session: URLSession = .shared) async throws
         -> Result
     {
-        let accountData = try await send(webRequest(ClaudeEndpoints.accountURL, sessionKey: sessionKey), session)
-        guard let account = try? JSONSerialization.jsonObject(with: accountData) as? [String: Any] else {
-            throw UsageAccountFetchError.unavailable
+        let account: ClaudeWebAccountSnapshot
+        do { account = try await ClaudeWebAccountClient.fetch(sessionKey: sessionKey, runner: { try await session.data(for: $0) }) }
+        catch APIError.invalidSessionKey { throw UsageAccountFetchError.loginExpired }
+        catch APIError.rateLimited(let retryAfter), APIError.cloudflareBlocked(let retryAfter) {
+            throw UsageAccountFetchError.rateLimited(retryAfter: retryAfter)
         }
-        let organizations = (account["memberships"] as? [[String: Any]] ?? [])
-            .compactMap { $0["organization"] as? [String: Any] }
-            .compactMap(ClaudeAPIService.OrganizationSummary.init(json:))
+        let organizations = account.organizations
         let chosen =
             organizations.first { $0.id == organizationID }
             ?? ClaudeAutomaticOrganizationSelectionPolicy.selectBest(
@@ -35,8 +35,8 @@ nonisolated enum ClaudeWebUsageFetcher {
         }
         return Result(
             identity: UsageAccountIdentity(
-                accountID: account["uuid"] as? String, organizationID: organization.id,
-                email: account["email_address"] as? String, organizationName: organization.name),
+                accountID: account.accountID, organizationID: organization.id,
+                email: account.email, organizationName: organization.name),
             usage: usage)
     }
 
@@ -122,7 +122,10 @@ nonisolated enum ClaudeWebUsageFetcher {
         if status == 429 || (status == 403 && HTTPResponseClassification.isCloudflareChallenge(data)) {
             throw UsageAccountFetchError.rateLimited(retryAfter: HTTPResponseClassification.retryAfterSeconds(http))
         }
-        if status == 401 || status == 403 { throw UsageAccountFetchError.loginExpired }
+        if status == 401 { throw UsageAccountFetchError.loginExpired }
+        if status == 403, case .invalidSessionKey = ClaudeHTTPTransport.classify(statusCode: status, data: data, response: http) {
+            throw UsageAccountFetchError.loginExpired
+        }
         guard (200...299).contains(status) else { throw UsageAccountFetchError.server(status) }
     }
 }

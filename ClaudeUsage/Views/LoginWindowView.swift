@@ -16,7 +16,7 @@ struct LoginWindowView: View {
     var startCLIActivationOnOpen: Bool
     var startEmbeddedWebOnOpen: Bool
     var importFamily: ClaudeBrowserFamily?
-    var onSessionKeyFound: (String, String?, ClaudeAccountSource?, String?) async throws -> Void
+    var onSessionKeyFound: (String, String?, ClaudeAccountSource?, String?, ClaudeBrowserSource?) async throws -> Void
     var onActivateCLI: () async throws -> ActivationSummary
     var onLoadCLIPreview: () async -> CLIPreview?
     var onOpenAdvancedSettings: () -> Void
@@ -28,7 +28,7 @@ struct LoginWindowView: View {
         startCLIActivationOnOpen: Bool = false,
         startEmbeddedWebOnOpen: Bool = false,
         importFamily: ClaudeBrowserFamily? = nil,
-        onSessionKeyFound: @escaping (String, String?, ClaudeAccountSource?, String?) async throws -> Void,
+        onSessionKeyFound: @escaping (String, String?, ClaudeAccountSource?, String?, ClaudeBrowserSource?) async throws -> Void,
         onActivateCLI: @escaping () async throws -> ActivationSummary,
         onLoadCLIPreview: @escaping () async -> CLIPreview?,
         onOpenAdvancedSettings: @escaping () -> Void,
@@ -682,7 +682,8 @@ struct LoginWindowView: View {
         step = .chromeActivating
         runActivation(retryDestination: .chromeImport) {
             try await onSessionKeyFound(
-                candidate.sessionKey, candidate.displayName, .chromeProfile, candidate.sourceDetail)
+                candidate.sessionKey, candidate.displayName, .chromeProfile, candidate.sourceDetail,
+                ClaudeBrowserSource(family: candidate.family, profileName: candidate.profileName))
             return ActivationSummary(
                 title: "\(methodLabel) 로그인을 연결했습니다",
                 detail: detail.isEmpty ? nil : detail, methodLabel: methodLabel)
@@ -700,7 +701,7 @@ struct LoginWindowView: View {
         guard !isEmbeddedActivating else { return }
         isEmbeddedActivating = true
         runActivation(retryDestination: .embeddedWeb) {
-            try await onSessionKeyFound(key, nil, .embeddedWebLogin, nil)
+            try await onSessionKeyFound(key, nil, .embeddedWebLogin, nil, nil)
             return ActivationSummary(title: "claude.ai 로그인을 연결했습니다", methodLabel: "앱에서 로그인")
         }
     }

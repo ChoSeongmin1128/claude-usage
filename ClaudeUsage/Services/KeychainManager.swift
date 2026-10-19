@@ -90,7 +90,7 @@ nonisolated final class KeychainManager: @unchecked Sendable {
             fingerprint: ClaudeAccountStore.fingerprint(for: sessionKey)
         )
         let credentialChanged = try save(sessionKey, for: accountID, postsNotification: false)
-        let upsertResult = ClaudeAccountStore.shared.upsertWebSessionAccountReplacingRotatedChromeSession(
+        let upsertResult = ClaudeAccountStore.shared.upsertWebSessionAccountWithResult(
             sessionKey: sessionKey,
             preferredOrganizationID: preferredOrganizationID,
             identity: identity ?? ClaudeAccountIdentity(),
@@ -103,14 +103,7 @@ nonisolated final class KeychainManager: @unchecked Sendable {
         guard upsertResult.wasStored else {
             throw KeychainError.storageFailed("저장된 계정 자료를 읽을 수 없어 연결을 변경하지 않았습니다.")
         }
-        for supersededAccountID in upsertResult.supersededAccountIDs {
-            do {
-                try delete(for: supersededAccountID, postsNotification: false)
-            } catch {
-                Logger.warning("교체된 Chrome credential 정리 실패")
-            }
-        }
-        if credentialChanged || !upsertResult.supersededAccountIDs.isEmpty {
+        if credentialChanged {
             NotificationCenter.default.post(name: .claudeSessionKeyDidChange, object: accountID)
         }
         UserDefaults.standard.removeObject(forKey: self.storageKey)
@@ -156,8 +149,8 @@ nonisolated final class KeychainManager: @unchecked Sendable {
         return load(for: account.id)
     }
 
-    nonisolated func load(for accountID: String) -> String? {
-        if let cached = self.cachedSessionKeyValue(for: accountID), !cached.isEmpty {
+    nonisolated func load(for accountID: String, bypassCache: Bool = false) -> String? {
+        if !bypassCache, let cached = self.cachedSessionKeyValue(for: accountID), !cached.isEmpty {
             return cached
         }
 
@@ -169,7 +162,31 @@ nonisolated final class KeychainManager: @unchecked Sendable {
             }
         }
 
+        if bypassCache { setCachedSessionKey(nil, for: accountID) }
         return nil
+    }
+
+    nonisolated func saveBrowserSource(_ source: ClaudeBrowserSource, sessionKey: String) throws {
+        let id = ClaudeAccountStore.webSessionAccountID(fingerprint: ClaudeAccountStore.fingerprint(for: sessionKey))
+        ClaudeAccountStore.shared.setBrowserSource(source, for: id)
+        guard ClaudeAccountStore.shared.accounts().first(where: { $0.id == id })?.browserSource == source else {
+            throw KeychainError.storageFailed("브라우저 출처를 저장하지 못했습니다.")
+        }
+    }
+
+    nonisolated func rememberValidatedIdentity(_ identity: UsageAccountIdentity, sessionKey: String) throws {
+        let id = ClaudeAccountStore.webSessionAccountID(fingerprint: ClaudeAccountStore.fingerprint(for: sessionKey))
+        var preferences = UsageAccountPreferences.load()
+        preferences.knownIdentities[id] = identity
+        guard preferences.commit(to: .standard, intent: .automatic).accepted else {
+            throw KeychainError.storageFailed("확인한 계정 정보를 저장하지 못했습니다.")
+        }
+    }
+
+    nonisolated func invalidateSessionCache(for accountIDs: [String]) {
+        cacheLock.lock()
+        for id in accountIDs { cachedSessionKeys[id] = nil }
+        cacheLock.unlock()
     }
 
     private nonisolated func loadLegacySessionKeyIfNeeded() -> String? {

@@ -41,8 +41,13 @@ final class UsageAccountsController: ObservableObject {
     @Published private(set) var recoveryNotices: [String: String] = [:]
     @Published private(set) var reconnectTarget: UsageAccount?
 
+    var onWebReconnect: ((UsageAccount) -> Void)?
+
     func requestReconnect(service: PopoverService, accountID: String) {
         reconnectTarget = accounts[service]?.first { $0.id == accountID }
+        if let target = reconnectTarget, target.service == .claude, target.source(.web) != nil {
+            onWebReconnect?(target)
+        }
     }
 
     func recoveryNotice(for account: UsageAccount) -> String? { recoveryNotices[account.id] }
@@ -155,6 +160,11 @@ final class UsageAccountsController: ObservableObject {
     func bindRuntimeAccount(_ candidate: UsageAccountCandidate?, for service: PopoverService) {
         runtimeAccounts[service] = candidate
         guard let candidate else { return }
+        if candidate.source.role == .web, candidate.identity.mergeKey != nil {
+            var updated = preferences
+            updated.knownIdentities[candidate.source.reference] = candidate.identity
+            _ = commitPreferences(updated, intent: .automatic)
+        }
         let candidates = (accounts[service] ?? []).flatMap { account in
             account.sources.filter { $0 != candidate.source }.map {
                 UsageAccountCandidate(source: $0, identity: account.identity)
@@ -165,6 +175,33 @@ final class UsageAccountsController: ObservableObject {
         carryOverRenamedAccounts(from: accounts, to: [service: merged])
         accounts[service] = merged
         preferences.remember(merged)
+    }
+
+    func adoptWebSessionReplacement(oldReference: String, newReference: String) async {
+        storedPreferences = UsageAccountPreferences.load(from: defaults)
+        if runtimeAccounts[.claude]?.source.reference == oldReference { runtimeAccounts[.claude] = nil }
+        accounts[.claude] = (accounts[.claude] ?? []).compactMap { account in
+            let sources = account.sources.filter { !($0.role == .web && $0.reference == oldReference) }
+            return UsageAccount.merge(sources.map { UsageAccountCandidate(source: $0, identity: account.identity) }, service: .claude).first
+        }
+        await rediscover().value
+        let previous = refreshTask
+        let next = Task { [weak self] in
+            guard !Task.isCancelled else { return }
+            await previous?.value
+            guard let self, !Task.isCancelled,
+                let account = accounts[.claude]?.first(where: { row in
+                    row.sources.contains { $0.role == .web && $0.reference == newReference }
+                }), let provider = provider(for: .claude), canRefresh(account, provider: provider)
+            else { return }
+            // The previous credential's queued fetch must finish before reserving its canonical ID again.
+            lastAttempts[account.id] = nil
+            retryNotBefore[account.id] = nil
+            queued.insert(account.id)
+            await refresh(account, preferredWebReference: newReference)
+        }
+        refreshTask = next
+        await withTaskCancellationHandler { await next.value } onCancel: { next.cancel() }
     }
 
     private func candidatesWithRuntimeAccount(
@@ -264,6 +301,8 @@ final class UsageAccountsController: ObservableObject {
     }
 
     private func discover() async {
+        // Login verification/replacement can update the same store outside this controller.
+        storedPreferences = UsageAccountPreferences.load(from: defaults)
         var found: [PopoverService: [UsageAccount]] = [:]
         var discovered: [PopoverService: [UsageAccount]] = [:]
         for provider in activeProviders {
@@ -308,25 +347,28 @@ final class UsageAccountsController: ObservableObject {
         var updated = preferences
         for (service, accounts) in current {
             for account in accounts {
-                // 이전 id가 출처 기준이었던 계정만 옮긴다. 계정 기준 id끼리는 기본 로그인을 전환해 출처가
-                // 맞바뀌어도 서로 다른 계정이다.
-                guard account.identity.mergeKey != nil,
-                    let old = previous[service]?.first(where: { candidate in
-                        candidate.identity.mergeKey == nil && candidate.id != account.id
-                            && candidate.sources.contains(where: account.sources.contains)
-                    }), updated.aliases[account.id] == nil, states[account.id] == nil
-                else { continue }
-                guard
-                    successfulBindings[old.id]?.matchesOwner(of: account.identity)
-                        ?? UsageAccountFetchBinding.matches(expected: old.identity, observed: account.identity)
-                else { continue }
-                updated.aliases[account.id] = updated.aliases.removeValue(forKey: old.id)
-                if updated.hidden.remove(old.id) != nil { updated.hidden.insert(account.id) }
-                if updated.archived.remove(old.id) != nil { updated.archived.insert(account.id) }
-                if updated[service].pinnedTop == old.id { updated[service].pinnedTop = account.id }
-                updated[service].selected = updated[service].selected.map { $0 == old.id ? account.id : $0 }
-                states[account.id] = states.removeValue(forKey: old.id)
-                successfulBindings[account.id] = successfulBindings.removeValue(forKey: old.id)
+                guard account.identity.mergeKey != nil else { continue }
+                let oldAccounts = (previous[service] ?? []).filter { candidate in
+                    candidate.identity.mergeKey == nil && candidate.id != account.id
+                        && candidate.sources.contains(where: account.sources.contains)
+                }
+                for old in oldAccounts {
+                    let sameWebCredential = old.sources.contains { $0.role == .web && account.sources.contains($0) }
+                    guard sameWebCredential || (successfulBindings[old.id]?.matchesOwner(of: account.identity)
+                            ?? UsageAccountFetchBinding.matches(expected: old.identity, observed: account.identity))
+                    else { continue }
+                    updated = updated.mergingAccountID(from: old.id, into: account.id, service: service,
+                        inheritVisibility: previous[service]?.contains(where: { $0.id == account.id }) != true,
+                        keepVisible: runtimeAccounts[service].map(account.matches) == true)
+                    // Existing canonical quota/binding belongs to its validated owner and wins.
+                    if states[account.id] == nil, let binding = successfulBindings[old.id],
+                        binding.matchesOwner(of: account.identity) {
+                        states[account.id] = states[old.id]
+                        successfulBindings[account.id] = binding
+                    }
+                    states[old.id] = nil
+                    successfulBindings[old.id] = nil
+                }
             }
         }
         preferences = updated
@@ -471,7 +513,7 @@ final class UsageAccountsController: ObservableObject {
         }
     }
 
-    private func refresh(_ queuedAccount: UsageAccount) async {
+    private func refresh(_ queuedAccount: UsageAccount, preferredWebReference: String? = nil) async {
         defer { queued.remove(queuedAccount.id) }
         guard let provider = provider(for: queuedAccount.service),
             let account = accounts[queuedAccount.service]?.first(where: { $0.id == queuedAccount.id }),
@@ -483,7 +525,12 @@ final class UsageAccountsController: ObservableObject {
         // 계정 불일치나 전환으로 끝나 상태를 남기지 않아도 다음 주기 전에는 다시 조회하지 않는다.
         lastAttempts[account.id] = state.attemptedAt
         do {
-            let result = try await provider.fetchUsage(for: account, interactive: interactive)
+            var queryAccount = account
+            if let preferredWebReference,
+                let preferred = account.sources.first(where: { $0.role == .web && $0.reference == preferredWebReference }) {
+                queryAccount.sources = [preferred] + account.sources.filter { $0 != preferred }
+            }
+            let result = try await provider.fetchUsage(for: queryAccount, interactive: interactive)
             try Task.checkCancellation()
             guard account.sources.contains(result.binding.account.source) else {
                 rediscover()

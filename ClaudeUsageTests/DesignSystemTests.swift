@@ -267,7 +267,7 @@ final class DesignSystemTests: XCTestCase {
                 "Codex selected and inline percentage basis \(scheme)")
         }
         let login = LoginWindowView(
-            onSessionKeyFound: { _, _, _, _ in },
+            onSessionKeyFound: { _, _, _, _, _ in },
             onActivateCLI: { .init(title: "Fixture", methodLabel: "Fixture") },
             onLoadCLIPreview: { nil }, onOpenAdvancedSettings: {}, onCancel: {}
         ).background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(.dark)

@@ -95,7 +95,7 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
         XCTAssertEqual(presentation.systemImage, "globe")
     }
 
-    func testChromeProfilePresentationPrefersReadableProfileEmailAndOrganizationName() {
+    func testChromeProfileEmailIsNotPresentedAsVerifiedClaudeOwner() {
         let account = ClaudeAccount(
             id: "web",
             kind: .webSession,
@@ -114,7 +114,7 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
             organizations: [organization]
         )
 
-        XCTAssertEqual(presentation.primaryTitle, "Chrome Nathan · nathan@glorang.com")
+        XCTAssertEqual(presentation.primaryTitle, "Chrome Nathan")
         XCTAssertEqual(presentation.secondaryLine, "Glorang")
         XCTAssertEqual(presentation.statusText, "연결됨")
     }

@@ -97,6 +97,7 @@ extension SettingsView {
     }
 
     func saveVerifiedSessionKey() {
+        guard sessionSaveTask == nil else { return }
         let normalizedKey = normalizeSessionKey(sessionKey)
         if normalizedKey != sessionKey {
             sessionKey = normalizedKey
@@ -113,20 +114,23 @@ extension SettingsView {
             return
         }
 
-        do {
-            try KeychainManager.shared.save(
-                normalizedKey,
-                preferredOrganizationID: normalizeOrganizationID(selectedOrganizationID),
-                displayName: nil,
-                source: .manualInput,
-                sourceDetail: nil
-            )
-            syncClaudeAccountsState()
-            storedSessionKey.markSaved(normalizedKey)
-            testResult = .success("저장했습니다.")
-        } catch {
-            testResult = .failure(error.localizedDescription)
-            Logger.error("세션 키 저장 실패: \(error)")
+        isTesting = true
+        sessionSaveTask = Task { @MainActor in
+            defer { isTesting = false; sessionSaveTask = nil }
+            do {
+                if let onSaveClaudeSession {
+                    try await onSaveClaudeSession(normalizedKey, normalizeOrganizationID(selectedOrganizationID))
+                } else {
+                    try KeychainManager.shared.save(normalizedKey,
+                        preferredOrganizationID: normalizeOrganizationID(selectedOrganizationID),
+                        displayName: nil, source: .manualInput, sourceDetail: nil)
+                }
+                syncClaudeAccountsState()
+                storedSessionKey.markSaved(normalizedKey)
+                testResult = .success("저장했습니다.")
+            } catch {
+                testResult = .failure(error.localizedDescription)
+            }
         }
     }
 

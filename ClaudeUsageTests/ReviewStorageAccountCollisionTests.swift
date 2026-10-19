@@ -67,7 +67,7 @@ final class ReviewStorageAccountCollisionTests: XCTestCase {
         }
     }
 
-    func testHealthyRotatedAccountsMigrateIdempotentlyWhileConflictRefsStayProtected() throws {
+    func testUnverifiedRotatedAccountsStaySeparateWhileConflictRefsStayProtected() throws {
         try withDefaults { defaults in
             let vault = CollisionReviewVault()
             let old = account("healthy-old", source: .chromeProfile, age: 100)
@@ -85,21 +85,21 @@ final class ReviewStorageAccountCollisionTests: XCTestCase {
 
             store.ensureLegacyMigrationIfNeeded()
 
-            XCTAssertEqual(store.accounts().map(\.id), [new.id])
+            XCTAssertEqual(store.accounts().map(\.id), [old.id, new.id])
             XCTAssertEqual(defaults.integer(forKey: ClaudeAccountStore.migrationVersionDefaultsKey), 1)
-            XCTAssertEqual(store.storedAccountIDs(), [new.id, "collision"])
+            XCTAssertEqual(store.storedAccountIDs(), [old.id, new.id, "collision"])
             XCTAssertEqual(defaults.string(forKey: ClaudeAccountStore.activeAccountDefaultsKey), "collision")
             XCTAssertNil(store.activeAccount())
-            XCTAssertEqual(vault.deletedAccounts, [scoped(old.id)])
+            XCTAssertTrue(vault.deletedAccounts.isEmpty)
             XCTAssertEqual(try vault.loadString(account: scoped("collision")), "fixture-collision")
             let beforeRetry = try records(defaults)
             assertJSON(beforeRetry.filter { $0["id"] as? String == "collision" }, [conflictA, conflictB])
             store.ensureLegacyMigrationIfNeeded()
             assertJSON(try records(defaults), beforeRetry)
-            XCTAssertEqual(vault.deletedAccounts, [scoped(old.id)])
+            XCTAssertTrue(vault.deletedAccounts.isEmpty)
             store.setActiveAccountID(new.id)
             XCTAssertEqual(store.activeAccount()?.id, new.id)
-            XCTAssertEqual(store.storedAccountIDs(), [new.id, "collision"])
+            XCTAssertEqual(store.storedAccountIDs(), [old.id, new.id, "collision"])
         }
     }
 
@@ -124,9 +124,8 @@ final class ReviewStorageAccountCollisionTests: XCTestCase {
             XCTAssertFalse(store.canUseAccountID(id))
             XCTAssertEqual(store.storedAccountIDs(), ["healthy", id])
             XCTAssertEqual(defaults.string(forKey: ClaudeAccountStore.activeAccountDefaultsKey), id)
-            let result = store.upsertWebSessionAccountReplacingRotatedChromeSession(sessionKey: session)
+            let result = store.upsertWebSessionAccountWithResult(sessionKey: session)
             XCTAssertFalse(result.wasStored)
-            XCTAssertTrue(result.supersededAccountIDs.isEmpty)
             assertJSON(try records(defaults), saved)
             XCTAssertEqual(try vault.loadString(account: scoped(id)), "protected")
             XCTAssertTrue(vault.deletedAccounts.isEmpty)
@@ -146,12 +145,11 @@ final class ReviewStorageAccountCollisionTests: XCTestCase {
             let store = makeStore(defaults, vault)
             defaults.rejectInventory = true
 
-            let result = store.upsertWebSessionAccountReplacingRotatedChromeSession(
+            let result = store.upsertWebSessionAccountWithResult(
                 sessionKey: "fixture-rotated-session", identity: old.identity,
                 source: .chromeProfile, sourceDetail: old.sourceDetail)
 
             XCTAssertFalse(result.wasStored)
-            XCTAssertTrue(result.supersededAccountIDs.isEmpty)
             XCTAssertEqual(defaults.data(forKey: ClaudeAccountStore.accountsDefaultsKey), original)
             XCTAssertEqual(store.accounts().map(\.id), [old.id])
             store.deleteAccount(id: old.id)

@@ -259,3 +259,17 @@ private extension String {
         return trimmed.isEmpty ? nil : trimmed
     }
 }
+
+nonisolated struct ClaudeBrowserSource: Codable, Equatable, Sendable {
+    let family: ClaudeBrowserFamily
+    let profileName: String
+}
+
+nonisolated enum ClaudeWebSessionSaveIntent {
+    case addAccount
+    case recoverExisting
+
+    func shouldRecover(hasPendingRequest: Bool, authenticationFailed: Bool) -> Bool {
+        self == .recoverExisting && (hasPendingRequest || authenticationFailed)
+    }
+}

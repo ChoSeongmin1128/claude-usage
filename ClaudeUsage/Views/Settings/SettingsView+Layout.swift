@@ -223,6 +223,8 @@ extension SettingsView {
                 updateRuntimeState.bootstrapIfNeeded()
             }
             .onDisappear {
+                sessionSaveTask?.cancel()
+                sessionSaveTask = nil
                 codexAuthCheckTask?.cancel()
                 stopBrowserLoginWatch()
                 antigravitySettings.stopObserving()
@@ -422,6 +424,7 @@ extension SettingsView {
         case .browserImport: onImportClaudeFromBrowser?(nil)
         case .inAppLogin: onOpenLogin?()
         case .sessionKey:
+            onBeginAddingClaudeSession?()
             withAnimation(settings.motion.animation(for: .disclosure, reduceMotion: reduceMotion)) {
                 isAdvancedAuthExpanded = true
             }
