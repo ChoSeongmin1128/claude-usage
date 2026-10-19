@@ -4,21 +4,22 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>ClaudeUsage-stg</title>
         <item>
-            <title>Version 2.10.3-stg.1</title>
-            <pubDate>Fri, 16 Oct 2026 15:30:37 +0900</pubDate>
-            <sparkle:version>20654</sparkle:version>
-            <sparkle:shortVersionString>2.10.3-stg.1</sparkle:shortVersionString>
+            <title>Version 2.10.4-stg.2</title>
+            <pubDate>Mon, 19 Oct 2026 13:47:10 +0900</pubDate>
+            <sparkle:version>20656</sparkle:version>
+            <sparkle:shortVersionString>2.10.4-stg.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.10.3-stg.1/ClaudeUsage.dmg" length="7687195" type="application/octet-stream" sparkle:edSignature="cRvwjELbkYfv4f/Tl3MX6LN8ZeIhof7LljDbyxwgV9fth25ecJWtW5RVZqNM9vI2JdRNN1N+l2m+S7GNqf7uAA=="></enclosure>
-            <description sparkle:format="plain-text"># 2.10.3
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.10.4-stg.2/ClaudeUsage.dmg" length="7799912" type="application/octet-stream" sparkle:edSignature="B2/V7bsER/t4jb2tLUb0UcoxWI4/L901RL09I6eK8WA8iGfZxT/hHh6iRnCGOviDnu4BciG2MTEhxgEnpSYtAA=="></enclosure>
+            <description sparkle:format="plain-text"># 2.10.4
 
-- 메뉴바 호버 패널에서 서비스 상태 위의 구분선이 두 줄로 겹치거나, 모든 서비스가 정상일 때 패널 맨 아래에 구분선이 남던 문제를 고쳤습니다.
-- 장애가 없을 때는 메뉴바 호버 패널이 내용 폭에 맞게 좁아집니다. 장애가 있으면 기존 폭으로 표시합니다.
+- Claude 웹 계정의 실제 이메일과 계정/조직을 확인하여 같은 계정의 웹/Claude Code 연결을 함께 표시합니다.
+- 웹 로그인 만료 후 재시도에서 원래 브라우저 프로필의 새 세션을 확인하고 복구합니다. 다른 계정이나 조직이면 기존 연결을 유지합니다.
+- 연결 교체 시 별칭, 표시 선택, 순서와 고정을 보존합니다.
 </description>
-            <claudeusage:zipSHA256>ab12028ed8f55a41335957e335834b34e105454f33eab4912c3a2a496159649d</claudeusage:zipSHA256>
+            <claudeusage:zipSHA256>4686742fe255cacd4f02846f7cddda7cfb9a35612b22f743639a918d3a9daf08</claudeusage:zipSHA256>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: dKDHkfsCAY+5HjZ+Dd+/5Qnw3jETAEabE8jPxnrOuVwkQ5meATSQe9KrSwxSrxAMAy6SpamXmCDJlSDx64NoBg==
-length: 1724
+edSignature: gKW3+QUnmsypK6J+RKcvhCNuKT6OJIfDSPYbeTPKLZNWkGF0OeWK1JFTPFgrp52qEcO95Yur18r8Gqii4RDkDw==
+length: 1790
 -->
