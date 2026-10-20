@@ -125,7 +125,6 @@ struct PopoverMetricValue: View {
     var caption: String? = nil
     let compact: Bool
     var color: Color = .primary
-    /// nil이면 density에 맞는 기본 글꼴
     var font: Font? = nil
 
     var body: some View {

@@ -16,7 +16,6 @@ struct ProgressBarView: View {
     var height: CGFloat = 8
     var color: Color? = nil
     var basis: UsageValueBasis = .used
-    /// nil이면 캡슐(height / 2)
     var cornerRadius: CGFloat? = nil
 
     var body: some View {

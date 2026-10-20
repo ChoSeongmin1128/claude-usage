@@ -122,7 +122,6 @@ struct PopoverView: View {
             .frame(height: layoutSpec.bodyRegionHeight, alignment: .topLeading)
             .clipped()
 
-            // Compact는 행만 남기고, 설정·종료는 메뉴바 우클릭 메뉴로 연다.
             if !isCompact {
                 Divider().padding(.horizontal, edgeInset)
 
@@ -139,7 +138,6 @@ struct PopoverView: View {
                     }
                 }
                 .padding(.horizontal, edgeInset)
-                // 아이콘 버튼은 투명한 여백을 품고 있어 아래쪽을 조금 더 띄워야 위 여백과 균형이 맞는다.
                 .padding(.bottom, AppDesign.Space.compact)
                 .frame(height: PopoverLayoutMetrics.standardFooterContainerHeight)
             }

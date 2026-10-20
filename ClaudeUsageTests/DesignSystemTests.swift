@@ -59,12 +59,10 @@ final class DesignSystemTests: XCTestCase {
                         let text = try composite(NSColor(AppDesign.Text.secondary), on: background)
                         XCTAssertGreaterThanOrEqual(contrast(text, background), 4.5, "Small secondary text: \(scheme)")
                     }
-                    // 사용량 행 단계는 팝오버 바탕에만 쓰인다.
                     for (name, tier) in [("label", AppDesign.Text.label), ("faint", AppDesign.Text.faint)] {
                         let text = try composite(NSColor(tier), on: canvas)
                         XCTAssertGreaterThanOrEqual(contrast(text, canvas), 4.5, "Small \(name) text: \(scheme)")
                     }
-                    // 행 안의 위계: label은 faint보다 또렷해야 한다.
                     XCTAssertGreaterThan(
                         contrast(try composite(NSColor(AppDesign.Text.label), on: canvas), canvas),
                         contrast(try composite(NSColor(AppDesign.Text.faint), on: canvas), canvas) + 1,

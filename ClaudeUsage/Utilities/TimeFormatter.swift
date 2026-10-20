@@ -8,8 +8,6 @@
 import Foundation
 
 enum TimeFormatter {
-    /// `formatUsageResetDetail`의 "상대 시간 · 절대 시각" 구분자.
-    /// 뷰가 같은 값으로 두 부분을 나눈다.
     nonisolated static let usageResetDetailSeparator = " · "
 
     /// Keep provider timestamps inside Foundation's supported distant-date bounds.

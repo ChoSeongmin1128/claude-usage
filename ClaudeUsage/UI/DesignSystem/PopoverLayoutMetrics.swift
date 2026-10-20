@@ -5,14 +5,11 @@ import SwiftUI
 enum PopoverLayoutMetrics {
     static let standardPopoverWidth: CGFloat = 340
     static let compactPopoverWidth: CGFloat = 296
-    /// 둥근 모서리에 요소가 붙어 보이지 않도록 헤더·본문·푸터가 상하좌우 같은 여백을 쓴다.
     static let standardEdgeInset: CGFloat = 14
     static let compactEdgeInset: CGFloat = 12
-    /// 위 여백 + 선택 버튼 26 + 상태 레일 12 + 아래 4.
     static let standardHeaderContainerHeight: CGFloat = standardEdgeInset + 26 + 12 + 4
     static let standardFooterContainerHeight: CGFloat = 40
     static let standardMainSectionBottomSpacing: CGFloat = 2
-    /// 위 여백 + 선택 버튼 20 + 아래 6. Compact에는 하단 버튼 줄이 없다.
     static let compactHeaderHeight: CGFloat = compactEdgeInset + 20 + 6
     static let designIntroductionHeight: CGFloat = 62
     static let dividerHeight: CGFloat = 1
@@ -60,9 +57,7 @@ enum PopoverLayoutMetrics {
         AppDesign.Control.compactHitSize + AppDesign.Space.control + compactStatusMessageHeight
     static let compactMaximumVisibleRows = 5
     static let compactMinimumPopoverHeight: CGFloat = 96
-    /// 본문 아래 inset과 합쳐 아래 여백이 `compactEdgeInset`이 되게 한다.
     static let compactContentBottomSpacing: CGFloat = compactEdgeInset - compactBodyInsets.bottom
-    /// 세로 스택: 18pt bold 값 줄(22) + 5 + 진행바 6 + 5 + 12pt 상세 줄(15). NSFont line height 기준.
     static let standardUsageRowHeight: CGFloat = 53
     static let standardUsageRowBarHeight: CGFloat = 6
     static let standardUsageRowSpacing: CGFloat = 5
@@ -78,7 +73,6 @@ enum PopoverLayoutMetrics {
     static let standardLaneSpacing: CGFloat = 4
     /// Standard 콘텐츠 사이에는 divider 1pt와 위아래 여백 8pt가 들어간다.
     static let standardContentDividerHeight: CGFloat = 17
-    /// 사용량 행 5개가 스크롤 없이 들어가는 높이.
     static let standardMaximumBodyHeight: CGFloat = standardUsageRowHeight * 5 + standardContentDividerHeight * 4
     static let standardStatusPanelHeight: CGFloat = 72
     static let standardInteractiveStatusPanelHeight: CGFloat = 88

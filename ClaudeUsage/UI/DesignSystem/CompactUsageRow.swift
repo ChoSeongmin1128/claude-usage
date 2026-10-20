@@ -52,7 +52,6 @@ struct CompactUsageRow: View {
         if showsResetDetail, let compactResetText {
             HStack(alignment: .firstTextBaseline, spacing: AppDesign.Space.compact) {
                 labelText
-                // 갱신 시각이 라벨보다 앞서 읽히도록 primary로 둔다.
                 Text(compactResetText)
                     .font(AppDesign.Typography.metadata)
                     .foregroundStyle(.primary)
