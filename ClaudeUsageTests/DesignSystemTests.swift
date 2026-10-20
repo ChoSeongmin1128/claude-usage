@@ -59,6 +59,16 @@ final class DesignSystemTests: XCTestCase {
                         let text = try composite(NSColor(AppDesign.Text.secondary), on: background)
                         XCTAssertGreaterThanOrEqual(contrast(text, background), 4.5, "Small secondary text: \(scheme)")
                     }
+                    // 사용량 행 단계는 팝오버 바탕에만 쓰인다.
+                    for (name, tier) in [("label", AppDesign.Text.label), ("faint", AppDesign.Text.faint)] {
+                        let text = try composite(NSColor(tier), on: canvas)
+                        XCTAssertGreaterThanOrEqual(contrast(text, canvas), 4.5, "Small \(name) text: \(scheme)")
+                    }
+                    // 행 안의 위계: label은 faint보다 또렷해야 한다.
+                    XCTAssertGreaterThan(
+                        contrast(try composite(NSColor(AppDesign.Text.label), on: canvas), canvas),
+                        contrast(try composite(NSColor(AppDesign.Text.faint), on: canvas), canvas) + 1,
+                        "Label tier must be a clear step above faint: \(scheme)")
                     let boundary = try composite(NSColor(AppDesign.Surface.boundary), on: editable)
                     XCTAssertGreaterThanOrEqual(contrast(boundary, editable), 3, "Editable boundary: \(scheme)")
                     for color: NSColor in [.systemGreen, .systemOrange, .systemRed] {
@@ -539,7 +549,7 @@ final class DesignSystemTests: XCTestCase {
                 .coordinateSpace(name: "popover-row-geometry")
                 .onPreferenceChange(PopoverRowFramesPreferenceKey.self) { measured.recordFrames($0) }
                 let image = try renderHosted(row, appearance: .darkAqua)
-                XCTAssertEqual(image.size.height, density.isCompact ? 18 : 36, accuracy: 0.5)
+                XCTAssertEqual(image.size.height, density.isCompact ? 18 : 53, accuracy: 0.5)
                 let observed = measured.snapshot()
                 let track = try XCTUnwrap(observed.frames["track"])
                 let value = try XCTUnwrap(observed.frames["value"])
@@ -655,7 +665,7 @@ final class DesignSystemTests: XCTestCase {
                     PopoverDisplaySectionView(section: section, density: density).frame(width: contentWidth),
                     appearance: .darkAqua)
                 let expectedHeight: CGFloat =
-                    density.isCompact ? 18 : section.kind == .usage ? 36 : section.kind == .credits ? 42 : 38
+                    density.isCompact ? 18 : section.kind == .usage ? 53 : section.kind == .credits ? 42 : 38
                 XCTAssertEqual(row.size.height, expectedHeight, accuracy: 0.5, section.id)
             }
             let gallery = VStack(alignment: .leading, spacing: AppDesign.Space.row) {

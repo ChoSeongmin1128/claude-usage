@@ -16,16 +16,18 @@ struct ProgressBarView: View {
     var height: CGFloat = 8
     var color: Color? = nil
     var basis: UsageValueBasis = .used
+    /// nil이면 캡슐(height / 2)
+    var cornerRadius: CGFloat? = nil
 
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
                 // 배경
-                RoundedRectangle(cornerRadius: height / 2)
+                RoundedRectangle(cornerRadius: cornerRadius ?? height / 2)
                     .fill(AppDesign.Surface.track)
 
                 // 진행바
-                RoundedRectangle(cornerRadius: height / 2)
+                RoundedRectangle(cornerRadius: cornerRadius ?? height / 2)
                     .fill(color ?? ColorProvider.statusColor(for: percentage))
                     .frame(width: geometry.size.width * CGFloat(basis.percentage(fromUsed: percentage) ?? 0) / 100)
                     .animation(

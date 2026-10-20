@@ -247,12 +247,6 @@ final class PopoverViewModel: ObservableObject {
         self.onLayoutChanged?(service, reason)
     }
 
-    func openExternalAction(
-        _ action: ProviderExternalAction
-    ) {
-        NSWorkspace.shared.open(action.destination)
-    }
-
     var shouldShowUpdateButton: Bool {
         updateRuntimeState.showsPopoverButton
     }

@@ -125,11 +125,13 @@ struct PopoverMetricValue: View {
     var caption: String? = nil
     let compact: Bool
     var color: Color = .primary
+    /// nil이면 density에 맞는 기본 글꼴
+    var font: Font? = nil
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: AppDesign.Space.micro) {
             Text(text)
-                .font(compact ? AppDesign.Typography.compactValue : AppDesign.Typography.number)
+                .font(font ?? (compact ? AppDesign.Typography.compactMetricValue : AppDesign.Typography.number))
                 .foregroundStyle(color)
                 .monospacedDigit()
                 .lineLimit(1)
@@ -137,7 +139,7 @@ struct PopoverMetricValue: View {
                 .frame(maxWidth: .infinity, alignment: .trailing)
             Text(caption ?? "")
                 .font(AppDesign.Typography.caption2)
-                .foregroundStyle(AppDesign.Text.secondary)
+                .foregroundStyle(AppDesign.Text.faint)
                 .frame(width: PopoverLayoutMetrics.metricCaptionWidth, alignment: .trailing)
         }
     }

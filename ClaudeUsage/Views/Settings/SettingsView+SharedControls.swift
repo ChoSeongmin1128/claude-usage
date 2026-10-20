@@ -388,26 +388,35 @@ private struct ProviderPopoverPreviewView: View {
         }
     }
 
+    private var previewEdgeInset: CGFloat {
+        mode.isCompact ? PopoverLayoutMetrics.compactEdgeInset : PopoverLayoutMetrics.standardEdgeInset
+    }
+
     @ViewBuilder
     private var popoverFrame: some View {
         VStack(alignment: .leading, spacing: 0) {
             previewHeader
-                .padding(.horizontal, mode.isCompact ? AppDesign.Space.content : AppDesign.Space.section)
+                .padding(.horizontal, previewEdgeInset)
+                .padding(.top, previewEdgeInset)
                 .frame(
                     height: mode.isCompact
-                        ? PopoverLayoutMetrics.compactHeaderHeight : PopoverLayoutMetrics.standardHeaderContainerHeight)
+                        ? PopoverLayoutMetrics.compactHeaderHeight : PopoverLayoutMetrics.standardHeaderContainerHeight,
+                    alignment: .top)
 
             previewBody
                 .padding(
                     mode.isCompact ? PopoverLayoutMetrics.compactBodyInsets : PopoverLayoutMetrics.standardBodyInsets)
 
-            Divider()
+            if mode.isCompact {
+                Spacer().frame(height: PopoverLayoutMetrics.compactContentBottomSpacing)
+            } else {
+                Divider().padding(.horizontal, previewEdgeInset)
 
-            previewFooter
-                .padding(.horizontal, mode.isCompact ? AppDesign.Space.content : AppDesign.Space.section)
-                .frame(
-                    height: mode.isCompact
-                        ? PopoverLayoutMetrics.compactFooterHeight : PopoverLayoutMetrics.standardFooterContainerHeight)
+                previewFooter
+                    .padding(.horizontal, previewEdgeInset)
+                    .padding(.bottom, AppDesign.Space.compact)
+                    .frame(height: PopoverLayoutMetrics.standardFooterContainerHeight)
+            }
         }
         .frame(width: PopoverLayoutMetrics.preferredPopoverWidth(compact: mode.isCompact), alignment: .topLeading)
         .background(.regularMaterial)
@@ -459,12 +468,6 @@ private struct ProviderPopoverPreviewView: View {
 
     private var previewFooter: some View {
         HStack(spacing: AppDesign.Space.compact) {
-            ProviderExternalActionsView(
-                provider: service.providerKind,
-                compact: mode.isCompact,
-                isInteractive: false
-            ) { _ in }
-
             Spacer()
 
             IconActionButton(symbol: "slider.horizontal.3", label: "표시 항목 편집", compact: mode.isCompact) {}

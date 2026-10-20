@@ -20,7 +20,7 @@ struct CompactUsageRow: View {
         } middle: {
             ProgressBarView(
                 percentage: percentage, height: PopoverLayoutMetrics.compactProgressBarHeight,
-                color: color, basis: basis)
+                color: color, basis: basis, cornerRadius: PopoverLayoutMetrics.compactProgressBarCornerRadius)
         } value: {
             UsagePercentageLabel(
                 percentage: percentage, basis: basis, compact: true,
@@ -50,28 +50,26 @@ struct CompactUsageRow: View {
     @ViewBuilder
     private var compactLabelLine: some View {
         if showsResetDetail, let compactResetText {
-            HStack(alignment: .firstTextBaseline, spacing: AppDesign.Space.tight) {
-                Text(label)
-                    .font(AppDesign.Typography.caption.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1).minimumScaleFactor(0.85).truncationMode(.tail)
-                Text("· " + compactResetText)
+            HStack(alignment: .firstTextBaseline, spacing: AppDesign.Space.compact) {
+                labelText
+                // 갱신 시각이 라벨보다 앞서 읽히도록 primary로 둔다.
+                Text(compactResetText)
                     .font(AppDesign.Typography.metadata)
-                    .foregroundStyle(AppDesign.Text.secondary)
+                    .foregroundStyle(.primary)
                     .fixedSize(horizontal: true, vertical: false)
             }
         } else {
-            Text(label)
-                .font(
-                    .caption.weight(
-                        .semibold
-                    )
-                )
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-                .truncationMode(.tail)
+            labelText
         }
+    }
+
+    private var labelText: some View {
+        Text(label)
+            .font(AppDesign.Typography.caption.weight(.medium))
+            .foregroundStyle(AppDesign.Text.label)
+            .lineLimit(1)
+            .minimumScaleFactor(0.85)
+            .truncationMode(.tail)
     }
 
     private var compactResetText: String? {

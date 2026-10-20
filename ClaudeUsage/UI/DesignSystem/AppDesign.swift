@@ -55,6 +55,7 @@ enum AppDesign {
         static let metadata: CGFloat = 11
         static let number: CGFloat = 16
         static let compactNumber: CGFloat = 13
+        static let usageNumber: CGFloat = 18
     }
 
     enum Typography {
@@ -70,7 +71,12 @@ enum AppDesign {
         static let metadata = caption2
         static let compactIdentity = caption2
         static let number = Font.system(size: FontSize.number, weight: .semibold)
+        /// Standard 사용량 행의 퍼센트.
+        /// 행 높이(`PopoverLayoutMetrics.standardUsageRowHeight`)가 이 크기에 묶여 있다.
+        static let usageValue = Font.system(size: FontSize.usageNumber, weight: .bold)
         static let compactValue = Font.system(size: FontSize.compactNumber, weight: .semibold)
+        /// Compact 팝오버 행의 퍼센트. "100%"가 `metricValueWidth` 안에 줄지 않고 들어가는 크기다.
+        static let compactMetricValue = Font.system(size: FontSize.compactNumber, weight: .bold)
         static let icon = Font.system(size: FontSize.detail)
         static let smallIcon = Font.system(size: FontSize.metadata, weight: .semibold)
         static let noticeIcon = Font.system(size: 16, weight: .semibold)
@@ -79,8 +85,11 @@ enum AppDesign {
         static let failureIcon = Font.system(size: 44)
         static let successIcon = Font.system(size: 56)
 
+        // `compactMetricValue`/`number`와 같은 글꼴이어야 PopoverMetricRow의 베이스라인 계산이 맞는다.
         static func metricFont(compact: Bool) -> NSFont {
-            NSFont.systemFont(ofSize: compact ? FontSize.compactNumber : FontSize.number, weight: .semibold)
+            compact
+                ? NSFont.systemFont(ofSize: FontSize.compactNumber, weight: .bold)
+                : NSFont.systemFont(ofSize: FontSize.number, weight: .semibold)
         }
     }
 
@@ -99,6 +108,25 @@ enum AppDesign {
     enum Text {
         // Keep small secondary text readable on both native content and editable surfaces.
         static let secondary = Color.primary.opacity(0.85)
+        // 팝오버 사용량 행 전용 단계. 행은 팝오버 바탕 위에만 놓이므로 그 위에서 4.5:1을 지킨다.
+        /// 사용량 행 제목. `faint`보다 한 단계 밝고 `primary`(0.85)보다는 물러나 있다.
+        static let label = tier(light: 0.68, dark: 0.60)
+        /// 시계·기준 캡션처럼 가장 뒤로 물러나는 글자.
+        static let faint = tier(light: 0.56, dark: 0.48)
+
+        /// `labelColor`의 절대 알파를 모양별로 고른다.
+        /// (`Color.primary.opacity`는 labelColor 자체 알파 0.85와 곱해져 더 흐려진다.)
+        private static func tier(light: CGFloat, dark: CGFloat) -> Color {
+            Color(
+                nsColor: NSColor(name: nil) { appearance in
+                    let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                    var resolved = NSColor.labelColor
+                    appearance.performAsCurrentDrawingAppearance {
+                        resolved = NSColor.labelColor.usingColorSpace(.deviceRGB) ?? .labelColor
+                    }
+                    return resolved.withAlphaComponent(isDark ? dark : light)
+                })
+        }
 
         static func status(_ color: Color, scheme: ColorScheme) -> Color {
             guard scheme == .light else { return color }
