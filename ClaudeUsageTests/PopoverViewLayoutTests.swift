@@ -534,11 +534,7 @@ final class PopoverViewLayoutTests: XCTestCase {
         )
         XCTAssertEqual(
             PopoverLayoutMetrics.standardPopoverHeight(
-                forBodyHeight:
-                    PopoverLayoutMetrics
-                        .standardAntigravityContentHeight(
-                            laneCounts: [2, 2]
-                        )
+                forBodyHeight: PopoverLayoutMetrics.standardAntigravityContentHeight(laneCounts: [2, 2])
             ),
             402
         )
@@ -553,9 +549,7 @@ final class PopoverViewLayoutTests: XCTestCase {
         )
         XCTAssertEqual(
             PopoverLayoutMetrics.standardPopoverHeight(
-                forBodyHeight:
-                    PopoverLayoutMetrics
-                        .standardMaximumBodyHeight
+                forBodyHeight: PopoverLayoutMetrics.standardMaximumBodyHeight
             ),
             452
         )
