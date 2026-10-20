@@ -55,6 +55,7 @@ enum AppDesign {
         static let metadata: CGFloat = 11
         static let number: CGFloat = 16
         static let compactNumber: CGFloat = 13
+        static let usageNumber: CGFloat = 18
     }
 
     enum Typography {
@@ -70,7 +71,9 @@ enum AppDesign {
         static let metadata = caption2
         static let compactIdentity = caption2
         static let number = Font.system(size: FontSize.number, weight: .semibold)
+        static let usageValue = Font.system(size: FontSize.usageNumber, weight: .bold)
         static let compactValue = Font.system(size: FontSize.compactNumber, weight: .semibold)
+        static let compactMetricValue = Font.system(size: FontSize.compactNumber, weight: .bold)
         static let icon = Font.system(size: FontSize.detail)
         static let smallIcon = Font.system(size: FontSize.metadata, weight: .semibold)
         static let noticeIcon = Font.system(size: 16, weight: .semibold)
@@ -80,7 +83,9 @@ enum AppDesign {
         static let successIcon = Font.system(size: 56)
 
         static func metricFont(compact: Bool) -> NSFont {
-            NSFont.systemFont(ofSize: compact ? FontSize.compactNumber : FontSize.number, weight: .semibold)
+            compact
+                ? NSFont.systemFont(ofSize: FontSize.compactNumber, weight: .bold)
+                : NSFont.systemFont(ofSize: FontSize.number, weight: .semibold)
         }
     }
 
@@ -99,6 +104,20 @@ enum AppDesign {
     enum Text {
         // Keep small secondary text readable on both native content and editable surfaces.
         static let secondary = Color.primary.opacity(0.85)
+        static let label = tier(light: 0.68, dark: 0.60)
+        static let faint = tier(light: 0.56, dark: 0.48)
+
+        private static func tier(light: CGFloat, dark: CGFloat) -> Color {
+            Color(
+                nsColor: NSColor(name: nil) { appearance in
+                    let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                    var resolved = NSColor.labelColor
+                    appearance.performAsCurrentDrawingAppearance {
+                        resolved = NSColor.labelColor.usingColorSpace(.deviceRGB) ?? .labelColor
+                    }
+                    return resolved.withAlphaComponent(isDark ? dark : light)
+                })
+        }
 
         static func status(_ color: Color, scheme: ColorScheme) -> Color {
             guard scheme == .light else { return color }

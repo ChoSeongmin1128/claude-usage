@@ -784,7 +784,7 @@ final class PopoverViewModelTests: XCTestCase {
         viewModel.antigravityRuntimeSnapshot = antigravityRuntimeSnapshot()
         let quotaFreeSize = viewModel.layoutSpec(for: .antigravity, settings: settings).size
 
-        XCTAssertEqual(lanedSize.width, 368)
+        XCTAssertEqual(lanedSize.width, PopoverLayoutMetrics.standardPopoverWidth)
         XCTAssertGreaterThan(lanedSize.height, quotaFreeSize.height)
     }
 

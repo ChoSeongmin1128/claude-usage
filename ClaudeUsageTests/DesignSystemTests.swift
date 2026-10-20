@@ -59,6 +59,14 @@ final class DesignSystemTests: XCTestCase {
                         let text = try composite(NSColor(AppDesign.Text.secondary), on: background)
                         XCTAssertGreaterThanOrEqual(contrast(text, background), 4.5, "Small secondary text: \(scheme)")
                     }
+                    for (name, tier) in [("label", AppDesign.Text.label), ("faint", AppDesign.Text.faint)] {
+                        let text = try composite(NSColor(tier), on: canvas)
+                        XCTAssertGreaterThanOrEqual(contrast(text, canvas), 4.5, "Small \(name) text: \(scheme)")
+                    }
+                    XCTAssertGreaterThan(
+                        contrast(try composite(NSColor(AppDesign.Text.label), on: canvas), canvas),
+                        contrast(try composite(NSColor(AppDesign.Text.faint), on: canvas), canvas) + 1,
+                        "Label tier must be a clear step above faint: \(scheme)")
                     let boundary = try composite(NSColor(AppDesign.Surface.boundary), on: editable)
                     XCTAssertGreaterThanOrEqual(contrast(boundary, editable), 3, "Editable boundary: \(scheme)")
                     for color: NSColor in [.systemGreen, .systemOrange, .systemRed] {
@@ -162,7 +170,7 @@ final class DesignSystemTests: XCTestCase {
                 density: .compact, icon: "slider.horizontal.3", iconColor: .secondary,
                 showsProgress: false, title: "표시할 항목 없음", message: "표시 편집에서 최소 한 항목을 선택해 주세요.",
                 actionTitle: "표시 편집", actionStyle: .bordered, action: {}
-            ).frame(width: 276)
+            ).frame(width: contentWidth(compact: true))
             let image = try render(panel)
             XCTAssertGreaterThanOrEqual(layout.spec.bodyContentHeight, image.size.height)
             XCTAssertEqual(layout.spec.bodyContentHeight, PopoverLayoutMetrics.compactInteractiveStatusPanelHeight)
@@ -192,7 +200,7 @@ final class DesignSystemTests: XCTestCase {
             density: .compact, icon: "exclamationmark.triangle", iconColor: .orange, showsProgress: false,
             title: "사용량 갱신 실패", message: "네트워크 연결을 확인한 뒤\n다시 시도해 주세요.",
             actionTitle: "다시 시도", actionStyle: .bordered, action: {}
-        ).frame(width: 276)
+        ).frame(width: contentWidth(compact: true))
         let image = try renderHosted(panel, appearance: .darkAqua)
         XCTAssertEqual(image.size.height, PopoverLayoutMetrics.compactInteractiveStatusPanelHeight, accuracy: 0.5)
         attach(image, "Two-line compact failure and retry")
@@ -203,7 +211,9 @@ final class DesignSystemTests: XCTestCase {
             let model = makeModel(settings: settings)
             let sections = model.displaySections(for: .claude, density: .compact, settings: settings)
             XCTAssertEqual(sections.count, 3)
-            let image = try render(PopoverCatalogSectionList(sections: sections, density: .compact).frame(width: 276))
+            let image = try render(
+                PopoverCatalogSectionList(sections: sections, density: .compact).frame(
+                    width: contentWidth(compact: true)))
             XCTAssertEqual(
                 image.size.height, PopoverLayoutMetrics.compactContentBodyHeight(rowCount: sections.count),
                 accuracy: 0.5)
@@ -475,7 +485,7 @@ final class DesignSystemTests: XCTestCase {
             payload: .credits(.init(credits: credits)))
         let gallerySections = [quotaSection] + sections + [creditSection]
         for density in [PopoverDensity.standard, .compact] {
-            let width: CGFloat = density.isCompact ? 276 : 336
+            let width = contentWidth(compact: density.isCompact)
             let rowHeight =
                 density.isCompact
                 ? PopoverLayoutMetrics.compactCreditsRowHeight : PopoverLayoutMetrics.standardSecondaryUsageRowHeight
@@ -513,7 +523,7 @@ final class DesignSystemTests: XCTestCase {
 
     func testMetricRowKeepsTrackAndValueGeometryAcrossDigitAndDetailChanges() throws {
         for density in [PopoverDensity.standard, .compact] {
-            let width: CGFloat = density.isCompact ? 276 : 336
+            let width = contentWidth(compact: density.isCompact)
             var reference: (track: CGRect, value: CGRect, baseline: CGFloat)?
             for amount in [0.0, 9, 10, 100] {
                 let measured = PopoverRowGeometryRecorder()
@@ -539,7 +549,7 @@ final class DesignSystemTests: XCTestCase {
                 .coordinateSpace(name: "popover-row-geometry")
                 .onPreferenceChange(PopoverRowFramesPreferenceKey.self) { measured.recordFrames($0) }
                 let image = try renderHosted(row, appearance: .darkAqua)
-                XCTAssertEqual(image.size.height, density.isCompact ? 18 : 36, accuracy: 0.5)
+                XCTAssertEqual(image.size.height, density.isCompact ? 18 : 53, accuracy: 0.5)
                 let observed = measured.snapshot()
                 let track = try XCTUnwrap(observed.frames["track"])
                 let value = try XCTUnwrap(observed.frames["value"])
@@ -649,13 +659,13 @@ final class DesignSystemTests: XCTestCase {
         let agy = AntigravityQuotaPresentationMapper.map(
             snapshot: quota, settings: .default, basisOverride: .remaining, now: now)
         for density in [PopoverDensity.standard, .compact] {
-            let contentWidth: CGFloat = density.isCompact ? 276 : 336
+            let contentWidth = self.contentWidth(compact: density.isCompact)
             for section in sections {
                 let row = try renderHosted(
                     PopoverDisplaySectionView(section: section, density: density).frame(width: contentWidth),
                     appearance: .darkAqua)
                 let expectedHeight: CGFloat =
-                    density.isCompact ? 18 : section.kind == .usage ? 36 : section.kind == .credits ? 42 : 38
+                    density.isCompact ? 18 : section.kind == .usage ? 53 : section.kind == .credits ? 42 : 38
                 XCTAssertEqual(row.size.height, expectedHeight, accuracy: 0.5, section.id)
             }
             let gallery = VStack(alignment: .leading, spacing: AppDesign.Space.row) {
@@ -677,7 +687,8 @@ final class DesignSystemTests: XCTestCase {
             .preferredColorScheme(.dark)
             let controller = NSHostingController(rootView: gallery)
             controller.sizingOptions = []
-            let size = controller.sizeThatFits(in: CGSize(width: density.isCompact ? 296 : 368, height: 2000))
+            let size = controller.sizeThatFits(
+                in: CGSize(width: PopoverLayoutMetrics.preferredPopoverWidth(compact: density.isCompact), height: 2000))
             // Native host/capture success and row heights are automated. The actual
             // provider assemblies, numeric/caption baselines and track edges are
             // visually reviewed from these two unmodified original images.
@@ -685,6 +696,11 @@ final class DesignSystemTests: XCTestCase {
                 try await renderSettingsOffscreen(gallery, size: size, appearance: .darkAqua),
                 "Popover-row-boundaries-\(density.isCompact ? "compact" : "standard")")
         }
+    }
+
+    private func contentWidth(compact: Bool) -> CGFloat {
+        let insets = compact ? PopoverLayoutMetrics.compactBodyInsets : PopoverLayoutMetrics.standardBodyInsets
+        return PopoverLayoutMetrics.preferredPopoverWidth(compact: compact) - insets.leading - insets.trailing
     }
 
     private var usage: ClaudeUsageResponse {

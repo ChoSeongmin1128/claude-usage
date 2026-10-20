@@ -17,16 +17,20 @@ final class AntigravityQuotaPresentationRenderingTests: XCTestCase {
                     AntigravityQuotaGroupView(group: group)
                 }
             }
-            .frame(width: 336)
-            .padding(16)
+            .frame(width: contentWidth(compact: false))
+            .padding(PopoverLayoutMetrics.standardBodyInsets)
             .background(Color(nsColor: .windowBackgroundColor))
             .preferredColorScheme(scheme)
 
             let image = try render(view)
 
-            XCTAssertEqual(image.size.width, 368, accuracy: 0.5)
+            XCTAssertEqual(image.size.width, PopoverLayoutMetrics.standardPopoverWidth, accuracy: 0.5)
             XCTAssertGreaterThan(image.size.height, 120)
-            XCTAssertLessThan(image.size.height, 290)
+            XCTAssertLessThan(
+                image.size.height,
+                PopoverLayoutMetrics.standardMaximumBodyHeight
+                    + PopoverLayoutMetrics.standardBodyInsets.top
+                    + PopoverLayoutMetrics.standardBodyInsets.bottom)
             addAttachment(
                 image,
                 name: "Antigravity standard usage rows \(scheme)"
@@ -45,16 +49,17 @@ final class AntigravityQuotaPresentationRenderingTests: XCTestCase {
                 presentation: presentation.compact
             )
         }
-        .frame(width: 276)
-        .padding(10)
+        .frame(width: contentWidth(compact: true))
+        .padding(PopoverLayoutMetrics.compactBodyInsets)
         .background(Color(nsColor: .windowBackgroundColor))
         .preferredColorScheme(.dark)
 
         let image = try render(view)
 
-        XCTAssertEqual(image.size.width, 296, accuracy: 0.5)
+        XCTAssertEqual(image.size.width, PopoverLayoutMetrics.compactPopoverWidth, accuracy: 0.5)
         XCTAssertGreaterThan(image.size.height, 90)
-        let rows = try render(AntigravityCompactQuotaView(presentation: presentation.compact).frame(width: 276))
+        let rows = try render(
+            AntigravityCompactQuotaView(presentation: presentation.compact).frame(width: contentWidth(compact: true)))
         XCTAssertEqual(
             rows.size.height,
             PopoverLayoutMetrics.compactContentBodyHeight(rowCount: presentation.compact.metrics.count),
@@ -87,16 +92,19 @@ final class AntigravityQuotaPresentationRenderingTests: XCTestCase {
         let presentation = AntigravityQuotaPresentationMapper.map(snapshot: snapshot, settings: settings, now: now)
         let metric = try XCTUnwrap(presentation.compact.metrics.first)
         XCTAssertEqual(metric.label, "Gemini")
-        let agy = AntigravityCompactQuotaView(presentation: presentation.compact).frame(width: 276)
+        let agy = AntigravityCompactQuotaView(presentation: presentation.compact).frame(
+            width: contentWidth(compact: true))
         let claude = CompactUsageRow(
             label: "Fable", percentage: 25, resetAt: metric.resetAt, isWeekly: true, timeFormatStyle: .remaining
-        ).frame(width: 276)
+        ).frame(width: contentWidth(compact: true))
         XCTAssertEqual(try render(agy).size.height, 18, accuracy: 0.5)
         XCTAssertEqual(try render(claude).size.height, try render(agy).size.height, accuracy: 0.5)
         let rows = VStack(spacing: PopoverLayoutMetrics.compactSectionSpacing) {
             claude; agy
         }
-        .padding(10).frame(width: 296).background(Color(nsColor: .windowBackgroundColor))
+        .padding(PopoverLayoutMetrics.compactBodyInsets)
+        .frame(width: PopoverLayoutMetrics.compactPopoverWidth)
+        .background(Color(nsColor: .windowBackgroundColor))
         addAttachment(try render(rows), name: "Claude and AGY shared single-line weekly reset")
     }
 
@@ -135,8 +143,8 @@ final class AntigravityQuotaPresentationRenderingTests: XCTestCase {
         )
         let group = try XCTUnwrap(presentation.groups.first)
         let view = AntigravityQuotaGroupView(group: group)
-            .frame(width: 336)
-            .padding(16)
+            .frame(width: contentWidth(compact: false))
+            .padding(PopoverLayoutMetrics.standardBodyInsets)
             .background(Color(nsColor: .windowBackgroundColor))
 
         let image = try render(view)
@@ -151,6 +159,11 @@ final class AntigravityQuotaPresentationRenderingTests: XCTestCase {
             image,
             name: "Antigravity unknown unavailable lane"
         )
+    }
+
+    private func contentWidth(compact: Bool) -> CGFloat {
+        let insets = compact ? PopoverLayoutMetrics.compactBodyInsets : PopoverLayoutMetrics.standardBodyInsets
+        return PopoverLayoutMetrics.preferredPopoverWidth(compact: compact) - insets.leading - insets.trailing
     }
 
     private func makePresentation() -> AntigravityQuotaPresentation {

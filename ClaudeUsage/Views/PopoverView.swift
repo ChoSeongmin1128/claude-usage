@@ -82,10 +82,12 @@ struct PopoverView: View {
                     providerStatusRail.frame(height: 12)
                 }
             }
-            .padding(.horizontal, isCompact ? 12 : 16)
+            .padding(.horizontal, edgeInset)
+            .padding(.top, edgeInset)
             .frame(
                 height: isCompact
-                    ? PopoverLayoutMetrics.compactHeaderHeight : PopoverLayoutMetrics.standardHeaderContainerHeight)
+                    ? PopoverLayoutMetrics.compactHeaderHeight : PopoverLayoutMetrics.standardHeaderContainerHeight,
+                alignment: .top)
 
             if layoutSpec.designIntroductionHeight > 0 {
                 VStack(alignment: .leading, spacing: AppDesign.Space.control) {
@@ -120,37 +122,24 @@ struct PopoverView: View {
             .frame(height: layoutSpec.bodyRegionHeight, alignment: .topLeading)
             .clipped()
 
-            Divider().padding(.horizontal, isCompact ? AppDesign.Space.content : AppDesign.Space.section)
-
-            HStack(spacing: AppDesign.Space.compact) {
-                ProviderExternalActionsView(provider: selectedService.providerKind, compact: isCompact) {
-                    viewModel.openExternalAction($0)
-                }
-                Spacer(minLength: AppDesign.Space.compact)
-                IconActionButton(symbol: "slider.horizontal.3", label: "팝업 표시 설정", compact: isCompact) {
-                    openPopoverSettings()
-                }
-                IconActionButton(symbol: "gearshape", label: "설정 열기", compact: isCompact) {
-                    viewModel.openSettings()
-                }
-                IconActionButton(symbol: "power", label: "\(AppDistribution.current.appName) 종료", compact: isCompact) {
-                    NSApplication.shared.terminate(nil)
-                }
-            }
-            .padding(.horizontal, isCompact ? AppDesign.Space.content : AppDesign.Space.section)
-            .frame(
-                height: isCompact
-                    ? PopoverLayoutMetrics.compactFooterHeight : PopoverLayoutMetrics.standardFooterContainerHeight)
-
             if !isCompact {
-                HStack(spacing: AppDesign.Space.row) {
-                    Text("⌘R 새로고침")
-                    Text("⌘, 설정")
+                Divider().padding(.horizontal, edgeInset)
+
+                HStack(spacing: AppDesign.Space.compact) {
+                    Spacer(minLength: AppDesign.Space.compact)
+                    IconActionButton(symbol: "slider.horizontal.3", label: "팝업 표시 설정", compact: false) {
+                        openPopoverSettings()
+                    }
+                    IconActionButton(symbol: "gearshape", label: "설정 열기", compact: false) {
+                        viewModel.openSettings()
+                    }
+                    IconActionButton(symbol: "power", label: "\(AppDistribution.current.appName) 종료", compact: false) {
+                        NSApplication.shared.terminate(nil)
+                    }
                 }
-                .font(AppDesign.Typography.metadata)
-                .foregroundStyle(AppDesign.Text.secondary)
-                .frame(maxWidth: .infinity)
-                .frame(height: PopoverLayoutMetrics.standardShortcutFooterHeight)
+                .padding(.horizontal, edgeInset)
+                .padding(.bottom, AppDesign.Space.compact)
+                .frame(height: PopoverLayoutMetrics.standardFooterContainerHeight)
             }
         }
         .frame(width: layoutSpec.size.width, height: layoutSpec.size.height, alignment: .topLeading)
@@ -158,6 +147,10 @@ struct PopoverView: View {
     }
 
     // MARK: - Helpers
+
+    private var edgeInset: CGFloat {
+        isCompact ? PopoverLayoutMetrics.compactEdgeInset : PopoverLayoutMetrics.standardEdgeInset
+    }
 
     private var headerUtilityControls: some View {
         HStack(spacing: AppDesign.Space.tight) {

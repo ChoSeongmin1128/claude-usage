@@ -595,7 +595,8 @@ struct CompactOverageRow: View {
         } middle: {
             if let percentage = overage.usagePercentage {
                 ProgressBarView(
-                    percentage: percentage, height: PopoverLayoutMetrics.compactProgressBarHeight, color: .purple)
+                    percentage: percentage, height: PopoverLayoutMetrics.compactProgressBarHeight, color: .purple,
+                    cornerRadius: PopoverLayoutMetrics.compactProgressBarCornerRadius)
             }
         } value: {
             PopoverMetricValue(text: overage.headlineText, compact: true, color: .purple)

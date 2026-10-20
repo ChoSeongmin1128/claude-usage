@@ -8,13 +8,15 @@ struct UsagePercentageLabel: View {
     let compact: Bool
     var percentageText: String?
     var color: Color?
+    var font: Font? = nil
 
     var body: some View {
         PopoverMetricValue(
             text: percentageText ?? basis.text(fromUsed: percentage),
             caption: basis.percentage(fromUsed: percentage) == nil ? nil : basis.label,
             compact: compact,
-            color: AppDesign.Text.status(color ?? ColorProvider.statusColor(for: percentage), scheme: scheme)
+            color: AppDesign.Text.status(color ?? ColorProvider.statusColor(for: percentage), scheme: scheme),
+            font: font
         )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(basis.spokenValue(fromUsed: percentage))

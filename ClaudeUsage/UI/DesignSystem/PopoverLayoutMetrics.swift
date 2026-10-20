@@ -3,14 +3,14 @@ import AppKit
 import SwiftUI
 
 enum PopoverLayoutMetrics {
-    static let standardPopoverWidth: CGFloat = 368
+    static let standardPopoverWidth: CGFloat = 340
     static let compactPopoverWidth: CGFloat = 296
-    static let standardHeaderContainerHeight: CGFloat = 44
-    static let standardFooterContainerHeight: CGFloat = 30
-    static let standardShortcutFooterHeight: CGFloat = 16
+    static let standardEdgeInset: CGFloat = 14
+    static let compactEdgeInset: CGFloat = 12
+    static let standardHeaderContainerHeight: CGFloat = standardEdgeInset + 26 + 12 + 4
+    static let standardFooterContainerHeight: CGFloat = 40
     static let standardMainSectionBottomSpacing: CGFloat = 2
-    static let compactHeaderHeight: CGFloat = 26
-    static let compactFooterHeight: CGFloat = 31
+    static let compactHeaderHeight: CGFloat = compactEdgeInset + 20 + 6
     static let designIntroductionHeight: CGFloat = 62
     static let dividerHeight: CGFloat = 1
     static let standardProviderSelectorSize: CGFloat = 26
@@ -21,8 +21,10 @@ enum PopoverLayoutMetrics {
     static let compactProviderWarningDotSize: CGFloat = 4
     static let standardProviderWarningDotInset: CGFloat = 1.5
     static let compactProviderWarningDotInset: CGFloat = 1
-    static let compactBodyInsets = EdgeInsets(top: 6, leading: 10, bottom: 3, trailing: 10)
-    static let standardBodyInsets = EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16)
+    static let compactBodyInsets = EdgeInsets(
+        top: 6, leading: compactEdgeInset, bottom: 3, trailing: compactEdgeInset)
+    static let standardBodyInsets = EdgeInsets(
+        top: 10, leading: standardEdgeInset, bottom: 10, trailing: standardEdgeInset)
     static let compactSectionSpacing: CGFloat = 3
     static let standardSectionSpacing: CGFloat = 12
     static let standardRowMeterWidth: CGFloat = 148
@@ -45,7 +47,8 @@ enum PopoverLayoutMetrics {
     static let compactCreditsRowHeight: CGFloat = 18
     static let compactStatusRowHeight: CGFloat = 18
     static let compactOverageRowHeight: CGFloat = compactUsageRowHeight
-    static let compactProgressBarHeight: CGFloat = 8
+    static let compactProgressBarHeight: CGFloat = 4
+    static let compactProgressBarCornerRadius: CGFloat = 1
     static let compactStatusHeadingHeight: CGFloat = 16
     static let compactStatusMessageHeight: CGFloat = 28
     static let compactStatusPanelHeight =
@@ -54,8 +57,10 @@ enum PopoverLayoutMetrics {
         AppDesign.Control.compactHitSize + AppDesign.Space.control + compactStatusMessageHeight
     static let compactMaximumVisibleRows = 5
     static let compactMinimumPopoverHeight: CGFloat = 96
-    static let compactContentBottomSpacing: CGFloat = 5
-    static let standardUsageRowHeight: CGFloat = 36
+    static let compactContentBottomSpacing: CGFloat = compactEdgeInset - compactBodyInsets.bottom
+    static let standardUsageRowHeight: CGFloat = 53
+    static let standardUsageRowBarHeight: CGFloat = 6
+    static let standardUsageRowSpacing: CGFloat = 5
     static let standardSecondaryUsageRowHeight: CGFloat = 38
     static let standardCreditsRowHeight: CGFloat = 42
     static let standardAccountRowHeight: CGFloat = 58
@@ -68,7 +73,7 @@ enum PopoverLayoutMetrics {
     static let standardLaneSpacing: CGFloat = 4
     /// Standard 콘텐츠 사이에는 divider 1pt와 위아래 여백 8pt가 들어간다.
     static let standardContentDividerHeight: CGFloat = 17
-    static let standardMaximumBodyHeight: CGFloat = 287
+    static let standardMaximumBodyHeight: CGFloat = standardUsageRowHeight * 5 + standardContentDividerHeight * 4
     static let standardStatusPanelHeight: CGFloat = 72
     static let standardInteractiveStatusPanelHeight: CGFloat = 88
     /// Claude 미인증 패널(standard)은 아이콘+제목+2줄 안내+버튼 2개짜리
@@ -117,8 +122,6 @@ enum PopoverLayoutMetrics {
                     + bodyContentHeight
                     + bodyInsets.bottom
                     + contentBottomSpacing
-                    + dividerHeight
-                    + compactFooterHeight
             )
             return PopoverLayoutSpec(
                 density: density,
@@ -167,8 +170,6 @@ enum PopoverLayoutMetrics {
                     + bodyHeight
                     + compactBodyInsets.bottom
                     + compactContentBottomSpacing
-                    + dividerHeight
-                    + compactFooterHeight
             )
         }
 
@@ -291,7 +292,6 @@ enum PopoverLayoutMetrics {
             + standardMainSectionBottomSpacing
             + dividerHeight
             + standardFooterContainerHeight
-            + standardShortcutFooterHeight
     }
 
     static func standardSectionHeight(
@@ -323,10 +323,10 @@ extension PopoverLayoutSpec {
     var bodyRegionHeight: CGFloat {
         let fixed =
             isCompact
-            ? PopoverLayoutMetrics.compactHeaderHeight + PopoverLayoutMetrics.compactFooterHeight
+            ? PopoverLayoutMetrics.compactHeaderHeight
             : PopoverLayoutMetrics.standardHeaderContainerHeight + PopoverLayoutMetrics.standardFooterContainerHeight
-                + PopoverLayoutMetrics.standardShortcutFooterHeight
-        return max(0, size.height - fixed - PopoverLayoutMetrics.dividerHeight - designIntroductionHeight)
+                + PopoverLayoutMetrics.dividerHeight
+        return max(0, size.height - fixed - designIntroductionHeight)
     }
 
     /// Keep header/footer visible while the native popover's viewport changes.
