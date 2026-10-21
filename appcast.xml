@@ -4,22 +4,24 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>ClaudeUsage</title>
         <item>
-            <title>Version 2.10.4</title>
-            <pubDate>Mon, 19 Oct 2026 14:08:56 +0900</pubDate>
-            <sparkle:version>20656</sparkle:version>
-            <sparkle:shortVersionString>2.10.4</sparkle:shortVersionString>
+            <title>Version 2.10.5</title>
+            <pubDate>Wed, 21 Oct 2026 11:40:42 +0900</pubDate>
+            <sparkle:version>20659</sparkle:version>
+            <sparkle:shortVersionString>2.10.5</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.10.4/ClaudeUsage.dmg" length="7799368" type="application/octet-stream" sparkle:edSignature="CP52wJBef14BMDnu3XO/BbQFOQZ/aga9cGJB2fR2R9P/yQKeI2hV3xs2ilREatc7Q372Qvg/fdrKvlkA8izLBQ=="></enclosure>
-            <description sparkle:format="plain-text"># 2.10.4
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.10.5/ClaudeUsage.dmg" length="7798164" type="application/octet-stream" sparkle:edSignature="gRhH44XKqsWUTCM6bUv8bv41YnHgQM/U6Ty/HzEyFhJWAzEDe4sw6BwO27JjXgO+dI1jj+ZB0bdq8XeGQvs1BA=="></enclosure>
+            <description sparkle:format="plain-text"># 2.10.5
 
-- Claude 웹 계정의 실제 이메일과 계정/조직을 확인하여 같은 계정의 웹/Claude Code 연결을 함께 표시합니다.
-- 웹 로그인 만료 후 재시도에서 원래 브라우저 프로필의 새 세션을 확인하고 복구합니다. 다른 계정이나 조직이면 기존 연결을 유지합니다.
-- 연결 교체 시 별칭, 표시 선택, 순서와 고정을 보존합니다.
+- 일반 팝오버의 사용량 수치를 강조하고, 전체 너비의 막대와 초기화 시간으로 정보 위계를 정리했습니다.
+- 일반 팝오버의 폭을 줄이고 헤더와 본문의 여백을 조정했습니다.
+- 간소화 팝오버의 막대와 수치를 정리하고 하단 도구 영역을 없앴습니다. 설정과 업데이트는 메뉴바 우클릭 메뉴에서 열 수 있습니다.
+- 팝오버의 외부 서비스 바로가기와 하단 단축키 안내를 제거하고 설정의 미리보기에도 같은 구성을 적용했습니다.
+- 같은 Codex 계정의 로그인 정보가 갱신될 때 사용량 표시를 유지하고, 겹친 초기화권 상세 조회를 함께 처리하도록 보완했습니다.
 </description>
-            <claudeusage:zipSHA256>fa723c720397ba98fe31591285114b04f24bec6538fce92096a9b42e471e4af6</claudeusage:zipSHA256>
+            <claudeusage:zipSHA256>1081c91a2907c61b4a9865b1fea5c9fb1cabcae29fb03ef61d61c9483babda22</claudeusage:zipSHA256>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: BcAXO+rrsmKnVrfUn+db+YQaE4sbprID47dajiAsp2iHR7BY6k1faMCh+0ZlvJfVKyxnppKilDq+ByokBm3+Aw==
-length: 1768
+edSignature: MOmEa7V886dQpYQThgzOo+J85Js+C4BwhQ5Ijsb9nhfzbEy9SjnpxnA0PJe+jaUzbFE0jrfMnjaCbRIYDw+WAA==
+length: 2100
 -->
