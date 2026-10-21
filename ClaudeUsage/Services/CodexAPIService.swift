@@ -75,29 +75,10 @@ actor CodexAPIService {
         for base: CodexUsageSnapshot, force: Bool = false,
         budget: CodexRequestBudget = CodexRequestBudget(timeout: 10)
     ) async throws -> CodexUsageSnapshot {
-        try await authManager.validate(base.credential)
         let started = ContinuousClock.now
         do {
-            try budget.check()
-            guard !stopping else { throw CancellationError() }
-            var base = base
-            applyLatestCount(to: &base)
-            if base.usage.resetCreditMetadata?.countIsCurrent != false,
-                base.usage.resetCredits?.availableCountField == 0
-            {
-                return base
-            }
-            if !force, base.usage.resetCreditMetadata?.countIsCurrent != false,
-                let cached = usableCache(for: base.usage, credential: base.credential),
-                now().timeIntervalSince(cached.updatedAt) < Self.resetCreditsRefreshInterval,
-                !cached.needsRetry && cached.response.hasCompleteDetails
-            {
-                var result = base
-                result.usage.resetCredits = cached.response
-                result.usage.resetCreditMetadata = .init(status: .cached, updatedAt: cached.updatedAt)
-                return result
-            }
-            let result = try await fetch(base.credential, channel: .resetCredits, budget: budget, base: base)
+            let result = try await fetch(
+                base.credential, channel: .resetCredits, budget: budget, base: base, force: force)
             try await authManager.validate(base.credential)
             try Task.checkCancellation()
             var merged = base
@@ -119,11 +100,35 @@ actor CodexAPIService {
 
     private func fetch(
         _ credential: CodexCredentialSnapshot, channel: Channel, budget: CodexRequestBudget,
-        base: CodexUsageSnapshot?
+        base originalBase: CodexUsageSnapshot?, force: Bool = false
     ) async throws -> CodexUsageSnapshot {
         try budget.check()
         try await authManager.validate(credential)
+        try budget.check()
         guard !stopping else { throw CancellationError() }
+        let base = originalBase.map { original in
+            var result = original
+            applyLatestCount(to: &result)
+            return result
+        }
+        // Credential validation can suspend while an existing flight fills the cache.
+        if let base {
+            if base.usage.resetCreditMetadata?.countIsCurrent != false,
+                base.usage.resetCredits?.availableCountField == 0
+            {
+                return base
+            }
+            if !force, base.usage.resetCreditMetadata?.countIsCurrent != false,
+                let cached = usableCache(for: base.usage, credential: base.credential),
+                now().timeIntervalSince(cached.updatedAt) < Self.resetCreditsRefreshInterval,
+                !cached.needsRetry && cached.response.hasCompleteDetails
+            {
+                var result = base
+                result.usage.resetCredits = cached.response
+                result.usage.resetCreditMetadata = .init(status: .cached, updatedAt: cached.updatedAt)
+                return result
+            }
+        }
         let key = RequestKey(
             generation: credential.generation, channel: channel,
             accountID: base?.usage.accountID ?? credential.token.accountID)

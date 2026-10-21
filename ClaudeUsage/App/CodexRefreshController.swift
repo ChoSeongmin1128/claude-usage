@@ -124,10 +124,10 @@ final class CodexRefreshController {
 
     private func retryChangedCredential(budget: CodexRequestBudget, allowed: Bool) {
         credentialGeneration = nil
-        clearPresentation()
         if allowed, budget.remaining > 0 {
             refresh(force: true, budget: budget, mayRetryCredentialChange: false)
         } else {
+            clearPresentation()
             applyFailure(.codexTokenRefreshTemporary(reason: "credential_changed"))
         }
     }

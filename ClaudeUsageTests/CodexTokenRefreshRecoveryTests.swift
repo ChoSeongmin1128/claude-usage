@@ -120,6 +120,7 @@ final class CodexTokenRefreshRecoveryTests: XCTestCase {
         let recorder = CodexRequestRecorder()
         let started = expectation(description: "one detail flight for each workspace")
         started.expectedFulfillmentCount = 2
+        started.assertForOverFulfill = false
         let gateA = CodexTestGate()
         let gateB = CodexTestGate()
         let service = service(manager) { request in
@@ -142,7 +143,7 @@ final class CodexTokenRefreshRecoveryTests: XCTestCase {
         let b = try await service.fetchUsage()
         let pending = Task {
             try await withThrowingTaskGroup(of: CodexUsageSnapshot.self) { group in
-                for _ in 0..<4 {
+                for _ in 0..<16 {
                     group.addTask { try await service.fetchResetCreditDetails(for: a) }
                     group.addTask { try await service.fetchResetCreditDetails(for: b) }
                 }
@@ -155,7 +156,7 @@ final class CodexTokenRefreshRecoveryTests: XCTestCase {
         await gateA.open()
         await gateB.open()
         let results = try await pending.value
-        XCTAssertEqual(results.count, 8)
+        XCTAssertEqual(results.count, 32)
         for result in results {
             let account = try XCTUnwrap(result.usage.accountID)
             XCTAssertEqual(result.usage.resetCredits?.credits.first?.id, account + "-credit-0")
@@ -1227,6 +1228,43 @@ extension CodexTokenRefreshRecoveryTests {
         XCTAssertEqual(basicCalls, 1)
         XCTAssertEqual(detailCalls, 1)
         await controller.shutdown()
+    }
+
+    func testControllerValidatesLoginBeforeClearingQuotaAfterDetailCredentialChanges() async throws {
+        for (email, expectedClears) in [("A@example.com", 1), ("b@example.com", 2)] {
+            let (path, manager) = try fixture()
+            try writeAuthJSON(accessToken: "access-a", refreshToken: "refresh-a", to: path, email: "a@example.com")
+            let service = service(manager) { request in
+                httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: 0))
+            }
+            let recovered = expectation(description: "changed credential is reloaded")
+            var clears = 0
+            var shown = 0
+            let controller = CodexRefreshController(
+                authManager: manager, apiService: service, isEnabled: { true }, prepare: { _ in true },
+                clearPresentation: { clears += 1 },
+                applySuccess: { result in
+                    shown += 1
+                    if shown == 1 {
+                        do {
+                            try writeAuthJSON(
+                                accessToken: "access-b", refreshToken: "refresh-b", to: path, email: email)
+                        } catch {
+                            XCTFail("fixture credential replacement failed")
+                        }
+                    } else {
+                        XCTAssertEqual(result.credential.token.accessToken, "access-b")
+                        XCTAssertEqual(clears, expectedClears, email)
+                        recovered.fulfill()
+                    }
+                },
+                applyFailure: { _ in XCTFail("changed credentials must retry with the confirmed login") },
+                applyDetails: { _ in })
+            controller.refresh(force: true)
+            await fulfillment(of: [recovered], timeout: 2)
+            XCTAssertEqual(shown, 2)
+            await controller.shutdown()
+        }
     }
 
     func testTokenRotationOfTheSameLoginKeepsTheShownQuota() async throws {
