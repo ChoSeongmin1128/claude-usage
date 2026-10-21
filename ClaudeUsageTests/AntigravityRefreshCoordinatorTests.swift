@@ -185,14 +185,21 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         )
         let request = selectedRequest(target: .cli)
 
-        async let first = coordinator.refresh(request)
+        let first = Task { await coordinator.refresh(request) }
         await gate.waitUntilStarted()
-        async let second = coordinator.refresh(request)
+        let second = Task { await coordinator.refresh(request) }
+        let joined = await waitForWaiterCount(2, coordinator: coordinator)
+        XCTAssertTrue(joined, "Both callers must join the same in-flight request")
+        if !joined {
+            first.cancel()
+            second.cancel()
+            await coordinator.quiesceForShutdown()
+        }
         await gate.resume(
             with: .init(snapshot: snapshot)
         )
 
-        let values = await [first, second]
+        let values = await [first.value, second.value]
         let callCount = await gate.callCount()
         XCTAssertEqual(values, [.ready(snapshot), .ready(snapshot)])
         XCTAssertEqual(callCount, 1)
@@ -218,7 +225,12 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         let survivor = Task {
             await coordinator.refresh(request)
         }
-        await Task.yield()
+        let joined = await waitForWaiterCount(2, coordinator: coordinator)
+        XCTAssertTrue(joined, "The survivor must join before cancelling the first caller")
+        if !joined {
+            survivor.cancel()
+            await coordinator.quiesceForShutdown()
+        }
         cancelled.cancel()
 
         let cancelledResult = await cancelled.value
@@ -329,6 +341,15 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         await sourceGate.waitUntilFinished()
         let completedCaller = await caller.value
         XCTAssertEqual(completedCaller, .failed(.cancelled))
+    }
+
+    private func waitForWaiterCount(_ expected: Int, coordinator: AntigravityRefreshCoordinator) async -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while ContinuousClock.now < deadline {
+            if await coordinator.inFlightWaiterCountForTesting() == expected { return true }
+            await Task.yield()
+        }
+        return false
     }
 
 }
@@ -477,12 +498,6 @@ private actor BlockingRefreshSourceScript {
         _ request: AntigravityUsageSourceRequest
     ) async throws -> AntigravityUsageSourceResponse {
         calls += 1
-        started = true
-        let waiters = startedWaiters
-        startedWaiters.removeAll()
-        for waiter in waiters {
-            waiter.resume()
-        }
         defer {
             finished = true
             let waiters = finishedWaiters
@@ -494,6 +509,10 @@ private actor BlockingRefreshSourceScript {
         return await withTaskCancellationHandler {
             await withCheckedContinuation {
                 responseContinuation = $0
+                started = true
+                let waiters = startedWaiters
+                startedWaiters.removeAll()
+                for waiter in waiters { waiter.resume() }
             }
         } onCancel: {
             Task {
