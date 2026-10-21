@@ -36,8 +36,7 @@ struct PopoverView: View {
             if fillsViewport {
                 GeometryReader { geometry in
                     popoverContent(
-                        layoutSpec: layout.spec.fittingViewport(geometry.size), sections: layout.sections,
-                        isTransitioning: abs(geometry.size.height - layout.spec.size.height) > 1)
+                        layoutSpec: layout.spec.fittingViewport(geometry.size), sections: layout.sections)
                 }
             } else {
                 popoverContent(layoutSpec: layout.spec, sections: layout.sections)
@@ -60,7 +59,7 @@ struct PopoverView: View {
     }
 
     private func popoverContent(
-        layoutSpec: PopoverLayoutSpec, sections: [PopoverDisplaySection], isTransitioning: Bool = false
+        layoutSpec: PopoverLayoutSpec, sections: [PopoverDisplaySection]
     ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             // Compact는 계정 혼동이나 조치가 필요한 상태만 한 줄에 남긴다.
@@ -116,11 +115,12 @@ struct PopoverView: View {
                 if isCompact {
                     compactMainSection(layoutSpec: layoutSpec, sections: sections)
                 } else {
-                    standardMainContainer(layoutSpec: layoutSpec, sections: sections, showsIndicators: !isTransitioning)
+                    standardMainContainer(layoutSpec: layoutSpec, sections: sections)
                 }
             }
             .frame(height: layoutSpec.bodyRegionHeight, alignment: .topLeading)
             .clipped()
+            .modifier(ResetCreditViewport(compact: isCompact))
 
             if !isCompact {
                 Divider().padding(.horizontal, edgeInset)
@@ -483,13 +483,12 @@ struct PopoverView: View {
     @ViewBuilder
     private func compactMainSection(layoutSpec: PopoverLayoutSpec, sections: [PopoverDisplaySection]) -> some View {
         PopoverStateContainer(layoutSpec: layoutSpec) {
-            if layoutSpec.phase == .content {
+            if layoutSpec.scrollsBody {
                 ScrollView(.vertical, showsIndicators: false) {
                     bodyContent(layoutSpec: layoutSpec, sections: sections)
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
                 .scrollIndicators(.never)
-                .modifier(ResetCreditViewport(compact: true))
 
             } else {
                 bodyContent(layoutSpec: layoutSpec, sections: sections)
@@ -499,27 +498,26 @@ struct PopoverView: View {
 
     @ViewBuilder
     private func standardMainContainer(
-        layoutSpec: PopoverLayoutSpec, sections: [PopoverDisplaySection], showsIndicators: Bool
+        layoutSpec: PopoverLayoutSpec, sections: [PopoverDisplaySection]
     ) -> some View {
-        if layoutSpec.phase == .content {
-            ScrollView(.vertical, showsIndicators: showsIndicators) {
+        if layoutSpec.scrollsBody {
+            ScrollView(.vertical) {
                 standardMainSection(layoutSpec: layoutSpec, sections: sections)
             }
             .frame(
                 maxWidth: .infinity,
                 minHeight:
-                    layoutSpec.bodyContentHeight
+                    layoutSpec.bodyViewportHeight
                     + layoutSpec.bodyInsets.top
                     + layoutSpec.bodyInsets.bottom
                     + PopoverLayoutMetrics.standardMainSectionBottomSpacing,
                 maxHeight:
-                    layoutSpec.bodyContentHeight
+                    layoutSpec.bodyViewportHeight
                     + layoutSpec.bodyInsets.top
                     + layoutSpec.bodyInsets.bottom
                     + PopoverLayoutMetrics.standardMainSectionBottomSpacing,
                 alignment: .top
             )
-            .modifier(ResetCreditViewport(compact: false))
         } else {
             standardMainSection(layoutSpec: layoutSpec, sections: sections)
                 .frame(maxWidth: .infinity, alignment: .topLeading)

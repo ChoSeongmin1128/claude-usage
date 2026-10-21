@@ -342,7 +342,7 @@ final class PopoverViewLayoutTests: XCTestCase {
                 ]
             )
             let loadingLayout = loadingViewModel.layoutSpec(for: .claude, settings: settings)
-            return (authRequiredLayout.bodyContentHeight, loadingLayout.bodyContentHeight)
+            return (authRequiredLayout.bodyViewportHeight, loadingLayout.bodyViewportHeight)
         }
 
         XCTAssertEqual(result.0, expectedHeights.0)
@@ -438,7 +438,7 @@ final class PopoverViewLayoutTests: XCTestCase {
             )
 
             let layoutSpec = viewModel.layoutSpec(for: .claude, settings: settings)
-            return (layoutSpec.bodyContentHeight, layoutSpec.contentBottomSpacing, layoutSpec.size.height)
+            return (layoutSpec.bodyViewportHeight, layoutSpec.contentBottomSpacing, layoutSpec.size.height)
         }
 
         // 표시 행 2개(currentSession, weeklyLimit) → 2행 크기 뷰포트
@@ -540,19 +540,54 @@ final class PopoverViewLayoutTests: XCTestCase {
         )
     }
 
-    func testStandardAntigravityHeightClampsAndScrollsLargePayload() {
-        XCTAssertEqual(
-            PopoverLayoutMetrics.standardAntigravityContentHeight(
-                laneCounts: [3, 3, 3]
-            ),
-            PopoverLayoutMetrics.standardMaximumBodyHeight
-        )
-        XCTAssertEqual(
-            PopoverLayoutMetrics.standardPopoverHeight(
-                forBodyHeight: PopoverLayoutMetrics.standardMaximumBodyHeight
-            ),
-            452
-        )
+    func testStandardAntigravityLayoutKeepsFullContentHeightAndLimitsOnlyTheViewport() {
+        let contentHeight = PopoverLayoutMetrics.standardAntigravityContentHeight(laneCounts: [3, 3, 3])
+        let spec = PopoverLayoutMetrics.layoutSpec(
+            density: .standard, phase: .content, sections: [], rowCount: 9,
+            preferredStandardBodyHeight: contentHeight)
+        XCTAssertEqual(contentHeight, 604)
+        XCTAssertEqual(spec.bodyContentHeight, contentHeight)
+        XCTAssertEqual(spec.bodyViewportHeight, PopoverLayoutMetrics.standardMaximumBodyHeight)
+        XCTAssertEqual(spec.size.height, 452)
+        XCTAssertTrue(spec.scrollsBody)
+    }
+
+    func testStandardScrollPolicyDistinguishesContentBelowAtAndAboveTheLimit() {
+        let limit = PopoverLayoutMetrics.standardMaximumBodyHeight
+        for height in [limit - 1, limit, limit + 1] {
+            let spec = PopoverLayoutMetrics.layoutSpec(
+                density: .standard, phase: .content, sections: [], rowCount: 1,
+                preferredStandardBodyHeight: height)
+            XCTAssertEqual(spec.bodyContentHeight, height)
+            XCTAssertEqual(spec.bodyViewportHeight, min(height, limit))
+            XCTAssertEqual(spec.scrollsBody, height > limit)
+            for viewportHeight in [spec.size.height - 1, spec.size.height, spec.size.height + 50] {
+                let fitted = spec.fittingViewport(CGSize(width: spec.size.width, height: viewportHeight))
+                XCTAssertEqual(fitted.scrollsBody, spec.scrollsBody)
+                XCTAssertEqual(fitted.bodyContentHeight, spec.bodyContentHeight)
+                XCTAssertEqual(fitted.includingDesignIntroduction().scrollsBody, spec.scrollsBody)
+            }
+        }
+    }
+
+    func testCatalogContentHeightIsNotDiscardedAboveFiveRows() {
+        let spec = PopoverLayoutMetrics.layoutSpec(
+            density: .standard, phase: .content, sections: [], rowCount: 6)
+        XCTAssertEqual(spec.bodyContentHeight, 403)
+        XCTAssertEqual(spec.bodyViewportHeight, 333)
+        XCTAssertTrue(spec.scrollsBody)
+        XCTAssertEqual(PopoverLayoutMetrics.preferredPopoverHeight(compact: false, phase: .content, rowCount: 6), 452)
+    }
+
+    func testCompactScrollPolicyUsesFinalRowCountDuringNativeResize() {
+        for rowCount in [4, 5, 6] {
+            let spec = PopoverLayoutMetrics.layoutSpec(
+                density: .compact, phase: .content, sections: [], rowCount: rowCount)
+            XCTAssertEqual(spec.scrollsBody, rowCount > 5)
+            let smaller = spec.fittingViewport(CGSize(width: spec.size.width, height: spec.size.height - 20))
+            XCTAssertEqual(smaller.scrollsBody, spec.scrollsBody)
+            XCTAssertEqual(smaller.bodyContentHeight, spec.bodyContentHeight)
+        }
     }
 
     func testPopoverCompactStateIsGlobalAcrossProviders() async {
@@ -669,8 +704,8 @@ final class PopoverViewLayoutTests: XCTestCase {
                 ]
             )
 
-            let claudeHeight = viewModel.layoutSpec(for: .claude, settings: settings).bodyContentHeight
-            let codexHeight = viewModel.layoutSpec(for: .codex, settings: settings).bodyContentHeight
+            let claudeHeight = viewModel.layoutSpec(for: .claude, settings: settings).bodyViewportHeight
+            let codexHeight = viewModel.layoutSpec(for: .codex, settings: settings).bodyViewportHeight
             return (claudeHeight, codexHeight)
         }
 

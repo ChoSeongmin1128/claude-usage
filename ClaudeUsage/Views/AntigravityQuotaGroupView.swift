@@ -4,7 +4,7 @@ struct AntigravityQuotaGroupView: View {
     let group: AntigravityQuotaGroupPresentation
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppDesign.Space.heading) {
+        VStack(alignment: .leading, spacing: PopoverLayoutMetrics.standardGroupHeaderSpacing) {
             Text(group.title)
                 .font(
                     AppDesign.Typography.subheadline.weight(
@@ -15,9 +15,10 @@ struct AntigravityQuotaGroupView: View {
                 )
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .frame(height: PopoverLayoutMetrics.standardGroupHeaderHeight, alignment: .topLeading)
                 .accessibilityAddTraits(.isHeader)
 
-            VStack(alignment: .leading, spacing: AppDesign.Space.compact) {
+            VStack(alignment: .leading, spacing: PopoverLayoutMetrics.standardLaneSpacing) {
                 ForEach(group.lanes) { lane in
                     AntigravityQuotaLaneRow(
                         presentation: lane

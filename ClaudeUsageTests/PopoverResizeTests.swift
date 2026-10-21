@@ -268,7 +268,7 @@ final class PopoverResizeTests: XCTestCase {
                     settings.setPopoverItems(items, for: .claude)
                 }
                 let target = coordinator.viewModel.layoutSpec(for: .claude, settings: settings)
-                XCTAssertLessThan(target.bodyContentHeight, original.bodyContentHeight)
+                XCTAssertLessThan(target.bodyViewportHeight, original.bodyViewportHeight)
                 coordinator.refreshSizeIfShown()
                 try waitForResize(coordinator: coordinator, host: host, target: target.size, baseline: baseline)
                 XCTAssertTrue(coordinator.popover === originalPopover)
@@ -598,6 +598,129 @@ final class PopoverResizeTests: XCTestCase {
         }
     }
 
+    func testFittingProviderBodiesNeverCreateScrollingDuringNativeTransitions() throws {
+        for (motion, reduceMotion) in [(AppMotionMode.smooth, false), (.instant, false), (.smooth, true)] {
+            try withNativePopover(
+                service: .antigravity, reduceMotion: reduceMotion, transitionStyle: motion,
+                compact: false, connectSelectionCallbacks: true
+            ) { settings, coordinator, host, _ in
+                coordinator.viewModel.update(snapshots: [claudeScrollSnapshot(modelCount: 2)])
+                for service in [PopoverService.claude, .antigravity, .claude] {
+                    coordinator.requestServiceSelection(service)
+                    let target = coordinator.viewModel.layoutSpec(for: service, settings: settings)
+                    XCTAssertFalse(target.scrollsBody)
+                    _ = try observeTransition(host: host, duration: 0.4) {
+                        // The selector has a separate horizontal scroll view. No body scroll view
+                        // may appear, even at the last fractional point of a native resize.
+                        XCTAssertTrue(self.bodyScrollViews(in: host.view).isEmpty)
+                        let viewport = host.view as! PopoverViewportView
+                        XCTAssertEqual(viewport.hostingView.bounds.width, target.size.width, accuracy: 0.5)
+                    }
+                    assertFinalSize(host: host, popover: coordinator.popover, target: target.size)
+                }
+            }
+        }
+    }
+
+    func testOverflowingBodiesCanScrollToTheBottomAfterProviderChanges() throws {
+        for service in [PopoverService.claude, .antigravity] {
+            for compact in [false, true] {
+                try withNativePopover(service: .claude, compact: compact, connectSelectionCallbacks: true) {
+                    settings, coordinator, host, _ in
+                    coordinator.viewModel.update(snapshots: [claudeScrollSnapshot(modelCount: 7)])
+                    coordinator.viewModel.antigravityRuntimeSnapshot = antigravitySnapshot(extraGroupCount: 7)
+                    coordinator.requestServiceSelection(service)
+                    _ = try observeTransition(host: host, duration: 0.45)
+                    let layout = coordinator.viewModel.layoutSpec(for: service, settings: settings)
+                    XCTAssertTrue(layout.scrollsBody)
+                    let scroll = try XCTUnwrap(bodyScrollViews(in: host.view).first)
+                    let document = try XCTUnwrap(scroll.documentView)
+                    XCTAssertGreaterThan(document.bounds.height, scroll.contentView.bounds.height)
+                    let expectedContentHeight =
+                        compact
+                        ? layout.bodyContentHeight
+                        : layout.bodyContentHeight + layout.bodyInsets.top + layout.bodyInsets.bottom
+                            + PopoverLayoutMetrics.standardMainSectionBottomSpacing
+                    XCTAssertEqual(document.bounds.height, expectedContentHeight, accuracy: 1)
+                    if !compact { XCTAssertTrue(scroll.hasVerticalScroller) }
+                    let bottom =
+                        document.isFlipped
+                        ? document.bounds.maxY - scroll.contentView.bounds.height : document.bounds.minY
+                    scroll.contentView.scroll(to: CGPoint(x: 0, y: bottom))
+                    scroll.reflectScrolledClipView(scroll.contentView)
+                    XCTAssertEqual(scroll.documentVisibleRect.height, scroll.contentView.bounds.height, accuracy: 0.5)
+                    if document.isFlipped {
+                        XCTAssertEqual(scroll.documentVisibleRect.maxY, document.bounds.maxY, accuracy: 0.5)
+                    } else {
+                        XCTAssertEqual(scroll.documentVisibleRect.minY, document.bounds.minY, accuracy: 0.5)
+                    }
+                    coordinator.requestServiceSelection(.codex)
+                    _ = try observeTransition(host: host, duration: 0.4)
+                    XCTAssertTrue(bodyScrollViews(in: host.view).isEmpty)
+                }
+            }
+        }
+    }
+
+    func testResetCreditVisibilityUsesTheClippedBodyWithAndWithoutScrolling() throws {
+        for compact in [false, true] {
+            for modelCount in [0, 7] {
+                try withNativePopover(service: .claude, compact: compact) { _, coordinator, host, _ in
+                    let receipt = ResetCreditSeenReceipt(service: .claude, accountKey: "fixture", revision: 1)
+                    var seen: Set<ResetCreditSeenReceipt> = []
+                    coordinator.viewModel.onResetCreditVisible = { seen.insert($0) }
+                    coordinator.viewModel.resetCreditReceipts = [.claude: receipt]
+                    coordinator.viewModel.update(snapshots: [
+                        claudeScrollSnapshot(modelCount: modelCount, resetGrant: true)
+                    ])
+                    _ = try observeTransition(host: host, duration: 0.45)
+                    if modelCount > 0 {
+                        XCTAssertFalse(seen.contains(receipt), "A row below the viewport must not be acknowledged")
+                        let scroll = try XCTUnwrap(bodyScrollViews(in: host.view).first)
+                        let document = try XCTUnwrap(scroll.documentView)
+                        let bottom =
+                            document.isFlipped
+                            ? document.bounds.maxY - scroll.contentView.bounds.height : document.bounds.minY
+                        scroll.contentView.scroll(to: CGPoint(x: 0, y: bottom))
+                        scroll.reflectScrolledClipView(scroll.contentView)
+                    }
+                    XCTAssertTrue(waitUntil { seen.contains(receipt) })
+                }
+            }
+        }
+    }
+
+    private func bodyScrollViews(in view: NSView) -> [NSScrollView] {
+        if let scroll = view as? NSScrollView {
+            return scroll.bounds.height > PopoverLayoutMetrics.standardProviderSelectorSize ? [scroll] : []
+        }
+        return view.subviews.flatMap { bodyScrollViews(in: $0) }
+    }
+
+    private func claudeScrollSnapshot(modelCount: Int, resetGrant: Bool = false) -> RuntimeProviderSnapshot {
+        .init(
+            service: .claude,
+            payload: .claude(
+                .init(
+                    fiveHour: .init(utilization: 36, resetsAt: nil),
+                    sevenDay: .init(utilization: 28, resetsAt: nil),
+                    scopedLimits: (0..<modelCount).map { index in
+                        .init(
+                            kind: "weekly_scoped", percent: 0, modelID: "fixture-model-\(index)",
+                            modelName: "Model \(index)")
+                    },
+                    resetGrants: resetGrant
+                        ? .init(
+                            eligible: true, atLimit: false,
+                            grants: [
+                                .init(
+                                    id: "fixture-grant", label: nil, resetsLeft: 1, startsAt: nil,
+                                    endsAt: nil, clears: ["five_hour"], paused: false)
+                            ]) : nil)),
+            lastUpdated: Date(), credentialState: .usable, isDetected: true,
+            canAttemptRefresh: true, hasAuthError: false)
+    }
+
     private struct GeometryBaseline {
         let windowTop: CGFloat
         let hostedTopInset: CGFloat
@@ -691,10 +814,10 @@ final class PopoverResizeTests: XCTestCase {
         }
     }
 
-    private func antigravitySnapshot() -> AntigravityRuntimeSnapshot {
+    private func antigravitySnapshot(extraGroupCount: Int = 0) -> AntigravityRuntimeSnapshot {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let identity = ProviderAccountIdentity(stableAccountID: "fixture", email: "fixture@example.com")
-        let lanes: [AntigravityQuotaLane] = [
+        var lanes: [AntigravityQuotaLane] = [
             (.geminiWeekly, AntigravityQuotaScope.gemini, 1.0),
             (.thirdPartyWeekly, AntigravityQuotaScope.thirdPartyModels, 0.808),
         ].map { id, scope, remaining in
@@ -702,6 +825,13 @@ final class PopoverResizeTests: XCTestCase {
                 id: id, upstreamGroupID: id.rawValue, upstreamBucketID: id.rawValue,
                 scope: scope, cadence: .weekly, remainingFraction: remaining,
                 resetAt: now.addingTimeInterval(4 * 86400), resetDescription: nil, availability: .available)
+        }
+        lanes += (0..<extraGroupCount).map { index in
+            AntigravityQuotaLane(
+                id: .init(rawValue: "fixture-extra-\(index)"), upstreamGroupID: "extra-\(index)",
+                upstreamBucketID: "extra-\(index)", scope: .unknown(id: "extra-\(index)", label: "Extra \(index)"),
+                cadence: .weekly, remainingFraction: 1, resetAt: now.addingTimeInterval(86400),
+                resetDescription: nil, availability: .available)
         }
         let quota = AntigravityQuotaSnapshot(
             identity: identity, plan: nil, lanes: lanes, decodeIssues: [],

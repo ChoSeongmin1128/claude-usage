@@ -13,10 +13,10 @@ struct PopoverStateContainer<Content: View>: View {
         content
             .frame(
                 maxWidth: layoutSpec.size.width,
-                minHeight: layoutSpec.bodyContentHeight,
+                minHeight: layoutSpec.bodyViewportHeight,
                 maxHeight:
                     layoutSpec.isCompact
-                        ? layoutSpec.bodyContentHeight
+                    ? layoutSpec.bodyViewportHeight
                         : nil,
                 alignment: .topLeading
             )

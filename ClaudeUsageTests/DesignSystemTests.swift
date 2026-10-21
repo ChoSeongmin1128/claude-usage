@@ -172,8 +172,8 @@ final class DesignSystemTests: XCTestCase {
                 actionTitle: "표시 편집", actionStyle: .bordered, action: {}
             ).frame(width: contentWidth(compact: true))
             let image = try render(panel)
-            XCTAssertGreaterThanOrEqual(layout.spec.bodyContentHeight, image.size.height)
-            XCTAssertEqual(layout.spec.bodyContentHeight, PopoverLayoutMetrics.compactInteractiveStatusPanelHeight)
+            XCTAssertGreaterThanOrEqual(layout.spec.bodyViewportHeight, image.size.height)
+            XCTAssertEqual(layout.spec.bodyViewportHeight, PopoverLayoutMetrics.compactInteractiveStatusPanelHeight)
         }
     }
 
@@ -416,7 +416,7 @@ final class DesignSystemTests: XCTestCase {
                         }
                         if compact && service == .claude {
                             XCTAssertEqual(
-                                layout.spec.bodyContentHeight,
+                                layout.spec.bodyViewportHeight,
                                 PopoverLayoutMetrics.compactContentBodyHeight(rowCount: 5))
                         }
                         for appearance in [NSAppearance.Name.aqua, .darkAqua] {

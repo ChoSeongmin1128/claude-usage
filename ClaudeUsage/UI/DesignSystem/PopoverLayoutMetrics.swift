@@ -114,12 +114,13 @@ enum PopoverLayoutMetrics {
         let contentBottomSpacing = density.isCompact ? compactContentBottomSpacing : 0
 
         if density.isCompact {
-            let bodyContentHeight = compactBodyViewportHeight(phase: phase, rowCount: rowCount)
+            let bodyContentHeight = compactBodyContentHeight(phase: phase, rowCount: rowCount)
+            let bodyViewportHeight = compactBodyViewportHeight(phase: phase, rowCount: rowCount)
             let totalHeight = max(
                 compactMinimumPopoverHeight,
                 compactHeaderHeight
                     + bodyInsets.top
-                    + bodyContentHeight
+                    + bodyViewportHeight
                     + bodyInsets.bottom
                     + contentBottomSpacing
             )
@@ -128,27 +129,28 @@ enum PopoverLayoutMetrics {
                 phase: phase,
                 size: CGSize(width: compactPopoverWidth, height: totalHeight),
                 bodyContentHeight: bodyContentHeight,
+                bodyViewportHeight: bodyViewportHeight,
+                scrollsBody: phase == .content && bodyContentHeight > bodyViewportHeight,
                 bodyInsets: bodyInsets,
                 contentBottomSpacing: contentBottomSpacing,
                 sectionSpacing: sectionSpacing
             )
         }
 
-        let bodyContentHeight = standardBodyViewportHeight(
-            phase: phase,
-            sections: sections,
-            rowCount: rowCount,
-            preferredContentHeight: preferredStandardBodyHeight,
-            richAuthPanel: richAuthPanel
-        )
+        let bodyContentHeight = standardBodyContentHeight(
+            phase: phase, sections: sections, rowCount: rowCount,
+            preferredContentHeight: preferredStandardBodyHeight, richAuthPanel: richAuthPanel)
+        let bodyViewportHeight = min(bodyContentHeight, standardMaximumBodyHeight)
         return PopoverLayoutSpec(
             density: density,
             phase: phase,
             size: CGSize(
                 width: standardPopoverWidth,
-                height: standardPopoverHeight(forBodyHeight: bodyContentHeight)
+                height: standardPopoverHeight(forBodyHeight: bodyViewportHeight)
             ),
             bodyContentHeight: bodyContentHeight,
+            bodyViewportHeight: bodyViewportHeight,
+            scrollsBody: phase == .content && bodyContentHeight > bodyViewportHeight,
             bodyInsets: bodyInsets,
             contentBottomSpacing: contentBottomSpacing,
             sectionSpacing: sectionSpacing
@@ -184,10 +186,7 @@ enum PopoverLayoutMetrics {
             return standardPopoverHeight(forBodyHeight: standardStatusPanelHeight)
         case .content:
             return standardPopoverHeight(
-                forBodyHeight: standardCatalogContentHeight(
-                    sections: [],
-                    fallbackRowCount: rowCount
-                )
+                forBodyHeight: standardBodyViewportHeight(phase: .content, rowCount: rowCount)
             )
         }
     }
@@ -199,25 +198,32 @@ enum PopoverLayoutMetrics {
         preferredContentHeight: CGFloat? = nil,
         richAuthPanel: Bool = false
     ) -> CGFloat {
+        min(
+            standardBodyContentHeight(
+                phase: phase, sections: sections, rowCount: rowCount,
+                preferredContentHeight: preferredContentHeight, richAuthPanel: richAuthPanel),
+            standardMaximumBodyHeight)
+    }
+
+    private static func standardBodyContentHeight(
+        phase: PopoverContentPhase,
+        sections: [PopoverDisplaySection],
+        rowCount: Int,
+        preferredContentHeight: CGFloat?,
+        richAuthPanel: Bool
+    ) -> CGFloat {
         switch phase {
         case .authRequired, .error:
-            return richAuthPanel
-                ? standardRichAuthPanelHeight
-                : standardInteractiveStatusPanelHeight
+            return richAuthPanel ? standardRichAuthPanelHeight : standardInteractiveStatusPanelHeight
         case .loading, .empty:
             return standardStatusPanelHeight
         case .content:
-            return min(
-                preferredContentHeight
-                    ?? standardCatalogContentHeight(
-                        sections: sections,
-                        fallbackRowCount: rowCount
-                    ),
-                standardMaximumBodyHeight
-            )
+            return preferredContentHeight
+                ?? standardCatalogContentHeight(sections: sections, fallbackRowCount: rowCount)
         }
     }
 
+    /// Full content height. Only the viewport calculation applies a height limit.
     static func standardCatalogContentHeight(
         sections: [PopoverDisplaySection],
         fallbackRowCount: Int
@@ -234,11 +240,7 @@ enum PopoverLayoutMetrics {
             }
         }
         let dividerCount = max(heights.count - 1, 0)
-        return min(
-            heights.reduce(0, +)
-                + CGFloat(dividerCount) * standardContentDividerHeight,
-            standardMaximumBodyHeight
-        )
+        return heights.reduce(0, +) + CGFloat(dividerCount) * standardContentDividerHeight
     }
 
     static func standardAntigravityContentHeight(
@@ -255,20 +257,14 @@ enum PopoverLayoutMetrics {
                 + CGFloat(max(laneCount - 1, 0))
                 * standardLaneSpacing
         }
-        return min(
-            groupHeights.reduce(0, +)
-                + CGFloat(max(groupHeights.count - 1, 0))
-                * standardContentDividerHeight,
-            standardMaximumBodyHeight
-        )
+        return groupHeights.reduce(0, +)
+            + CGFloat(max(groupHeights.count - 1, 0)) * standardContentDividerHeight
     }
 
-    static func compactBodyViewportHeight(phase: PopoverContentPhase, rowCount: Int = compactMaximumVisibleRows)
-        -> CGFloat
-    {
+    private static func compactBodyContentHeight(phase: PopoverContentPhase, rowCount: Int) -> CGFloat {
         switch phase {
         case .content:
-            return compactContentBodyHeight(rowCount: rowCount)
+            return compactContentHeight(rowCount: rowCount)
         case .authRequired, .error:
             return compactInteractiveStatusPanelHeight
         case .loading, .empty:
@@ -276,12 +272,20 @@ enum PopoverLayoutMetrics {
         }
     }
 
-    /// 컴팩트 본문 높이 — 행 수에 맞춰 늘어나고, 최대 표시 행 수를 넘으면 스크롤로 전환됩니다.
-    /// (과거에는 3행 고정이라 모델 행이 늘어나면 잘렸음)
+    static func compactBodyViewportHeight(phase: PopoverContentPhase, rowCount: Int = compactMaximumVisibleRows)
+        -> CGFloat
+    {
+        compactBodyContentHeight(
+            phase: phase, rowCount: min(rowCount, compactMaximumVisibleRows))
+    }
+
     static func compactContentBodyHeight(rowCount: Int) -> CGFloat {
+        compactContentHeight(rowCount: min(rowCount, compactMaximumVisibleRows))
+    }
+
+    private static func compactContentHeight(rowCount: Int) -> CGFloat {
         guard rowCount > 0 else { return compactInteractiveStatusPanelHeight }
-        let rows = min(rowCount, compactMaximumVisibleRows)
-        return compactUsageRowHeight * CGFloat(rows) + compactSectionSpacing * CGFloat(max(0, rows - 1))
+        return compactUsageRowHeight * CGFloat(rowCount) + compactSectionSpacing * CGFloat(max(0, rowCount - 1))
     }
 
     static func standardPopoverHeight(forBodyHeight bodyHeight: CGFloat) -> CGFloat {
@@ -329,14 +333,16 @@ extension PopoverLayoutSpec {
         return max(0, size.height - fixed - designIntroductionHeight)
     }
 
-    /// Keep header/footer visible while the native popover's viewport changes.
+    /// Adapt drawing bounds during native resizing, preserving content height and final scroll policy.
     func fittingViewport(_ viewport: CGSize) -> PopoverLayoutSpec {
-        let chromeHeight = size.height - bodyContentHeight
+        let chromeHeight = size.height - bodyViewportHeight
         let fixedChrome = size.height - bodyRegionHeight - designIntroductionHeight
         let visibleIntroduction = min(designIntroductionHeight, max(0, viewport.height - fixedChrome))
         return PopoverLayoutSpec(
             density: density, phase: phase, size: viewport,
-            bodyContentHeight: max(0, viewport.height - chromeHeight + designIntroductionHeight - visibleIntroduction),
+            bodyContentHeight: bodyContentHeight,
+            bodyViewportHeight: max(0, viewport.height - chromeHeight + designIntroductionHeight - visibleIntroduction),
+            scrollsBody: scrollsBody,
             bodyInsets: bodyInsets, contentBottomSpacing: contentBottomSpacing, sectionSpacing: sectionSpacing,
             designIntroductionHeight: visibleIntroduction)
     }
@@ -345,7 +351,8 @@ extension PopoverLayoutSpec {
         let extra = PopoverLayoutMetrics.designIntroductionHeight
         return PopoverLayoutSpec(
             density: density, phase: phase, size: CGSize(width: size.width, height: size.height + extra),
-            bodyContentHeight: bodyContentHeight, bodyInsets: bodyInsets,
+            bodyContentHeight: bodyContentHeight, bodyViewportHeight: bodyViewportHeight,
+            scrollsBody: scrollsBody, bodyInsets: bodyInsets,
             contentBottomSpacing: contentBottomSpacing, sectionSpacing: sectionSpacing,
             designIntroductionHeight: extra)
     }

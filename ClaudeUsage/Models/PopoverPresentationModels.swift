@@ -200,6 +200,9 @@ struct PopoverLayoutSpec: Equatable {
     let phase: PopoverContentPhase
     let size: CGSize
     let bodyContentHeight: CGFloat
+    let bodyViewportHeight: CGFloat
+    /// Scroll policy belongs to the final layout, not the animated native viewport.
+    let scrollsBody: Bool
     let bodyInsets: EdgeInsets
     let contentBottomSpacing: CGFloat
     let sectionSpacing: CGFloat
