@@ -4,22 +4,26 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>ClaudeUsage-stg</title>
         <item>
-            <title>Version 2.10.6-stg.1</title>
-            <pubDate>Wed, 21 Oct 2026 12:43:21 +0900</pubDate>
-            <sparkle:version>20660</sparkle:version>
-            <sparkle:shortVersionString>2.10.6-stg.1</sparkle:shortVersionString>
+            <title>Version 2.10.7-stg.1</title>
+            <pubDate>Thu, 29 Oct 2026 16:45:17 +0900</pubDate>
+            <sparkle:version>20661</sparkle:version>
+            <sparkle:shortVersionString>2.10.7-stg.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.10.6-stg.1/ClaudeUsage.dmg" length="7799790" type="application/octet-stream" sparkle:edSignature="RAYqY7qOpZf31pfgpr+JIhiwYCMkYI6h5QkmMZP9qbGXbp5gSZX5z0dEH4SLH+JyTWLBqhowSDvTokoKkkahAw=="></enclosure>
-            <description sparkle:format="plain-text"># 2.10.6
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.10.7-stg.1/ClaudeUsage.dmg" length="7817772" type="application/octet-stream" sparkle:edSignature="TZnG3ANF9J0+M/32p2FyZza5Y7aUBbUwpIBwHAV9vR4bJIlccxSkPxMSmjCLx5C6Th5u91W9nuLFKiAKbVnKAg=="></enclosure>
+            <description sparkle:format="plain-text"># 2.10.7
 
-- Antigravity에서 Claude 등 다른 서비스로 전환할 때 스크롤바가 잠깐 나타나고 본문 폭이 흔들리는 문제를 수정했습니다.
-- 본문이 표시 높이를 넘을 때만 스크롤하며, 긴 목록은 마지막 항목까지 확인할 수 있습니다.
-- Antigravity 그룹 제목과 행 간격을 높이 계산과 맞추고, 초기화권이 실제로 보일 때만 읽음 처리하도록 유지했습니다.
+- Aside 브라우저에서 Claude 로그인을 가져올 수 있습니다. Aside가 기본 브라우저이면 Aside를 먼저 확인합니다.
+- 처음 설정에서 기본 브라우저가 가져오기를 지원하지 않으면 그 사실을 알리고 앱에서 로그인을 안내합니다.
+- 브라우저에서 가져오기를 다시 시도할 때 처음 연 브라우저에 고정되지 않고, 로그인을 찾지 못하면 Keychain 확인 창 없이 안내합니다.
+- 기본 브라우저가 Safari이고 전체 디스크 접근 권한이 없으면 다른 출처의 로그인을 가져오지 않고 권한 안내를 보여 줍니다.
+- 웹 연결을 복구하거나 같은 로그인을 다른 방법으로 다시 저장하면 연결 이름과 출처 표시가 새 로그인 기준으로 바뀝니다.
+- 읽을 수 없는 계정이 선택된 상태에서 새로 로그인해도 사용량이 표시되지 않던 문제를 수정했습니다.
+- Anthropic 콘솔 로그인은 Claude 로그인으로 가져오지 않습니다.
 </description>
-            <claudeusage:zipSHA256>83f8d308963a24b1a298809b77ad4b2c634fc322cd675508e503a4e22ad7d119</claudeusage:zipSHA256>
+            <claudeusage:zipSHA256>8e91744cd56d051b09d4cec465db535bdf9eb748da6718cd045a70115e9e5286</claudeusage:zipSHA256>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: fJN9o5eIWtTiFjEkAc/dgPDh1hkPQkON6jWG5b6pPxvWd10DDXSChYQbuFZ9tuACufIrJ+v1HiSRJM/MO1qdCA==
-length: 1822
+edSignature: tn2kJPhfl8igj9VYRFOB3IqicewNXzh2lal5aW+13KIqdPLcnTgA5VmIbQFsnc736X+XcR5artZOAAuvANx7Ag==
+length: 2409
 -->
