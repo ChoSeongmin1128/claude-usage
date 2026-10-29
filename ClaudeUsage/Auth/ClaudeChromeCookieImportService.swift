@@ -112,6 +112,9 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
         let decryptionKeys = try decryptionKeyProvider()
 
         var failureDetails: [String] = []
+        if decryptionKeys.isEmpty {
+            failureDetails.append("Keychain에서 \(family.displayName) Safe Storage 항목을 찾지 못했습니다.")
+        }
         var importedSessions: [ClaudeBrowserImportedSession] = []
         var seenFingerprints = Set<String>()
         for candidate in candidates {
@@ -270,13 +273,10 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
 
     static nonisolated func findSessionKey(in records: [ClaudeChromiumCookieRecord]) -> String? {
         let extractor = ClaudeSessionKeyExtractor()
-        // claude.ai 쿠키를 먼저 본다. anthropic.com(콘솔)의 sessionKey는 claude.ai 사용량을 조회하지 못한다.
-        // 같은 도메인끼리는 나중에 만료되는 쿠키가 최근 로그인이다.
-        let relevantRecords = records.filter { Self.isClaudeHost($0.domain) }.sorted { lhs, rhs in
-            let lhsClaude = Self.isClaudeAIHost(lhs.domain)
-            let rhsClaude = Self.isClaudeAIHost(rhs.domain)
-            if lhsClaude != rhsClaude { return lhsClaude }
-            return (lhs.expiresAt ?? .distantPast) > (rhs.expiresAt ?? .distantPast)
+        // anthropic.com(콘솔)의 sessionKey는 claude.ai 사용량을 조회하지 못하므로 claude.ai 쿠키만 본다.
+        // 나중에 만료되는 쿠키가 최근 로그인이다.
+        let relevantRecords = records.filter { Self.isClaudeAIHost($0.domain) }.sorted {
+            ($0.expiresAt ?? .distantPast) > ($1.expiresAt ?? .distantPast)
         }
 
         if let exact = relevantRecords.first(where: { Self.isSessionCookieName($0.name) }) {
@@ -298,13 +298,6 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
     private static nonisolated func isClaudeAIHost(_ host: String) -> Bool {
         let normalized = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return normalized == "claude.ai" || normalized.hasSuffix(".claude.ai")
-    }
-
-    private static nonisolated func isClaudeHost(_ host: String) -> Bool {
-        let normalized = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return isClaudeAIHost(normalized)
-            || normalized == "anthropic.com"
-            || normalized.hasSuffix(".anthropic.com")
     }
 
     private static nonisolated func isSessionCookieName(_ name: String) -> Bool {

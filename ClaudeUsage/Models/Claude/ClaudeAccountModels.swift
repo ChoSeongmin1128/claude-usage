@@ -159,6 +159,11 @@ nonisolated struct ClaudeAccount: Codable, Identifiable, Equatable, Sendable {
             && lhs.lastUsedAt == rhs.lastUsedAt
             && lhs.lastValidationState == rhs.lastValidationState
     }
+
+    /// 브라우저 출처를 먼저 본다. 출처 설명은 그 값이 없던 이전 버전 계정에만 쓴다.
+    var browserFamily: ClaudeBrowserFamily {
+        browserSource?.family ?? ClaudeBrowserFamily.family(fromSourceDetail: sourceDetail)
+    }
 }
 
 nonisolated protocol ClaudeSessionKeyVault: Sendable {
@@ -360,8 +365,15 @@ final class ClaudeAccountStore: @unchecked Sendable {
             }
             accounts[index].displayName = resolvedDisplayName
             accounts[index].identity = resolvedIdentity
-            accounts[index].source = source ?? accounts[index].source ?? .embeddedWebLogin
-            accounts[index].sourceDetail = requestedSourceDetail ?? accounts[index].sourceDetail
+            if let source {
+                // 같은 키를 다른 방법으로 다시 저장하면 이전 출처를 남기지 않는다. 브라우저 출처는 호출자가 이어서 기록한다.
+                accounts[index].source = source
+                accounts[index].sourceDetail = requestedSourceDetail
+                accounts[index].browserSource = nil
+            } else {
+                accounts[index].source = accounts[index].source ?? .embeddedWebLogin
+                accounts[index].sourceDetail = requestedSourceDetail ?? accounts[index].sourceDetail
+            }
             accounts[index].preferredOrganizationID = resolvedPreferredOrganizationID
             if let resolvedPreferenceWasUserSelected {
                 accounts[index].preferredOrganizationWasUserSelected = resolvedPreferenceWasUserSelected
@@ -409,7 +421,8 @@ final class ClaudeAccountStore: @unchecked Sendable {
         } else {
             activeID = state.activeAccountID ?? accountID
         }
-        let saved = saveRaw(accounts: accounts, activeAccountID: activeID)
+        // 사용자가 방금 로그인한 계정은 읽지 못하는 계정이 선택돼 있어도 선택한다. 그 레코드 자체는 보존된다.
+        let saved = saveRaw(accounts: accounts, activeAccountID: activeID, replacingProtectedActive: setActive)
         lock.unlock()
         if saved { postAccountNotifications(activeAccountChanged: activeID != state.activeAccountID) }
         return ClaudeWebSessionUpsertResult(

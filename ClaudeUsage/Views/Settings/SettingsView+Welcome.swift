@@ -7,6 +7,7 @@ struct OnboardingDetection: Equatable {
     var claudeCode = false
     var browser: ClaudeBrowserLoginFinding?
     var defaultBrowser: ClaudeBrowserFamily?
+    var unsupportedDefaultBrowser: String?
     var codex: CodexAuthStatus = .checking
     var agy: AntigravityAGYExecutableDiscoveryStatus = .notFound
 
@@ -15,11 +16,13 @@ struct OnboardingDetection: Equatable {
         let authJsonExists = CodexAuthManager.shared.authJsonExists
         let token = CodexAuthManager.shared.getToken()
         return await Task.detached(priority: .userInitiated) {
-            OnboardingDetection(
+            let defaultApp = ClaudeBrowserLoginDetector.defaultBrowserApp()
+            return OnboardingDetection(
                 isLoaded: true,
                 claudeCode: await ClaudeCodeLoginDetector.hasLogin(),
                 browser: ClaudeBrowserLoginDetector.findLogin(),
-                defaultBrowser: ClaudeBrowserLoginDetector.defaultBrowserFamily(),
+                defaultBrowser: defaultApp.flatMap(ClaudeBrowserLoginDetector.family(ofApp:)),
+                unsupportedDefaultBrowser: ClaudeBrowserLoginDetector.unsupportedBrowserName(app: defaultApp),
                 codex: CodexAuthStatusResolver.resolve(
                     isProviderEnabled: true, authJsonExists: authJsonExists, token: token,
                     isCodexInstalled: { CodexOwnerCLI.isAvailable() }),
@@ -145,6 +148,11 @@ extension SettingsView {
             case .absent:
                 break
             }
+        }
+        if let name = detection.unsupportedDefaultBrowser {
+            return OnboardingServiceRow(
+                provider: .claude, status: "로그인 필요", tone: .missing, detail: "\(name)에서는 가져올 수 없음",
+                primary: inApp)
         }
         return OnboardingServiceRow(
             provider: .claude, status: "로그인 필요", tone: .missing,

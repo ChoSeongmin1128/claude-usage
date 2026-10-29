@@ -15,6 +15,14 @@ final class ClaudeBrowserImportTests: XCTestCase {
             ClaudeChromeCookieImportService.findSessionKey(in: [console, claude]), "sk-ant-sid01-claude-session-value")
     }
 
+    func testConsoleSessionCookieAloneIsNotAClaudeLogin() {
+        let console = ClaudeChromiumCookieRecord(
+            domain: ".anthropic.com", name: "sessionKey", path: "/", value: "sk-ant-sid01-console-session-value",
+            expiresAt: Date().addingTimeInterval(9_000), isSecure: true)
+
+        XCTAssertNil(ClaudeChromeCookieImportService.findSessionKey(in: [console]))
+    }
+
     private var directory: URL!
 
     override func setUpWithError() throws {
@@ -56,6 +64,25 @@ final class ClaudeBrowserImportTests: XCTestCase {
         XCTAssertEqual(session.family, .firefox)
         XCTAssertTrue(session.sourceDetail.hasPrefix("Firefox "))
         XCTAssertTrue(ClaudeBrowserLoginDetector.hasSessionCookie(sqlite: db, firefox: true))
+    }
+
+    func testFirefoxPresenceReadsMillisecondExpiry() throws {
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        func database(_ name: String, expiry: Int64) throws -> URL {
+            try sqlite(
+                name,
+                [
+                    "CREATE TABLE moz_cookies (host TEXT, name TEXT, value TEXT, path TEXT, expiry INTEGER, isSecure INTEGER)",
+                    "INSERT INTO moz_cookies VALUES ('.claude.ai', 'sessionKey', 'v', '/', \(expiry), 1)",
+                ])
+        }
+
+        XCTAssertTrue(
+            ClaudeBrowserLoginDetector.hasSessionCookie(
+                sqlite: try database("ms-live", expiry: now + 86_400_000), firefox: true))
+        XCTAssertFalse(
+            ClaudeBrowserLoginDetector.hasSessionCookie(
+                sqlite: try database("ms-old", expiry: now - 60_000), firefox: true))
     }
 
     func testChromiumPresenceUsesNamesOnlyAndRespectsExpiry() throws {
@@ -120,7 +147,39 @@ final class ClaudeBrowserImportTests: XCTestCase {
         XCTAssertEqual(app.sourceDetail, "Claude 앱")
         XCTAssertEqual(ClaudeBrowserFamily.family(fromSourceDetail: brave.sourceDetail), .brave)
         XCTAssertEqual(ClaudeBrowserFamily.family(fromSourceDetail: chrome.sourceDetail), .chrome)
+        XCTAssertEqual(ClaudeBrowserFamily.family(fromSourceDetail: "Edgeworth (Profile 3)"), .chrome)
+        XCTAssertEqual(ClaudeBrowserFamily.family(fromSourceDetail: app.sourceDetail), .claudeApp)
         XCTAssertEqual(ClaudeBrowserFamily.family(forBundleIdentifier: "com.naver.Whale"), .whale)
+    }
+
+    func testAsideIsRecognizedAsDefaultBrowserAndKeepsItsSource() {
+        let aside = ClaudeBrowserImportedSession(family: .aside, profileName: "Profile 1", sessionKey: "sk-ant-d")
+
+        XCTAssertEqual(ClaudeBrowserFamily.family(forBundleIdentifier: "at.studio.AsideBrowser"), .aside)
+        XCTAssertEqual(
+            ClaudeBrowserLoginDetector.orderedFamilies(defaultFamily: .aside, isInstalled: { $0 == .chrome }),
+            [.aside, .chrome])
+        XCTAssertEqual(aside.sourceDetail, "Aside 프로필 1 (Profile 1)")
+        XCTAssertEqual(ClaudeBrowserFamily.family(fromSourceDetail: aside.sourceDetail), .aside)
+        XCTAssertEqual(ClaudeBrowserFamily.aside.storage, .chromiumProfiles(root: "Aside"))
+        XCTAssertEqual(
+            ClaudeBrowserFamily.aside.safeStorageLabels, [.init(service: "Aside Safe Storage", account: "Aside")])
+    }
+
+    func testOnlyUnsupportedDefaultBrowserIsNamed() throws {
+        let aside = directory.appendingPathComponent("Aside.app")
+        try FileManager.default.createDirectory(
+            at: aside.appendingPathComponent("Contents"), withIntermediateDirectories: true)
+        try PropertyListSerialization.data(
+            fromPropertyList: ["CFBundleIdentifier": "at.studio.AsideBrowser", "CFBundlePackageType": "APPL"],
+            format: .xml, options: 0
+        ).write(to: aside.appendingPathComponent("Contents/Info.plist"))
+
+        XCTAssertEqual(ClaudeBrowserLoginDetector.family(ofApp: aside), .aside)
+        XCTAssertNil(ClaudeBrowserLoginDetector.unsupportedBrowserName(app: aside))
+        XCTAssertEqual(
+            ClaudeBrowserLoginDetector.unsupportedBrowserName(app: directory.appendingPathComponent("Dia.app")), "Dia")
+        XCTAssertNil(ClaudeBrowserLoginDetector.unsupportedBrowserName(app: nil))
     }
 
     /// 실제 파일과 같은 배치로 쿠키 한 페이지를 만든다.

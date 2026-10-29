@@ -446,8 +446,11 @@ struct LoginWindowView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, AppDesign.Space.page)
             HStack(spacing: AppDesign.Space.label) {
-                Button("\(familyName)에서 Claude 열기") {
-                    openBrowserForClaude()
+                // 가져올 수 없는 기본 브라우저를 열어도 로그인을 가져올 수 없다.
+                if resolvedFamily ?? importFamily != nil {
+                    Button("\(familyName)에서 Claude 열기") {
+                        openBrowserForClaude()
+                    }
                 }
                 Button("다른 방법으로 로그인") {
                     step = .methodSelection
@@ -476,7 +479,7 @@ struct LoginWindowView: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                Button("다시 확인") { startChromeImport() }
+                Button("다시 확인") { startChromeImport(family: resolvedFamily ?? importFamily) }
                 Button("앱에서 로그인") { startEmbeddedWeb() }
             }
         }
@@ -631,25 +634,53 @@ struct LoginWindowView: View {
         if startCLIActivationOnOpen {
             startCLIActivation()
         } else if startChromeImportOnOpen {
-            startChromeImport()
+            startChromeImport(family: importFamily)
         } else if startEmbeddedWebOnOpen {
             startEmbeddedWeb()
         }
     }
 
-    private func startChromeImport() {
+    /// family가 없으면 기본 브라우저, Claude 앱, 다른 브라우저 순으로 로그인이 있는 곳을 찾는다.
+    private func startChromeImport(family requested: ClaudeBrowserFamily? = nil) {
         embeddedErrorMessage = nil
         step = .chromeImporting
-        let requested = importFamily
         taskScope.run {
-            await Task.detached(priority: .userInitiated) {
-                let family = requested ?? ClaudeBrowserLoginDetector.findLogin()?.family ?? .chrome
+            let work = Task.detached(priority: .userInitiated) {
+                () -> (ClaudeBrowserFamily?, Result<ClaudeBrowserImportOutcome, Error>) in
+                let family: ClaudeBrowserFamily
+                if let requested {
+                    family = requested
+                } else if let finding = ClaudeBrowserLoginDetector.findLogin(), finding.presence != .absent {
+                    family = finding.family
+                } else {
+                    // 로그인이 없다고 확인한 브라우저의 Keychain은 읽지 않는다.
+                    let app = ClaudeBrowserLoginDetector.defaultBrowserApp()
+                    let message = Self.noLoginMessage(
+                        unsupportedDefault: ClaudeBrowserLoginDetector.unsupportedBrowserName(app: app))
+                    return (
+                        app.flatMap(ClaudeBrowserLoginDetector.family(ofApp:)), .success(.unavailable(message: message))
+                    )
+                }
+                // 창을 닫았으면 Keychain 확인 창을 띄우지 않는다.
+                guard !Task.isCancelled else { return (family, .failure(CancellationError())) }
                 return (family, Result { try ClaudeBrowserLoginDetector.importer(for: family).attemptImport() })
-            }.value
+            }
+            return await withTaskCancellationHandler {
+                await work.value
+            } onCancel: {
+                work.cancel()
+            }
         } apply: { result in
             resolvedFamily = result.0
             applyChromeOutcome(result.1)
         }
+    }
+
+    nonisolated static func noLoginMessage(unsupportedDefault: String?) -> String {
+        if let unsupportedDefault {
+            return "\(unsupportedDefault)에서는 로그인을 가져올 수 없고, Claude 앱과 다른 브라우저에서도 로그인을 찾지 못했습니다. 앱에서 로그인하세요."
+        }
+        return "기본 브라우저와 Claude 앱에서 Claude 로그인을 찾지 못했습니다. 브라우저에서 claude.ai에 로그인한 뒤 잠시 후 다시 시도하세요."
     }
 
     @MainActor
@@ -676,7 +707,9 @@ struct LoginWindowView: View {
 
     private func activateChrome(candidate: ClaudeBrowserImportedSession) {
         let methodLabel = candidate.family == .claudeApp ? "Claude 앱" : "\(candidate.family.displayName) 프로필"
-        let detail = [candidate.accountEmail, candidate.readableProfileName]
+        // Claude 앱에는 프로필이 없다.
+        let profile = candidate.family == .claudeApp ? nil : candidate.readableProfileName
+        let detail = [candidate.accountEmail, profile]
             .compactMap { $0?.isEmpty == false ? $0 : nil }
             .joined(separator: " · ")
 
@@ -737,7 +770,7 @@ struct LoginWindowView: View {
         case .methodSelection:
             step = .methodSelection
         case .chromeImport:
-            startChromeImport()
+            startChromeImport(family: resolvedFamily ?? importFamily)
         case .embeddedWeb:
             startEmbeddedWeb()
         case .cliActivation:

@@ -366,7 +366,8 @@ final class ClaudeWebSessionRecoveryTests: XCTestCase {
         preferences.knownIdentities["cli"] = .init(accountID: "hannah", organizationID: "team")
         XCTAssertTrue(preferences.commit(to: defaults, intent: .automatic).accepted)
         let replacement = try ClaudeWebSessionReplacement(store: store, vault: vault).replace(
-            account: account, sessionKey: "new", validation: validation, browserSource: origin,
+            account: account, sessionKey: "new", validation: validation,
+            origin: .init(source: .chromeProfile, sourceDetail: "프로필 2 (Profile 2)", browserSource: origin),
             expectedPreferences: preferences, previousAccountID: oldID)
         let restored = UsageAccountPreferences.load(from: defaults)
         XCTAssertEqual(restored.aliases[destination], "Keep this alias")
@@ -401,13 +402,74 @@ final class ClaudeWebSessionRecoveryTests: XCTestCase {
             }
             XCTAssertThrowsError(
                 try ClaudeWebSessionReplacement(store: store, vault: vault).replace(
-                    account: account, sessionKey: "new", validation: validation, browserSource: origin,
+                    account: account, sessionKey: "new", validation: validation,
+                    origin: .init(source: .chromeProfile, sourceDetail: "프로필 2 (Profile 2)", browserSource: origin),
                     expectedPreferences: preferences, previousAccountID: "old"))
             XCTAssertNotNil(store.accounts().first { $0.id == account.id })
             XCTAssertEqual(try vault.loadString(account: ClaudeKeychainStore.accountName(for: account.id)), "old")
             XCTAssertEqual(UsageAccountPreferences.load(from: defaults), preferences)
             XCTAssertNil(try vault.loadString(account: ClaudeKeychainStore.accountName(for: id("new"))))
         }
+    }
+
+    func testReplacementTakesEverySourceValueFromTheNewSession() throws {
+        let aside = ClaudeBrowserImportedSession(family: .aside, profileName: "Profile 1", sessionKey: "new")
+        for origin in [aside.origin, ClaudeWebSessionOrigin(source: .embeddedWebLogin)] {
+            let vault = RecoveryVault()
+            let suite = "ClaudeWebOrigin.\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let store = ClaudeAccountStore(defaults: defaults, keychainVault: vault, postsNotifications: false)
+            let account = store.upsertWebSessionAccount(
+                sessionKey: "old", preferredOrganizationID: "team", displayName: "Claude 앱", source: .chromeProfile,
+                sourceDetail: "Claude 앱")
+            store.setBrowserSource(.init(family: .claudeApp, profileName: "Default"), for: account.id)
+            try vault.saveString("old", account: ClaudeKeychainStore.accountName(for: account.id))
+            let stored = try XCTUnwrap(store.accounts().first { $0.id == account.id })
+
+            let replacement = try ClaudeWebSessionReplacement(store: store, vault: vault).replace(
+                account: stored, sessionKey: "new", validation: validation, origin: origin,
+                expectedPreferences: UsageAccountPreferences.load(from: defaults),
+                previousAccountID: "claude:web:\(account.id)")
+
+            let saved = try XCTUnwrap(store.accounts().first { $0.id == replacement.id })
+            XCTAssertEqual(saved.source, origin.source)
+            XCTAssertEqual(saved.sourceDetail, origin.sourceDetail)
+            XCTAssertEqual(saved.browserSource, origin.browserSource)
+            XCTAssertEqual(saved.displayName, origin.displayName ?? identity.email)
+        }
+    }
+
+    func testBrowserFamilyPrefersBrowserSourceOverStaleDetail() {
+        let mismatched = ClaudeAccount(
+            id: id("aside"), kind: .webSession, displayName: "Claude 앱", source: .chromeProfile,
+            sourceDetail: "Claude 앱", browserSource: .init(family: .aside, profileName: "Profile 1"))
+        let legacy = ClaudeAccount(
+            id: id("legacy"), kind: .webSession, displayName: "Brave", source: .chromeProfile,
+            sourceDetail: "Brave 프로필 2 (Profile 2)")
+
+        XCTAssertEqual(mismatched.browserFamily, .aside)
+        XCTAssertEqual(legacy.browserFamily, .brave)
+    }
+
+    func testCommitCarriesWhereTheNewSessionCameFrom() async throws {
+        let probe = RecoveryProbe()
+        var dependencies = dependencies(probe)
+        dependencies.commit = { _, candidate in
+            let origin = candidate.origin
+            probe.record("commit:\(origin.browserSource?.family.rawValue ?? "-"):\(origin.sourceDetail ?? "-")")
+        }
+        let aside = ClaudeWebSessionOrigin(
+            source: .chromeProfile, sourceDetail: "Aside 프로필 1 (Profile 1)",
+            browserSource: .init(family: .aside, profileName: "Profile 1"))
+
+        try await ClaudeWebSessionRecoveryCoordinator(dependencies: dependencies).recover(
+            request(origin: origin), sessionKey: "new", origin: aside)
+        try await ClaudeWebSessionRecoveryCoordinator(dependencies: dependencies).recover(request(origin: origin))
+
+        XCTAssertEqual(
+            probe.events.filter { $0.hasPrefix("commit") },
+            ["commit:aside:Aside 프로필 1 (Profile 1)", "commit:chrome:프로필 2 (Profile 2)"])
     }
 
     func testLegacyAccountDecodesWithoutBrowserOrigin() throws {

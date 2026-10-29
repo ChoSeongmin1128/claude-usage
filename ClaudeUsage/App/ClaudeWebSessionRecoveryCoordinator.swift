@@ -21,7 +21,7 @@ final class ClaudeWebSessionRecoveryCoordinator {
 
     struct Candidate: Sendable {
         let sessionKey: String
-        let browserSource: ClaudeBrowserSource?
+        let origin: ClaudeWebSessionOrigin
         let validation: ClaudeValidatedWebSession
     }
 
@@ -49,20 +49,20 @@ final class ClaudeWebSessionRecoveryCoordinator {
 
     private let dependencies: Dependencies
     private var task:
-        (id: UUID, request: Request, key: String?, source: ClaudeBrowserSource?, value: Task<Void, Error>)?
+        (id: UUID, request: Request, key: String?, origin: ClaudeWebSessionOrigin?, value: Task<Void, Error>)?
 
     init(dependencies: Dependencies) { self.dependencies = dependencies }
 
     func cancel() { task?.value.cancel(); task = nil }
 
-    func recover(_ request: Request, sessionKey: String? = nil, source: ClaudeBrowserSource? = nil) async throws {
-        if let task, !task.value.isCancelled, task.request == request, task.key == sessionKey, task.source == source {
+    func recover(_ request: Request, sessionKey: String? = nil, origin: ClaudeWebSessionOrigin? = nil) async throws {
+        if let task, !task.value.isCancelled, task.request == request, task.key == sessionKey, task.origin == origin {
             return try await awaitRecovery(task.value)
         }
         task?.value.cancel()
-        let value = Task { try await run(request, sessionKey: sessionKey, source: source) }
+        let value = Task { try await run(request, sessionKey: sessionKey, origin: origin) }
         let id = UUID()
-        task = (id, request, sessionKey, source, value)
+        task = (id, request, sessionKey, origin, value)
         defer { if task?.id == id { task = nil } }
         try await awaitRecovery(value)
     }
@@ -75,10 +75,10 @@ final class ClaudeWebSessionRecoveryCoordinator {
         }
     }
 
-    private func run(_ request: Request, sessionKey: String?, source: ClaudeBrowserSource?) async throws {
+    private func run(_ request: Request, sessionKey: String?, origin: ClaudeWebSessionOrigin?) async throws {
         try check(request)
         if let sessionKey {
-            let candidate = try await validate(sessionKey, source: source, request: request)
+            let candidate = try await validate(sessionKey, origin: origin ?? request.account.origin, request: request)
             try check(request)
             return try await dependencies.commit(request, candidate)
         }
@@ -90,7 +90,7 @@ final class ClaudeWebSessionRecoveryCoordinator {
                 != request.account.id
         {
             do {
-                let candidate = try await validate(saved, source: request.account.browserSource, request: request)
+                let candidate = try await validate(saved, origin: request.account.origin, request: request)
                 try check(request)
                 return try await dependencies.commit(request, candidate)
             } catch APIError.invalidSessionKey {
@@ -120,12 +120,12 @@ final class ClaudeWebSessionRecoveryCoordinator {
             ClaudeAccountStore.webSessionAccountID(
                 fingerprint: ClaudeAccountStore.fingerprint(for: imported.sessionKey)) != request.account.id
         else { throw Failure.loginRequired }
-        let candidate = try await validate(imported.sessionKey, source: origin, request: request)
+        let candidate = try await validate(imported.sessionKey, origin: imported.origin, request: request)
         try check(request)
         try await dependencies.commit(request, candidate)
     }
 
-    private func validate(_ key: String, source: ClaudeBrowserSource?, request: Request) async throws -> Candidate {
+    private func validate(_ key: String, origin: ClaudeWebSessionOrigin, request: Request) async throws -> Candidate {
         let organization = request.expectedIdentity?.organizationID ?? request.account.identity.organizationID
         let validation = try await dependencies.validate(key, organization)
         try check(request)
@@ -137,7 +137,7 @@ final class ClaudeWebSessionRecoveryCoordinator {
             guard await dependencies.confirmIdentity(validation.identity) else { throw CancellationError() }
         }
         try check(request)
-        return Candidate(sessionKey: key, browserSource: source, validation: validation)
+        return Candidate(sessionKey: key, origin: origin, validation: validation)
     }
 
     private func check(_ request: Request) throws {

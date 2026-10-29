@@ -13,12 +13,22 @@ nonisolated struct ClaudeBrowserLoginFinding: Equatable, Sendable {
 }
 
 enum ClaudeBrowserLoginDetector {
+    nonisolated static func defaultBrowserApp() -> URL? {
+        URL(string: "https://claude.ai").flatMap { NSWorkspace.shared.urlForApplication(toOpen: $0) }
+    }
+
     nonisolated static func defaultBrowserFamily() -> ClaudeBrowserFamily? {
-        guard let url = URL(string: "https://claude.ai"),
-            let app = NSWorkspace.shared.urlForApplication(toOpen: url),
-            let identifier = Bundle(url: app)?.bundleIdentifier
-        else { return nil }
-        return ClaudeBrowserFamily.family(forBundleIdentifier: identifier)
+        defaultBrowserApp().flatMap(family(ofApp:))
+    }
+
+    nonisolated static func family(ofApp app: URL) -> ClaudeBrowserFamily? {
+        Bundle(url: app)?.bundleIdentifier.flatMap(ClaudeBrowserFamily.family(forBundleIdentifier:))
+    }
+
+    /// 기본 브라우저가 가져오기를 지원하지 않으면 그 이름을 돌려준다.
+    nonisolated static func unsupportedBrowserName(app: URL?) -> String? {
+        guard let app, family(ofApp: app) == nil else { return nil }
+        return app.deletingPathExtension().lastPathComponent
     }
 
     nonisolated static func isInstalled(_ family: ClaudeBrowserFamily) -> Bool {
@@ -45,7 +55,11 @@ enum ClaudeBrowserLoginDetector {
         for family in families {
             let finding = ClaudeBrowserLoginFinding(family: family, presence: presence(in: family))
             if finding.presence == .present { return finding }
-            if family == defaultFamily { first = finding }
+            if family == defaultFamily {
+                // 권한이 없어 알 수 없는 기본 브라우저를 건너뛰면 사용자가 고르지 않은 출처를 가져온다.
+                if finding.presence == .needsFullDiskAccess { return finding }
+                first = finding
+            }
         }
         return first
     }
@@ -89,7 +103,8 @@ enum ClaudeBrowserLoginDetector {
         """
     private nonisolated static let firefoxSQL = """
         SELECT host, name FROM moz_cookies WHERE name = 'sessionKey'
-        AND (expiry = 0 OR expiry > strftime('%s','now'))
+        AND (expiry = 0 OR (CASE WHEN expiry > 100000000000 THEN expiry / 1000 ELSE expiry END)
+            > CAST(strftime('%s','now') AS INTEGER))
         """
 
     nonisolated static func hasSessionCookie(sqlite path: URL, firefox: Bool) -> Bool {

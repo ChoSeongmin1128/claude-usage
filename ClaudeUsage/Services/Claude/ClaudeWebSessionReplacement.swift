@@ -1,12 +1,34 @@
 import Foundation
 
+/// 새 세션을 가져온 곳. 교체할 때 이 값을 함께 바꿔야 표시 이름, 출처 설명, 브라우저 출처가 어긋나지 않는다.
+nonisolated struct ClaudeWebSessionOrigin: Equatable, Sendable {
+    var source: ClaudeAccountSource?
+    var sourceDetail: String?
+    var browserSource: ClaudeBrowserSource?
+    var displayName: String?
+}
+
+nonisolated extension ClaudeAccount {
+    var origin: ClaudeWebSessionOrigin {
+        .init(source: source, sourceDetail: sourceDetail, browserSource: browserSource, displayName: displayName)
+    }
+}
+
+nonisolated extension ClaudeBrowserImportedSession {
+    var origin: ClaudeWebSessionOrigin {
+        .init(
+            source: .chromeProfile, sourceDetail: sourceDetail,
+            browserSource: .init(family: family, profileName: profileName), displayName: displayName)
+    }
+}
+
 nonisolated struct ClaudeWebSessionReplacement: Sendable {
     let store: ClaudeAccountStore
     let vault: any ClaudeSessionKeyVault
 
     func replace(
         account: ClaudeAccount, sessionKey: String, validation: ClaudeValidatedWebSession,
-        browserSource: ClaudeBrowserSource?, expectedPreferences: UsageAccountPreferences,
+        origin: ClaudeWebSessionOrigin, expectedPreferences: UsageAccountPreferences,
         previousAccountID: String, expectedActiveAccountID: String? = nil
     ) throws -> ClaudeAccount {
         let newID = ClaudeAccountStore.webSessionAccountID(fingerprint: ClaudeAccountStore.fingerprint(for: sessionKey))
@@ -24,8 +46,12 @@ nonisolated struct ClaudeWebSessionReplacement: Sendable {
                 email: validation.identity.email, organizationName: validation.identity.organizationName,
                 organizationID: validation.identity.organizationID, planLabel: account.identity.planLabel,
                 fingerprint: ClaudeAccountStore.fingerprint(for: sessionKey))
-            replacement.browserSource = browserSource
-            if browserSource != nil { replacement.source = .chromeProfile }
+            replacement.browserSource = origin.browserSource
+            replacement.sourceDetail = origin.sourceDetail
+            if let source = origin.source { replacement.source = source }
+            replacement.displayName =
+                origin.displayName.flatMap { $0.isEmpty ? nil : $0 } ?? replacement.identity.primaryLabel
+                ?? replacement.displayName
             replacement.lastValidationState = .verified
             replacement.lastUsedAt = Date()
             let preferences = expectedPreferences.replacingWebConnection(

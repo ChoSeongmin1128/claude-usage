@@ -132,6 +132,24 @@ final class ReviewStorageAccountCollisionTests: XCTestCase {
         }
     }
 
+    func testNewLoginBecomesActiveWhenUnreadableRecordIsActive() throws {
+        try withDefaults { defaults in
+            let opaque: [String: Any] = ["id": "web-future", "kind": "future-kind", "future": NSNull()]
+            defaults.set(try data([opaque]), forKey: ClaudeAccountStore.accountsDefaultsKey)
+            defaults.set(
+                ClaudeAccountStore.currentMigrationVersion, forKey: ClaudeAccountStore.migrationVersionDefaultsKey)
+            defaults.set("web-future", forKey: ClaudeAccountStore.activeAccountDefaultsKey)
+            let store = makeStore(defaults, CollisionReviewVault())
+
+            _ = store.upsertWebSessionAccount(sessionKey: "fixture-background", setActive: false)
+            XCTAssertEqual(defaults.string(forKey: ClaudeAccountStore.activeAccountDefaultsKey), "web-future")
+
+            let login = store.upsertWebSessionAccount(sessionKey: "fixture-login")
+            XCTAssertEqual(store.activeAccount()?.id, login.id)
+            assertJSON(try records(defaults).first { $0["id"] as? String == "web-future" }, opaque)
+        }
+    }
+
     func testRejectedInventoryWriteDoesNotRetireVaultReferenceOrDeleteAccount() throws {
         try withDefaults { defaults in
             let vault = CollisionReviewVault()

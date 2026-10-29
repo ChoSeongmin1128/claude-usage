@@ -398,6 +398,20 @@ final class ClaudeAccountStoreTests: XCTestCase {
         XCTAssertEqual(updated?.identity.email, "company@example.com")
     }
 
+    func testSavingSameKeyFromAnotherSourceReplacesOldSourceValues() {
+        let store = makeStore()
+        let account = store.upsertWebSessionAccount(
+            sessionKey: "sk-ant-same-session", source: .chromeProfile, sourceDetail: "Claude 앱")
+        store.setBrowserSource(.init(family: .claudeApp, profileName: "Default"), for: account.id)
+
+        _ = store.upsertWebSessionAccount(sessionKey: "sk-ant-same-session", source: .manualInput)
+
+        let updated = store.accounts().first(where: { $0.id == account.id })
+        XCTAssertEqual(updated?.source, .manualInput)
+        XCTAssertNil(updated?.sourceDetail)
+        XCTAssertNil(updated?.browserSource)
+    }
+
     func testUnverifiedRotationDoesNotRemoveSameProfileAndOrganization() {
         let store = makeStore()
         let first = store.upsertWebSessionAccount(

@@ -31,9 +31,10 @@ nonisolated struct ClaudeAuthSourceDescriptor: Codable, Sendable, Equatable {
 
 /// Claude 로그인을 가져올 수 있는 브라우저와 앱. Chromium 계열의 폴더와 Keychain 이름은
 /// yt-dlp `cookies.py`의 macOS 표와 이 기기의 Keychain 항목(Chrome, Claude)으로 확인했다.
+/// Aside는 그 표에 없어 이 기기의 폴더와 Keychain 항목으로 확인했다.
 /// Arc는 Safe Storage 키를 로그인 Keychain에 두지 않아 넣지 않는다.
 nonisolated enum ClaudeBrowserFamily: String, Codable, CaseIterable, Sendable {
-    case chrome, brave, edge, whale, vivaldi, chromium, claudeApp, firefox, safari
+    case chrome, brave, edge, whale, vivaldi, chromium, aside, claudeApp, firefox, safari
 
     enum Storage: Sendable, Equatable {
         /// 프로필 폴더가 여러 개인 Chromium 브라우저
@@ -52,6 +53,7 @@ nonisolated enum ClaudeBrowserFamily: String, Codable, CaseIterable, Sendable {
         case .whale: return "Whale"
         case .vivaldi: return "Vivaldi"
         case .chromium: return "Chromium"
+        case .aside: return "Aside"
         case .claudeApp: return "Claude 앱"
         case .firefox: return "Firefox"
         case .safari: return "Safari"
@@ -66,6 +68,7 @@ nonisolated enum ClaudeBrowserFamily: String, Codable, CaseIterable, Sendable {
         case .whale: return ["com.naver.Whale"]
         case .vivaldi: return ["com.vivaldi.Vivaldi"]
         case .chromium: return ["org.chromium.Chromium"]
+        case .aside: return ["at.studio.AsideBrowser"]
         case .claudeApp: return ["com.anthropic.claudefordesktop"]
         case .firefox: return ["org.mozilla.firefox"]
         case .safari: return ["com.apple.Safari"]
@@ -80,6 +83,7 @@ nonisolated enum ClaudeBrowserFamily: String, Codable, CaseIterable, Sendable {
         case .whale: return .chromiumProfiles(root: "Naver/Whale")
         case .vivaldi: return .chromiumProfiles(root: "Vivaldi")
         case .chromium: return .chromiumProfiles(root: "Chromium")
+        case .aside: return .chromiumProfiles(root: "Aside")
         case .claudeApp: return .chromiumSingle(root: "Claude")
         case .firefox: return .firefox
         case .safari: return .safari
@@ -98,6 +102,7 @@ nonisolated enum ClaudeBrowserFamily: String, Codable, CaseIterable, Sendable {
         case .whale: return [.init(service: "Whale Safe Storage", account: "Whale")]
         case .vivaldi: return [.init(service: "Vivaldi Safe Storage", account: "Vivaldi")]
         case .chromium: return [.init(service: "Chromium Safe Storage", account: "Chromium")]
+        case .aside: return [.init(service: "Aside Safe Storage", account: "Aside")]
         case .claudeApp: return [.init(service: "Claude Safe Storage", account: "Claude Key")]
         case .firefox, .safari: return []
         }
@@ -209,7 +214,9 @@ extension ClaudeBrowserFamily {
     /// 가져온 계정의 출처 설명에서 브라우저를 되찾는다. 2.7.x까지의 Chrome 설명에는 이름이 없다.
     nonisolated static func family(fromSourceDetail detail: String?) -> ClaudeBrowserFamily {
         guard let detail else { return .chrome }
-        return allCases.first { $0 != .chrome && detail.hasPrefix($0.displayName) } ?? .chrome
+        return allCases.first {
+            $0 != .chrome && (detail == $0.displayName || detail.hasPrefix("\($0.displayName) "))
+        } ?? .chrome
     }
 }
 

@@ -66,7 +66,7 @@ Claude 또는 Codex 설정에서 ‘여러 계정 함께 보기’를 켜면 그
 
 | 서비스 | 시작 방법 | 조회 방식 |
 |---|---|---|
-| Claude | 브라우저에서 가져오기(Chrome, Brave, Edge, Whale, Vivaldi, Chromium, Firefox, Safari, Claude 앱)·앱에서 로그인 또는 Claude Code | 웹 세션과 Claude Code OAuth |
+| Claude | 브라우저에서 가져오기(Chrome, Brave, Edge, Whale, Vivaldi, Chromium, Aside, Firefox, Safari, Claude 앱)·앱에서 로그인 또는 Claude Code | 웹 세션과 Claude Code OAuth |
 | Codex | Codex CLI에 로그인한 뒤 서비스 활성화 | CLI의 OAuth 자격증명으로 사용량 조회 |
 | Antigravity | AGY CLI에 로그인한 뒤 서비스 활성화 | AGY CLI의 현재 로그인 계정 |
 

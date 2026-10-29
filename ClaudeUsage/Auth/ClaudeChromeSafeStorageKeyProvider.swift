@@ -14,11 +14,11 @@ enum ClaudeChromeSafeStorageKeyError: LocalizedError, Equatable, Sendable {
     nonisolated var errorDescription: String? {
         switch self {
         case .cancelled:
-            return "Chrome Safe Storage 인증을 취소했습니다."
+            return "Safe Storage 인증을 취소했습니다."
         case .invalidData:
-            return "Chrome Safe Storage 데이터가 유효하지 않습니다."
+            return "Safe Storage 데이터가 유효하지 않습니다."
         case .unavailable:
-            return "Chrome Safe Storage 키를 읽지 못했습니다."
+            return "Safe Storage 키를 읽지 못했습니다."
         }
     }
 }

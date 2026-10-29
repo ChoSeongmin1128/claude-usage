@@ -86,11 +86,16 @@ extension AppDelegate {
             },
             onSaveClaudeSession: { [weak self] key, organization in
                 guard let self else { throw CancellationError() }
+                // 계정 선택이 바뀌어 낡은 요청은 버린다. 그대로 쓰면 복구가 취소로 끝나 키를 저장하지 못한다.
+                if let pending = self.pendingClaudeWebRecovery, !Self.isCurrentWebRecovery(pending) {
+                    self.pendingClaudeWebRecovery = nil
+                }
                 let shouldRecover = self.claudeManualSessionIntent.shouldRecover(
                     hasPendingRequest: self.pendingClaudeWebRecovery != nil,
                     authenticationFailed: self.hasWebAuthenticationFailure)
                 if shouldRecover, let request = self.pendingClaudeWebRecovery ?? self.webRecoveryRequest() {
-                    try await self.claudeWebRecovery.recover(request, sessionKey: key)
+                    try await self.claudeWebRecovery.recover(
+                        request, sessionKey: key, origin: .init(source: .manualInput))
                     self.pendingClaudeWebRecovery = nil
                 } else {
                     let initial = ClaudeAccountStore.shared.activeAccount()
@@ -290,7 +295,14 @@ extension AppDelegate {
 
                     do {
                         if let request = replacingWebConnection {
-                            try await self.claudeWebRecovery.recover(request, sessionKey: key, source: browserSource)
+                            try await self.claudeWebRecovery.recover(
+                                request, sessionKey: key,
+                                origin: .init(
+                                    source: source, sourceDetail: sourceDetail, browserSource: browserSource,
+                                    displayName: displayName))
+                            await MainActor.run {
+                                if self.pendingClaudeWebRecovery == request { self.pendingClaudeWebRecovery = nil }
+                            }
                             return
                         }
                         let initial = ClaudeAccountStore.shared.activeAccount()

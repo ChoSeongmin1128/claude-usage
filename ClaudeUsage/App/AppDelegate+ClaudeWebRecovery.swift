@@ -7,6 +7,11 @@ extension AppDelegate {
         return false
     }
 
+    static func isCurrentWebRecovery(_ request: ClaudeWebSessionRecoveryCoordinator.Request) -> Bool {
+        let state = ClaudeAccountStore.shared.state()
+        return state.activeAccountID == request.activeAccountID && state.accounts.contains(request.account)
+    }
+
     func webRecoveryRequest(account: UsageAccount? = nil) -> ClaudeWebSessionRecoveryCoordinator.Request? {
         let state = ClaudeAccountStore.shared.state()
         let reference =
@@ -79,9 +84,7 @@ extension AppDelegate {
                     return alert.runModal() == .alertFirstButtonReturn
                 },
                 isCurrent: { [weak self] request in
-                    let state = ClaudeAccountStore.shared.state()
-                    return self?.isTerminating == false && state.activeAccountID == request.activeAccountID
-                        && state.accounts.contains(request.account)
+                    self?.isTerminating == false && Self.isCurrentWebRecovery(request)
                 },
                 commit: { [weak self] request, candidate in
                     guard let self else { throw CancellationError() }
@@ -89,7 +92,7 @@ extension AppDelegate {
                         .replace(
                             account: request.account, sessionKey: candidate.sessionKey,
                             validation: candidate.validation,
-                            browserSource: candidate.browserSource,
+                            origin: candidate.origin,
                             expectedPreferences: UsageAccountPreferences.load(),
                             previousAccountID: request.previousAccountID,
                             expectedActiveAccountID: request.activeAccountID)

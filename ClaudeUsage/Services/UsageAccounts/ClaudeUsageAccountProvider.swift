@@ -356,8 +356,7 @@ final class ClaudeUsageAccountProvider: UsageAccountProvider, UsageAccountMenuBa
 
     private func isClaudeAppLogin(_ target: String) -> Bool {
         store.accounts().contains {
-            $0.id == target && $0.kind == .webSession
-                && ClaudeBrowserFamily.family(fromSourceDetail: $0.sourceDetail) == .claudeApp
+            $0.id == target && $0.kind == .webSession && $0.browserFamily == .claudeApp
         }
     }
 }
