@@ -127,6 +127,29 @@ final class WhatsNewTests: XCTestCase {
         XCTAssertTrue(UpdateNotesQueue.pending(defaults: defaults).isEmpty)
     }
 
+    func testFeatureReleasesAfter2100ShowTheirPagesInOrder() {
+        XCTAssertEqual(
+            WhatsNewCatalog.pagesToShow(after: "2.10.0", upTo: "2.10.8").map(\.title),
+            ["호버 표시 지연 조절", "Aside 로그인 가져오기", "경과 시간 눈금"])
+        XCTAssertEqual(WhatsNewCatalog.pagesToShow(after: "2.10.7", upTo: "2.10.8").map(\.title), ["경과 시간 눈금"])
+        XCTAssertEqual(WhatsNewCatalog.latestPages(upTo: "2.10.8").map(\.title), ["경과 시간 눈금"])
+        XCTAssertEqual(WhatsNewCatalog.latestPages(upTo: "2.10.7").map(\.title), ["Aside 로그인 가져오기"])
+        XCTAssertEqual(
+            WhatsNewCatalog.pagesToShow(after: "2.10.0", upTo: "2.10.8").map(\.action),
+            [.openSettings(.display), .openSettings(.claude, section: .connection), .openSettings(.display)])
+    }
+
+    func testEveryWhatsNewPageHasABundledReleaseNote() throws {
+        let notes = Set(
+            BundledReleaseNotes.load(bundle: try BuiltAppTestResources.bundle(relativeTo: Self.self), upTo: "999")
+                .map(\.version))
+        for page in WhatsNewCatalog.pages {
+            XCTAssertTrue(notes.contains(page.version), "\(page.version) \(page.title)")
+            XCTAssertNotNil(
+                NSImage(systemSymbolName: page.symbol, accessibilityDescription: nil), "\(page.symbol)")
+        }
+    }
+
     func testBundledHistoryContainsCurrentAndPreviousReleaseNotes() throws {
         let notes = BundledReleaseNotes.load(
             bundle: try BuiltAppTestResources.bundle(relativeTo: Self.self), upTo: "2.8.0")

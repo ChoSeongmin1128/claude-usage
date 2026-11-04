@@ -66,6 +66,19 @@ nonisolated enum WhatsNewCatalog {
             body:
                 "메뉴바에 마우스를 올리면 선택한 사용량과 서비스 장애를 함께 볼 수 있습니다. 일반, 간소화와 호버의 표시 항목을 각각 고르고 순서를 바꾸세요. 긴 호버 내용은 마우스를 패널로 옮겨 스크롤해서 읽을 수 있습니다.",
             action: .openSettings(.claude, section: .popover), actionTitle: "표시 항목 설정 열기"),
+        WhatsNewPage(
+            version: "2.10.2", symbol: "timer", title: "호버 표시 지연 조절",
+            body: "메뉴바에 마우스를 올렸을 때 사용량과 서비스 상태 패널이 기본 0.1초로 더 빨리 나타납니다. 표시 설정의 메뉴바 호버에서 0.1초부터 1초까지 조절할 수 있습니다.",
+            action: .openSettings(.display), actionTitle: "표시 설정 열기"),
+        WhatsNewPage(
+            version: "2.10.7", symbol: "globe", title: "Aside 로그인 가져오기",
+            body: "Aside 브라우저에 로그인한 Claude 계정을 가져올 수 있습니다. Aside가 기본 브라우저이면 Aside를 먼저 확인합니다.",
+            action: .openSettings(.claude, section: .connection), actionTitle: "Claude 연결 열기"),
+        WhatsNewPage(
+            version: "2.10.8", symbol: "ruler", title: "경과 시간 눈금",
+            body:
+                "팝오버의 사용량 막대에 한도 기간 중 지난 시간의 위치를 눈금으로 표시합니다. 사용한 양 기준에서는 채움이 눈금을 넘으면, 남은 양 기준에서는 채움이 눈금에 못 미치면 시간보다 빨리 쓰고 있다는 뜻입니다. 표시 설정의 팝오버에서 끌 수 있습니다.",
+            action: .openSettings(.display), actionTitle: "표시 설정 열기"),
     ]
 
     static func notesText(_ note: UpdateNotesQueue.Note) -> (version: String, title: String, text: String) {
