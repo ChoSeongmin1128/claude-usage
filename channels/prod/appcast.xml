@@ -4,26 +4,23 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>ClaudeUsage</title>
         <item>
-            <title>Version 2.10.7</title>
-            <pubDate>Thu, 29 Oct 2026 17:04:49 +0900</pubDate>
-            <sparkle:version>20661</sparkle:version>
-            <sparkle:shortVersionString>2.10.7</sparkle:shortVersionString>
+            <title>Version 2.10.8</title>
+            <pubDate>Thu, 05 Nov 2026 02:54:10 +0900</pubDate>
+            <sparkle:version>20663</sparkle:version>
+            <sparkle:shortVersionString>2.10.8</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.10.7/ClaudeUsage.dmg" length="7817893" type="application/octet-stream" sparkle:edSignature="oKaPg0gihg9IhBQRwll96bMKitAsQ1nebdnOej2QQllwN0hdffcQoEAiYoqdADFiUceLN84lYLNQpPdUNZhODA=="></enclosure>
-            <description sparkle:format="plain-text"># 2.10.7
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.10.8/ClaudeUsage.dmg" length="7839159" type="application/octet-stream" sparkle:edSignature="MaIBNtyWTNSvAu2hOaWQHu7la7sYhDGF7S2Q5AhysO2VCCsJoSIDieiVQ3vsbNXO0OqSqqUvpsJzNN1jRfSqCQ=="></enclosure>
+            <description sparkle:format="plain-text"># 2.10.8
 
-- Aside 브라우저에서 Claude 로그인을 가져올 수 있습니다. Aside가 기본 브라우저이면 Aside를 먼저 확인합니다.
-- 처음 설정에서 기본 브라우저가 가져오기를 지원하지 않으면 그 사실을 알리고 앱에서 로그인을 안내합니다.
-- 브라우저에서 가져오기를 다시 시도할 때 처음 연 브라우저에 고정되지 않고, 로그인을 찾지 못하면 Keychain 확인 창 없이 안내합니다.
-- 기본 브라우저가 Safari이고 전체 디스크 접근 권한이 없으면 다른 출처의 로그인을 가져오지 않고 권한 안내를 보여 줍니다.
-- 웹 연결을 복구하거나 같은 로그인을 다른 방법으로 다시 저장하면 연결 이름과 출처 표시가 새 로그인 기준으로 바뀝니다.
-- 읽을 수 없는 계정이 선택된 상태에서 새로 로그인해도 사용량이 표시되지 않던 문제를 수정했습니다.
-- Anthropic 콘솔 로그인은 Claude 로그인으로 가져오지 않습니다.
+- 팝오버의 사용량 막대에 한도 기간 중 지난 시간의 위치를 세로 눈금으로 표시합니다. 채움과 눈금을 비교해 시간보다 빨리 쓰고 있는지 알 수 있습니다.
+- 남은 양 기준에서는 눈금도 남은 시간 위치로 바뀝니다. 막대에 마우스를 올리면 경과 시간 또는 남은 시간의 비율을 보여 줍니다.
+- Claude 5시간·주간·모델별 한도, 창 길이를 알리는 Codex 한도, Antigravity 5시간·주간 한도에 표시합니다. 창 길이를 알 수 없는 한도에는 표시하지 않습니다.
+- 설정 → 표시 → 팝오버의 ‘경과 시간 눈금’에서 끌 수 있습니다. 기본은 켜져 있습니다.
 </description>
-            <claudeusage:zipSHA256>5d2e6b5b35b8d5d2019c79ef05e166c714fd675f1b8e181dccb2b349b8ffe32e</claudeusage:zipSHA256>
+            <claudeusage:zipSHA256>40ada6eceb39e5036f755bcc802007445b7fbcacd583f1e2eda7f3e05fcbf5fa</claudeusage:zipSHA256>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: 4NbRV5qDRVlUZwycptsQBl7wg/v5DypKKuNDjd/ST+qiLchy8QufmOxslCpfSpusK949EQNYCE2lseMax+vFBg==
-length: 2387
+edSignature: XbgsMJCzRQl1WXLMsAhefeEaNNXpkRzzmGJJbnVKAV6IIGgcEv/eKAEDx2hOV1R7QKx2Ip/3pTgOhDupzJLWCg==
+length: 2072
 -->
