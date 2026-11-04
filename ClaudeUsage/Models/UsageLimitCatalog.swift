@@ -1,5 +1,21 @@
 import Foundation
 
+// Persisted quota IDs embed these lengths; changing a value renames saved selections and alert history.
+nonisolated enum UsageWindowLength {
+    static let fiveHour = 18_000
+    static let weekly = 604_800
+}
+
+extension AntigravityQuotaCadence {
+    nonisolated var lengthSeconds: Int? {
+        switch self {
+        case .fiveHour: UsageWindowLength.fiveHour
+        case .weekly: UsageWindowLength.weekly
+        case .unknown: nil
+        }
+    }
+}
+
 /// Verified quota data before any surface's visibility/order filters. Credit
 /// balances and reset-credit counts intentionally have no adapter here.
 nonisolated struct UsageLimit: Identifiable, Equatable, Sendable {
@@ -34,14 +50,14 @@ nonisolated enum UsageLimitCatalog {
         if let fiveHour = usage.fiveHour {
             result.append(
                 make(
-                    provider: .claude, scope: "five_hour", period: 18_000,
+                    provider: .claude, scope: "five_hour", period: UsageWindowLength.fiveHour,
                     title: "5시간", used: fiveHour.utilization,
                     reset: date(fiveHour.resetsAt), legacy: "fiveHour"))
         }
         if let weekly = usage.sevenDay {
             result.append(
                 make(
-                    provider: .claude, scope: "seven_day", period: 604_800,
+                    provider: .claude, scope: "seven_day", period: UsageWindowLength.weekly,
                     title: "주간", used: weekly.utilization, reset: date(weekly.resetsAt), legacy: "weekly"))
         }
         let models = usage.modelWeeklyWindows
@@ -52,7 +68,7 @@ nonisolated enum UsageLimitCatalog {
             // name within this weekly scope is the fallback, not a translated UI label.
             let scope = window.sourceID.map { "model:\($0)" } ?? "model-name:\(name)"
             return make(
-                provider: .claude, scope: scope, period: 604_800,
+                provider: .claude, scope: scope, period: UsageWindowLength.weekly,
                 title: "\(window.modelName) · 주간", shortTitle: window.modelName, used: window.utilization,
                 reset: date(window.resetsAt),
                 identifiable: window.sourceID != nil || names[name]?.count == 1)
@@ -81,12 +97,12 @@ nonisolated enum UsageLimitCatalog {
                 case .thirdPartyModels: scope = "Claude·GPT"
                 case .unknown(let id, let label): scope = label ?? id
                 }
-                let period: Int?
+                let period = lane.cadence.lengthSeconds
                 let cadence: String
                 switch lane.cadence {
-                case .fiveHour: period = 18_000; cadence = "5시간"
-                case .weekly: period = 604_800; cadence = "주간"
-                case .unknown(let raw): period = nil; cadence = raw
+                case .fiveHour: cadence = "5시간"
+                case .weekly: cadence = "주간"
+                case .unknown(let raw): cadence = raw
                 }
                 let used: Double? =
                     lane.availability == .available

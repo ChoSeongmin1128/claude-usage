@@ -175,7 +175,8 @@ struct ClaudeItemCatalog: UsageItemCatalog {
                         resetAt: fiveHour.resetsAt,
                         isWeekly: false,
                         timeFormatStyle: context.settings.timeFormat,
-                        basis: context.settings.usageValueBasis(for: .claude)
+                        basis: context.settings.usageValueBasis(for: .claude),
+                        pace: UsagePaceWindow(resetAtISO: fiveHour.resetsAt, lengthSeconds: UsageWindowLength.fiveHour)
                     )
                 )
             )
@@ -194,7 +195,8 @@ struct ClaudeItemCatalog: UsageItemCatalog {
                         resetAt: sevenDay.resetsAt,
                         isWeekly: true,
                         timeFormatStyle: context.settings.timeFormat,
-                        basis: context.settings.usageValueBasis(for: .claude)
+                        basis: context.settings.usageValueBasis(for: .claude),
+                        pace: UsagePaceWindow(resetAtISO: sevenDay.resetsAt, lengthSeconds: UsageWindowLength.weekly)
                     )
                 )
             )
@@ -239,7 +241,7 @@ struct ClaudeItemCatalog: UsageItemCatalog {
                             title: limit.shortTitle, compactLabel: limit.shortTitle, percentage: percentage,
                             resetAt: limit.resetAt.map { ISO8601DateFormatter().string(from: $0) },
                             isWeekly: true, timeFormatStyle: context.settings.timeFormat,
-                            basis: context.settings.usageValueBasis(for: .claude))))
+                            basis: context.settings.usageValueBasis(for: .claude), pace: limit.paceWindow)))
             }
 
         default:
@@ -320,7 +322,7 @@ struct CodexItemCatalog: UsageItemCatalog {
                             resetAt: limit.resetAt.map { ISO8601DateFormatter().string(from: $0) },
                             isWeekly: (limit.periodSeconds ?? 0) >= 86_400,
                             timeFormatStyle: context.settings.codexTimeFormat,
-                            basis: context.settings.usageValueBasis(for: .codex))))
+                            basis: context.settings.usageValueBasis(for: .codex), pace: limit.paceWindow)))
             }
 
         default:
@@ -349,7 +351,8 @@ struct CodexItemCatalog: UsageItemCatalog {
                             resetAt: window.resetAtISO,
                             isWeekly: false,
                             timeFormatStyle: context.settings.codexTimeFormat,
-                            basis: context.settings.usageValueBasis(for: .codex)
+                            basis: context.settings.usageValueBasis(for: .codex),
+                            pace: window.paceWindow
                         )
                     )
                 )
@@ -379,7 +382,8 @@ struct CodexItemCatalog: UsageItemCatalog {
                             resetAt: window.resetAtISO,
                             isWeekly: true,
                             timeFormatStyle: context.settings.codexTimeFormat,
-                            basis: context.settings.usageValueBasis(for: .codex)
+                            basis: context.settings.usageValueBasis(for: .codex),
+                            pace: window.paceWindow
                         )
                     )
                 )

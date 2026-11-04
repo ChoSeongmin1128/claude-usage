@@ -47,7 +47,8 @@ struct AntigravityCompactQuotaView: View {
                             metric.accessibilityLabel,
                         accessibilityValue:
                             metric.accessibilityValue,
-                        basis: metric.basis
+                        basis: metric.basis,
+                        pace: metric.pace
                     )
                 }
             }

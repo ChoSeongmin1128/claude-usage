@@ -443,6 +443,13 @@ class AppSettings: ObservableObject {
         menuBarHoverDelay = value
     }
 
+    @Published private(set) var usagePaceMarkerVisible: Bool
+
+    func setUsagePaceMarkerVisible(_ visible: Bool) {
+        defaults.set(visible, forKey: UsagePaceMarkerPreference.key)
+        usagePaceMarkerVisible = visible
+    }
+
     @Published var motion: AppMotionPreferences {
         didSet { motion.persist(to: defaults) }
     }
@@ -583,6 +590,7 @@ class AppSettings: ObservableObject {
 
     struct Snapshot {
         let menuBarHoverDelayObject: Any?
+        let usagePaceMarkerObject: Any?
         let antigravityHoverObject: Any?
         let hoverPreferences: PopoverHoverPreferences.Snapshot
         let menuBarPresets: MenuBarPresetStore.Snapshot
@@ -642,6 +650,7 @@ class AppSettings: ObservableObject {
     func createSnapshot() -> Snapshot {
         Snapshot(
             menuBarHoverDelayObject: defaults.object(forKey: MenuBarHoverDelay.key),
+            usagePaceMarkerObject: defaults.object(forKey: UsagePaceMarkerPreference.key),
             antigravityHoverObject: defaults.object(forKey: AntigravityHoverDisplayPreferences.key),
             hoverPreferences: popoverDisplayPreferencesStore.hoverSnapshot(),
             menuBarPresets: menuBarPresets.snapshot(),
@@ -713,6 +722,12 @@ class AppSettings: ObservableObject {
             defaults.removeObject(forKey: MenuBarHoverDelay.key)
         }
         menuBarHoverDelay = MenuBarHoverDelay.load(from: defaults)
+        if let object = snapshot.usagePaceMarkerObject {
+            defaults.set(object, forKey: UsagePaceMarkerPreference.key)
+        } else {
+            defaults.removeObject(forKey: UsagePaceMarkerPreference.key)
+        }
+        usagePaceMarkerVisible = UsagePaceMarkerPreference.load(from: defaults)
         if let object = snapshot.antigravityHoverObject {
             defaults.set(object, forKey: AntigravityHoverDisplayPreferences.key)
         } else {
@@ -1355,6 +1370,8 @@ class AppSettings: ObservableObject {
         popoverCompact = false
         defaults.removeObject(forKey: MenuBarHoverDelay.key)
         menuBarHoverDelay = MenuBarHoverDelay.defaultValue
+        defaults.removeObject(forKey: UsagePaceMarkerPreference.key)
+        usagePaceMarkerVisible = UsagePaceMarkerPreference.defaultValue
         motion = AppMotionPreferences()
         popoverDisplayPreferencesStore.restoreHoverDefaults()
         popoverDisplayPreferencesStore.restoreKnownDefaults()
@@ -1476,6 +1493,7 @@ class AppSettings: ObservableObject {
         self.popoverPinned = defaults.object(forKey: "popoverPinned") as? Bool ?? false
         self.popoverCompact = defaults.object(forKey: "popoverCompact") as? Bool ?? false
         self.menuBarHoverDelay = MenuBarHoverDelay.load(from: defaults)
+        self.usagePaceMarkerVisible = UsagePaceMarkerPreference.load(from: defaults)
         self.motion = AppMotionPreferences.load(from: defaults)
         // 시스템 상태에서 실제 등록 여부 확인
         self.launchAtLoginState = loginState

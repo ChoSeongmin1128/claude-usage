@@ -16,8 +16,11 @@ struct StandardUsageRow: View {
     var accessibilityLabel: String? = nil
     var accessibilityValue: String? = nil
     var basis: UsageValueBasis = .used
+    var pace: UsagePaceWindow? = nil
+    @Environment(\.usagePaceMarkerVisible) private var paceMarkerVisible
 
     var body: some View {
+        let marker = percentage == nil ? nil : pace?.visibleMarker(isEnabled: paceMarkerVisible, basis: basis)
         VStack(alignment: .leading, spacing: PopoverLayoutMetrics.standardUsageRowSpacing) {
             HStack(alignment: .firstTextBaseline, spacing: AppDesign.Space.label) {
                 Text(title)
@@ -43,7 +46,7 @@ struct StandardUsageRow: View {
             if let percentage {
                 ProgressBarView(
                     percentage: percentage, height: PopoverLayoutMetrics.standardUsageRowBarHeight, color: color,
-                    basis: basis)
+                    basis: basis, elapsedPercentage: marker?.elapsedPercentage)
             } else {
                 Color.clear.frame(height: PopoverLayoutMetrics.standardUsageRowBarHeight)
             }
@@ -55,10 +58,10 @@ struct StandardUsageRow: View {
             }
         }
         .frame(height: PopoverLayoutMetrics.standardUsageRowHeight, alignment: .top)
-        .help(tooltip ?? defaultTooltip)
+        .help(marker.appending(toTooltip: tooltip ?? defaultTooltip))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel ?? title)
-        .accessibilityValue(accessibilityValue ?? defaultAccessibilityValue)
+        .accessibilityValue(marker.appending(toAccessibilityValue: accessibilityValue ?? defaultAccessibilityValue))
     }
 
     private func detailLabel(_ text: String) -> Text {

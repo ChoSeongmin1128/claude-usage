@@ -99,6 +99,7 @@ enum AppDesign {
         static let boundary = Color.primary.opacity(0.6)
         static let separator = Color(nsColor: .separatorColor)
         static let track = Color.primary.opacity(0.12)
+        static let paceMarker = Color.primary.opacity(0.55)
     }
 
     enum Text {

@@ -13,14 +13,18 @@ struct CompactUsageRow: View {
     var accessibilityLabel: String? = nil
     var accessibilityValue: String? = nil
     var basis: UsageValueBasis = .used
+    var pace: UsagePaceWindow? = nil
+    @Environment(\.usagePaceMarkerVisible) private var paceMarkerVisible
 
     var body: some View {
+        let marker = pace?.visibleMarker(isEnabled: paceMarkerVisible, basis: basis)
         PopoverMetricRow(density: .compact) {
             compactLabelLine
         } middle: {
             ProgressBarView(
                 percentage: percentage, height: PopoverLayoutMetrics.compactProgressBarHeight,
-                color: color, basis: basis, cornerRadius: PopoverLayoutMetrics.compactProgressBarCornerRadius)
+                color: color, basis: basis, cornerRadius: PopoverLayoutMetrics.compactProgressBarCornerRadius,
+                elapsedPercentage: marker?.elapsedPercentage)
         } value: {
             UsagePercentageLabel(
                 percentage: percentage, basis: basis, compact: true,
@@ -28,10 +32,10 @@ struct CompactUsageRow: View {
         } detail: {
             EmptyView()
         }
-        .help(tooltip ?? [label, defaultAccessibilityValue].joined(separator: ", "))
+        .help(marker.appending(toTooltip: tooltip ?? [label, defaultAccessibilityValue].joined(separator: ", ")))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel ?? label)
-        .accessibilityValue(accessibilityValue ?? defaultAccessibilityValue)
+        .accessibilityValue(marker.appending(toAccessibilityValue: accessibilityValue ?? defaultAccessibilityValue))
     }
 
     private var defaultAccessibilityValue: String {

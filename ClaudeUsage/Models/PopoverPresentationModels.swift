@@ -128,6 +128,7 @@ struct PopoverUsageSectionData {
     let isWeekly: Bool
     let timeFormatStyle: TimeFormatStyle
     var basis: UsageValueBasis = .used
+    var pace: UsagePaceWindow? = nil
 }
 
 struct PopoverCreditsSectionData {

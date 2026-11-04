@@ -79,6 +79,7 @@ nonisolated struct AntigravityQuotaLanePresentation:
     let accessibilityLabel: String
     let accessibilityValue: String
     var basis: UsageValueBasis = .used
+    var pace: UsagePaceWindow? = nil
 
     /// 일반 팝오버에서는 다른 provider와 같은 "한도" 명명 규칙을 씁니다.
     /// compact/menu/editor 표면은 공간과 식별 맥락이 달라 짧은 cadenceTitle을
@@ -167,6 +168,7 @@ nonisolated struct AntigravityCompactQuotaMetricPresentation:
     var isWeekly = false
     var timeFormatStyle: TimeFormatStyle = .h24
     var basis: UsageValueBasis = .used
+    var pace: UsagePaceWindow? = nil
 }
 
 nonisolated struct AntigravityCompactQuotaPresentation:

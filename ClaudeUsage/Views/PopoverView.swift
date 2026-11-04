@@ -50,6 +50,7 @@ struct PopoverView: View {
             }
         }
         .environment(\.popoverAccountActions, viewModel.accountActions)
+        .environment(\.usagePaceMarkerVisible, settings.usagePaceMarkerVisible)
         .onAppear {
             normalizeSelectedServiceIfNeeded()
             requestRefreshIfNeededForVisibleService()

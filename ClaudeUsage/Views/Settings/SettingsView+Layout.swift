@@ -69,6 +69,7 @@ extension SettingsView {
     var body: some View {
         settingsLayoutWithChanges
             .background(SettingsFocusDismissalMonitor())
+            .environment(\.usagePaceMarkerVisible, settings.usagePaceMarkerVisible)
     }
 
     var settingsLayout: some View {

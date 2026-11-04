@@ -166,6 +166,11 @@ extension SettingsView {
             }
             .pickerStyle(.segmented)
             settingsToggleRow("팝오버 고정", subtitle: "다른 곳을 눌러도 팝오버를 열어 둡니다", isOn: $settings.popoverPinned)
+            settingsToggleRow(
+                "경과 시간 눈금", subtitle: "막대에 한도 기간 중 지난 시간의 위치를 표시합니다",
+                isOn: Binding(
+                    get: { settings.usagePaceMarkerVisible },
+                    set: { settings.setUsagePaceMarkerVisible($0) }))
         }
     }
 

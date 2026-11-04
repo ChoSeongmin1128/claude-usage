@@ -232,7 +232,8 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             tooltip: tooltip,
             accessibilityLabel: "\(scopeTitle), \(cadenceTitle) 한도",
             accessibilityValue: accessibilityValue,
-            basis: basis
+            basis: basis,
+            pace: UsagePaceWindow(resetAt: lane.resetAt, lengthSeconds: lane.cadence.lengthSeconds)
         )
     }
 
@@ -484,7 +485,8 @@ nonisolated enum AntigravityQuotaPresentationMapper {
                     resetAt: lane.resetAt.map { ISO8601DateFormatter().string(from: $0) },
                     isWeekly: lane.cadence == .weekly,
                     timeFormatStyle: timeFormat,
-                    basis: lane.basis
+                    basis: lane.basis,
+                    pace: lane.pace
             )
         }
         guard !metrics.isEmpty else {

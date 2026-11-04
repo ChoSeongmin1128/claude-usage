@@ -114,7 +114,8 @@ struct PopoverDisplaySectionView: View {
                     resetAt: usage.resetAt,
                     isWeekly: usage.isWeekly,
                     timeFormatStyle: usage.timeFormatStyle,
-                    basis: usage.basis
+                    basis: usage.basis,
+                    pace: usage.pace
                 )
             } else {
                 UsageSectionView(
@@ -123,7 +124,8 @@ struct PopoverDisplaySectionView: View {
                     resetAt: usage.resetAt,
                     isWeekly: usage.isWeekly,
                     timeFormatStyle: usage.timeFormatStyle,
-                    basis: usage.basis
+                    basis: usage.basis,
+                    pace: usage.pace
                 )
             }
         case .credits(let credits):
