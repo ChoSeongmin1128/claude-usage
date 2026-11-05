@@ -471,6 +471,75 @@ final class MenuBarStatusComposerTests: XCTestCase {
         XCTAssertNil(button.accessibilityValue())
     }
 
+    func testStableAccessibilityTitleSurvivesTitleAndContentUpdates() throws {
+        XCTAssertEqual(
+            AppIdentifiers.statusItemAccessibilityTitle,
+            "ClaudeUsage",
+            "메뉴바 관리 앱의 저장 위치와 숨김 설정이 이 값에 묶여 있다"
+        )
+        let autosaveName = "claudeusage-tests"
+        let statusItem = AppDelegate.makeStatusItem(
+            autosaveName: autosaveName
+        )
+        defer {
+            NSStatusBar.system.removeStatusItem(
+                statusItem
+            )
+            for key in UserDefaults.standard.dictionaryRepresentation().keys
+            where key.hasPrefix("NSStatusItem ") && key.hasSuffix(autosaveName) {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+        let button = try XCTUnwrap(statusItem.button)
+
+        XCTAssertEqual(statusItem.autosaveName, autosaveName)
+        XCTAssertEqual(button.title, "...")
+        XCTAssertEqual(
+            button.accessibilityTitle(),
+            AppIdentifiers.statusItemAccessibilityTitle
+        )
+
+        let content = MenuBarRenderedContent(
+            image: NSImage(
+                size: NSSize(width: 18, height: 18)
+            ),
+            tooltip: "tooltip",
+            accessibilityLabel: "Claude 사용량, Codex 사용량",
+            accessibilityValue: "5시간, 42퍼센트 사용"
+        )
+        AppDelegate.applyRenderedContent(content, to: button)
+        button.setAccessibilityHelp("Claude 정상, Codex 정상")
+
+        XCTAssertEqual(button.title, "")
+        XCTAssertEqual(
+            button.accessibilityTitle(),
+            AppIdentifiers.statusItemAccessibilityTitle
+        )
+        XCTAssertEqual(
+            button.accessibilityLabel(),
+            content.accessibilityLabel
+        )
+        XCTAssertEqual(
+            button.accessibilityValue() as? String,
+            content.accessibilityValue
+        )
+
+        AppDelegate.applyRenderedContent(
+            MenuBarRenderedContent(
+                image: content.image,
+                tooltip: "placeholder"
+            ),
+            to: button
+        )
+        button.setAccessibilityHelp(nil)
+
+        XCTAssertEqual(
+            button.accessibilityTitle(),
+            AppIdentifiers.statusItemAccessibilityTitle
+        )
+        XCTAssertNil(button.accessibilityLabel())
+    }
+
     func testAntigravityV2ToneMapsDirectlyToAppKitColor() throws {
         let cases: [(AntigravityQuotaRiskTone, NSColor)] = [
             (.neutral, .secondaryLabelColor),

@@ -280,6 +280,17 @@ extension AppDelegate {
         }
     }
 
+    // 라벨은 표시 서비스와 사용량에 따라 바뀌므로, 외부 식별에는 바뀌지 않는 제목을 생성 직후부터 준다.
+    static func makeStatusItem(autosaveName: String) -> NSStatusItem {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.autosaveName = autosaveName
+        if let button = item.button {
+            button.setAccessibilityTitle(AppIdentifiers.statusItemAccessibilityTitle)
+            button.title = "..."
+        }
+        return item
+    }
+
     func rebuildStatusItems() {
         serviceStatusHover.detach()
         if let item = statusItem {
@@ -322,15 +333,9 @@ extension AppDelegate {
             )
         }
 
-        let item =
-            NSStatusBar.system.statusItem(
-                withLength:
-                    NSStatusItem.variableLength
-            )
-        item.autosaveName = autosaveName
+        let item = Self.makeStatusItem(autosaveName: autosaveName)
         statusItem = item
         if let button = item.button {
-            button.title = "..."
             button.action = #selector(statusItemClicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.target = self
@@ -833,13 +838,17 @@ extension AppDelegate {
         }
     }
 
-    func applyMenuBarContent(_ content: MenuBarRenderedContent, to button: NSStatusBarButton) {
+    static func applyRenderedContent(_ content: MenuBarRenderedContent, to button: NSStatusBarButton) {
         button.image = content.image
         button.imagePosition = .imageOnly
         button.attributedTitle = NSAttributedString(string: "")
         // 서비스 상태 패널이 tooltip 자리를 대신하므로 시스템 tooltip은 두지 않는다.
         button.toolTip = nil
         content.applyAccessibility(to: button)
+    }
+
+    func applyMenuBarContent(_ content: MenuBarRenderedContent, to button: NSStatusBarButton) {
+        Self.applyRenderedContent(content, to: button)
         refreshServiceStatusPresentation()
         if PopoverGeometryDiagnostics.isEnabled {
             let buttonScreenFrame = button.window.map {

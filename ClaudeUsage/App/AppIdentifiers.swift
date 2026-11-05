@@ -28,6 +28,9 @@ nonisolated enum AppIdentifiers {
     /// 상태 아이템 위치를 저장하는 autosave 이름. 바꾸면 메뉴바 위치를 잃는다.
     static let productionStatusItemAutosaveName = "claudeusage"
     static let stagingStatusItemAutosaveName = "claudeusage-staging"
+    /// 상태 버튼의 접근성 제목. macOS 27 MenuBarAgent의 위치 태그와 메뉴바 관리 앱이 이 값으로
+    /// 상태 아이템을 식별한다. 앱 이름을 바꿔도 유지하고, 바꾸면 저장된 위치와 숨김 설정이 갈라진다.
+    static let statusItemAccessibilityTitle = "ClaudeUsage"
 
     /// UserDefaults 키. 접두어 "ClaudeUsage."는 저장된 값이므로 바꾸지 않는다.
     static func defaultsKey(_ name: String) -> String {
