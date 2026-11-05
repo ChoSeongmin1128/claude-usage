@@ -4,23 +4,21 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>ClaudeUsage-stg</title>
         <item>
-            <title>Version 2.10.8-stg.2</title>
-            <pubDate>Thu, 05 Nov 2026 02:34:22 +0900</pubDate>
-            <sparkle:version>20663</sparkle:version>
-            <sparkle:shortVersionString>2.10.8-stg.2</sparkle:shortVersionString>
+            <title>Version 2.10.9-stg.1</title>
+            <pubDate>Thu, 05 Nov 2026 12:53:09 +0900</pubDate>
+            <sparkle:version>20664</sparkle:version>
+            <sparkle:shortVersionString>2.10.9-stg.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.10.8-stg.2/ClaudeUsage.dmg" length="7839218" type="application/octet-stream" sparkle:edSignature="G/vzb5KsNU1bp3rmGfq7f/YDArkpTH/QYH1XMmmLw3Lu4k3SpPcM4Xm7+x9bWnbvtmKaLqK4nxuGR50u/46GAg=="></enclosure>
-            <description sparkle:format="plain-text"># 2.10.8
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.10.9-stg.1/ClaudeUsage.dmg" length="7840608" type="application/octet-stream" sparkle:edSignature="LgIf1YCU0iCDQ6rNoFNydN5N8ursdBVv9Xw/lYodZQfk7NSfV995ADirjPseMrnhJsX7DHC0CMTUpIxNavf4AQ=="></enclosure>
+            <description sparkle:format="plain-text"># 2.10.9
 
-- 팝오버의 사용량 막대에 한도 기간 중 지난 시간의 위치를 세로 눈금으로 표시합니다. 채움과 눈금을 비교해 시간보다 빨리 쓰고 있는지 알 수 있습니다.
-- 남은 양 기준에서는 눈금도 남은 시간 위치로 바뀝니다. 막대에 마우스를 올리면 경과 시간 또는 남은 시간의 비율을 보여 줍니다.
-- Claude 5시간·주간·모델별 한도, 창 길이를 알리는 Codex 한도, Antigravity 5시간·주간 한도에 표시합니다. 창 길이를 알 수 없는 한도에는 표시하지 않습니다.
-- 설정 → 표시 → 팝오버의 ‘경과 시간 눈금’에서 끌 수 있습니다. 기본은 켜져 있습니다.
+- 일부 메뉴바 관리 앱이 메뉴바 아이콘 하나를 두 항목으로 인식하던 문제를 수정했습니다. 상태 아이콘에 바뀌지 않는 접근성 제목(ClaudeUsage)을 붙여, 활성 디스플레이를 바꾸거나 메뉴바에 표시할 서비스를 바꿔도 같은 항목으로 인식됩니다.
+- 업데이트 뒤 처음 실행할 때 메뉴바 관리 앱이 이 아이콘을 새 항목으로 볼 수 있습니다. 위치나 숨김 설정이 바뀌었다면 한 번 다시 맞춰 주세요.
 </description>
-            <claudeusage:zipSHA256>7138e098e20f9c41ff40f55cdae6fbdd71b782edb625fcd8dd938d44d7875e79</claudeusage:zipSHA256>
+            <claudeusage:zipSHA256>91837bcc7ceed6e609b1e2126af23555ca19538db357f6d6340f44b5ca93e57f</claudeusage:zipSHA256>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: yYpKPF1c6wApzUf683nTy56Siquz3Bz6oOMT3ZDvyY6PjLiU0ShR+EKG+hPwOVX+e/vQvgU1lkMLcspN9AE0Aw==
-length: 2094
+edSignature: UpqZxalUoRBHEdyVDUmefns0ZtrOXVKL5dFnRQ8FSrM3yDEBdxoZJh8lyhT26QZ9fKI4OBljfONZCf5O72TTCA==
+length: 1902
 -->
