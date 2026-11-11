@@ -4,21 +4,20 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>ClaudeUsage-stg</title>
         <item>
-            <title>Version 2.10.9-stg.1</title>
-            <pubDate>Thu, 05 Nov 2026 12:53:09 +0900</pubDate>
-            <sparkle:version>20664</sparkle:version>
-            <sparkle:shortVersionString>2.10.9-stg.1</sparkle:shortVersionString>
+            <title>Version 2.10.10-stg.1</title>
+            <pubDate>Wed, 11 Nov 2026 18:23:53 +0900</pubDate>
+            <sparkle:version>20665</sparkle:version>
+            <sparkle:shortVersionString>2.10.10-stg.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.10.9-stg.1/ClaudeUsage.dmg" length="7840608" type="application/octet-stream" sparkle:edSignature="LgIf1YCU0iCDQ6rNoFNydN5N8ursdBVv9Xw/lYodZQfk7NSfV995ADirjPseMrnhJsX7DHC0CMTUpIxNavf4AQ=="></enclosure>
-            <description sparkle:format="plain-text"># 2.10.9
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.10.10-stg.1/ClaudeUsage.dmg" length="7841448" type="application/octet-stream" sparkle:edSignature="BpYnWJG2kUysEPZ6yMCi2BKUDJjPnmOUgOBWt3g4OQ6hsycmvcEzpmq2vzyMxIRbt7a2ZdE8qLS0Mj+dBZUyCg=="></enclosure>
+            <description sparkle:format="plain-text"># 2.10.10
 
-- 일부 메뉴바 관리 앱이 메뉴바 아이콘 하나를 두 항목으로 인식하던 문제를 수정했습니다. 상태 아이콘에 바뀌지 않는 접근성 제목(ClaudeUsage)을 붙여, 활성 디스플레이를 바꾸거나 메뉴바에 표시할 서비스를 바꿔도 같은 항목으로 인식됩니다.
-- 업데이트 뒤 처음 실행할 때 메뉴바 관리 앱이 이 아이콘을 새 항목으로 볼 수 있습니다. 위치나 숨김 설정이 바뀌었다면 한 번 다시 맞춰 주세요.
+- 팝오버를 연 직후와 팝오버를 한 번 클릭한 뒤의 배경이 다르게 보이던 문제를 수정했습니다. 팝오버를 열 때 바로 활성 상태로 열어, 클릭 전후 배경이 같게 보입니다.
 </description>
-            <claudeusage:zipSHA256>91837bcc7ceed6e609b1e2126af23555ca19538db357f6d6340f44b5ca93e57f</claudeusage:zipSHA256>
+            <claudeusage:zipSHA256>de5902aa738e4e6c1358788a42b8f74c9d910207fb586f181930d26fb71f6436</claudeusage:zipSHA256>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: UpqZxalUoRBHEdyVDUmefns0ZtrOXVKL5dFnRQ8FSrM3yDEBdxoZJh8lyhT26QZ9fKI4OBljfONZCf5O72TTCA==
-length: 1902
+edSignature: yICTP3OKTUS1bbgFn1qvx7cZ78THMdxG3BUV9ITDaFu9HK2zG08DSY3jWUeGeGuMJonqzTLyHglrO9KQ7KlKDw==
+length: 1612
 -->
