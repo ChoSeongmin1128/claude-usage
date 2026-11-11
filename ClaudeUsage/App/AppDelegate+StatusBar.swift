@@ -870,7 +870,7 @@ extension AppDelegate {
                 PopoverEscapeKey.closesPopover(
                     keyCode: event.keyCode,
                     modifierFlags: event.modifierFlags,
-                    // macOS 27에서는 팝오버를 띄운 뒤 앱 활성화가 거부돼 팝오버 창이 키 창이 아닐 수 있다.
+                    // 팝오버를 열 때 활성화를 요청하고 키 창으로 지정하지만, 활성화가 거부되면 키 창이 아닐 수 있다.
                     // 그때 키 입력은 창 없이 오므로, 다른 창이 키 창일 때만 Esc를 그 창에 맡긴다.
                     isInShownPopover: self.popover?.isShown == true
                         && (event.window == nil || event.window === self.popover?.contentViewController?.view.window),

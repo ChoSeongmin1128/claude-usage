@@ -68,14 +68,16 @@ extension AppDelegate {
             popover.contentViewController?.preferredContentSize = initialSize
             popover.contentSize = initialSize
             logPopoverPresentationState("before-show", button: button, requestedSize: initialSize)
+            NSApp.activate()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            // 시스템 글라스는 팝오버 창이 key일 때와 아닐 때 다르게 그려져, 첫 클릭 전후로 배경이 바뀐다.
+            popover.contentViewController?.view.window?.makeKey()
             popoverCoordinator.beginWindowDiagnosticsIfNeeded()
             logPopoverPresentationState("after-show", button: button, requestedSize: initialSize)
             refreshVisiblePopoverSizeForCurrentState()
             lastPopoverOpenedAt = Date()
             refreshServiceIfNeededOnTabSwitch(service)
             syncRefreshTimerState()
-            NSApp.activate()
             DispatchQueue.main.async { [weak self] in
                 self?.isPresentingPopover = false
             }
@@ -174,7 +176,7 @@ extension AppDelegate {
         let requested = requestedSize.map { "\($0.width.rounded())x\($0.height.rounded())" } ?? "nil"
 
         PopoverGeometryDiagnostics.log(
-            "PopoverGeometry \(label) service=\(popoverViewModel.selectedService.rawValue) shown=\(popover?.isShown == true) requested=\(requested) contentSize=\(contentSize) buttonBounds=\(buttonFrame) buttonWindow=\(buttonWindowFrame) buttonScreen=\(buttonScreenFrame) popoverWindow=\(windowFrame)"
+            "PopoverGeometry \(label) service=\(popoverViewModel.selectedService.rawValue) shown=\(popover?.isShown == true) requested=\(requested) contentSize=\(contentSize) buttonBounds=\(buttonFrame) buttonWindow=\(buttonWindowFrame) buttonScreen=\(buttonScreenFrame) popoverWindow=\(windowFrame) appActive=\(NSApp.isActive) popoverKey=\(popover?.contentViewController?.view.window?.isKeyWindow == true)"
         )
     }
 
