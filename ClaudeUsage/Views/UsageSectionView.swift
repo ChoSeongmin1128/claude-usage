@@ -15,6 +15,7 @@ struct UsageSectionView: View {
     var timeFormatStyle: TimeFormatStyle = .h24
     var basis: UsageValueBasis = .used
     var pace: UsagePaceWindow? = nil
+    var quota: QuotaAvailability.Row? = nil
 
     var body: some View {
         StandardUsageRow(
@@ -22,7 +23,7 @@ struct UsageSectionView: View {
             percentage: percentage,
             detailText: resetTimeText,
             basis: basis,
-            pace: pace
+            pace: pace, quota: quota, timeFormatStyle: timeFormatStyle
         )
     }
 

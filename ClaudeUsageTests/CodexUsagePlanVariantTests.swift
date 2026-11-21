@@ -117,13 +117,13 @@ final class CodexUsagePlanVariantTests: XCTestCase {
             try decode(#"{"rate_limit":{"primary_window":{"used_percent":-1}}}"#))
     }
 
-    func testOverOneHundredQuotaRetainsItsExistingValueAndDisplayPolicy() throws {
+    func testOverOneHundredQuotaRetainsRawValueAndShowsExhaustion() throws {
         let usage = try decode(
             #"{"rate_limit":{"primary_window":{"used_percent":125.5,"limit_window_seconds":18000}}}"#)
         XCTAssertEqual(usage.sessionWindow?.utilization, 125.5)
         XCTAssertFalse(usage.rateLimit?.hasMalformedWindow == true)
         XCTAssertEqual(UsageLimitCatalog.codex(usage).first?.usedPercentage, 100)
-        XCTAssertEqual(menuBarText(usage, display: .fiveHour), "100%")
+        XCTAssertEqual(menuBarText(usage, display: .fiveHour), "!")
     }
 
     private func decode(_ json: String) throws -> CodexUsageResponse {

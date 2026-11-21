@@ -37,7 +37,7 @@ enum MenuBarPresetPreviewRenderer {
             }
             let summary =
                 provider == .claude
-                ? ResetCreditSummary.claude(claudeUsage?.resetGrants) : ResetCreditSummary.codex(codexUsage)
+                ? ResetCreditSummary.claude(claudeUsage) : ResetCreditSummary.codex(codexUsage)
             snapshot = snapshot.withResetCreditBadge(
                 MenuBarResetCreditBadge.resolve(
                     summary: summary, isNew: resetCreditsAreNew,

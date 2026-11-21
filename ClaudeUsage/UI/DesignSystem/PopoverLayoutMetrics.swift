@@ -236,7 +236,9 @@ enum PopoverLayoutMetrics {
             )
         } else {
             heights = sections.map {
-                standardSectionHeight(for: $0.kind)
+                let count = $0.displayRowCount
+                return CGFloat(count) * standardSectionHeight(for: $0.kind)
+                    + CGFloat(count - 1) * standardLaneSpacing
             }
         }
         let dividerCount = max(heights.count - 1, 0)

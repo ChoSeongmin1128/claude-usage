@@ -3,7 +3,7 @@ import AppKit
 extension AppDelegate {
     func resetCreditSummary(for service: PopoverService) -> ResetCreditSummary? {
         switch service {
-        case .claude: return ResetCreditSummary.claude(runtimeProviderSnapshot(for: .claude).claudeUsage?.resetGrants)
+        case .claude: return ResetCreditSummary.claude(runtimeProviderSnapshot(for: .claude).claudeUsage)
         case .codex: return ResetCreditSummary.codex(runtimeProviderSnapshot(for: .codex).codexUsage)
         case .antigravity: return nil
         }

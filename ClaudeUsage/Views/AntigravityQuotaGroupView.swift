@@ -69,7 +69,7 @@ private struct AntigravityQuotaLaneRow: View {
                 accessibilityValue:
                     presentation.accessibilityValue,
                 basis: presentation.basis,
-                pace: presentation.pace
+                pace: presentation.pace, quota: presentation.quota
             )
         case .unavailable(let reason):
             StandardUsageRow(
@@ -82,7 +82,7 @@ private struct AntigravityQuotaLaneRow: View {
                     presentation.accessibilityLabel,
                 accessibilityValue:
                     presentation.accessibilityValue,
-                basis: presentation.basis
+                basis: presentation.basis, quota: presentation.quota
             )
         }
     }

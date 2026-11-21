@@ -50,53 +50,58 @@ enum MenuBarIconRenderer {
     ) -> NSImage? {
         guard !gauges.isEmpty, shape != .none else { return nil }
         if gauges.count == 2, layout == .stacked, shape.isBatteryStyle {
-            let image = dualBatteryIcon(
-                topPercent: gauges[0].value.percentage, bottomPercent: gauges[1].value.percentage,
-                topColor: gauges[0].color, bottomColor: gauges[1].color, design: design)
+            let stacked = Array(gauges.reversed())
+            let image = batteryImage(
+                values: stacked.map { ($0.value.percentage, $0.color) }, textColors: [nil, nil],
+                layout: .stacked, showPercent: false, design: design, indicators: stacked.map(\.value.indicator))
             return markingMissing(
                 image,
                 slots: gauges.indices.compactMap {
-                    gauges[$0].value.percentage == nil
+                    gauges[$0].value.percentage == nil && gauges[$0].value.indicator == nil
                         ? BatteryGeometry.Layout.stacked.body(at: 1 - $0, design: design) : nil
                 })
         }
         if gauges.count == 2, layout == .concentric, shape.gaugeShape == .circular {
-            let image = concentricRingsIcon(
-                outerPercent: gauges[0].value.percentage, innerPercent: gauges[1].value.percentage,
-                outerColor: gauges[0].color, innerColor: gauges[1].color, design: design)
+            let image = ringImage(
+                values: gauges.map { ($0.value.percentage, $0.color) }, design: design,
+                indicators: gauges.map(\.value.indicator))
             let bounds = NSRect(origin: .zero, size: image.size)
             return markingMissing(
                 image,
                 slots: gauges.indices.compactMap {
-                    guard gauges[$0].value.percentage == nil else { return nil }
+                    guard gauges[$0].value.percentage == nil && gauges[$0].value.indicator == nil else { return nil }
                     return $0 == 0 ? bounds : bounds.insetBy(dx: bounds.width / 4, dy: bounds.height / 4)
                 })
         }
         if gauges.count == 2, shape.isBatteryStyle {
-            let image = sideBySideBatteryIcon(
-                leftPercent: gauges[0].value.percentage, rightPercent: gauges[1].value.percentage,
-                leftColor: gauges[0].color, rightColor: gauges[1].color,
-                showPercent: showPercent, design: design, monochrome: gauges[0].monochrome,
-                rightMonochrome: gauges[1].monochrome,
-                leftTextColor: gauges[0].textColor, rightTextColor: gauges[1].textColor)
+            let image = batteryImage(
+                values: gauges.map { ($0.value.percentage, $0.color) }, textColors: gauges.map(\.textColor),
+                layout: .sideBySide, showPercent: showPercent, design: design,
+                monochrome: gauges[0].monochrome, rightMonochrome: gauges[1].monochrome,
+                indicators: gauges.map(\.value.indicator))
             return markingMissing(
                 image,
                 slots: gauges.indices.compactMap {
-                    gauges[$0].value.percentage == nil
+                    gauges[$0].value.percentage == nil && gauges[$0].value.indicator == nil
                         ? BatteryGeometry.Layout.sideBySide.body(at: $0, design: design) : nil
                 })
         }
         let images = gauges.map { gauge -> NSImage in
             let child: NSImage
             if shape.gaugeShape == .circular {
-                child = circularRingIcon(percentage: gauge.value.percentage, color: gauge.color, design: design)
+                child = ringImage(
+                    values: [(gauge.value.percentage, gauge.color)], design: design,
+                    indicators: [gauge.value.indicator])
             } else {
-                child = batteryIcon(
-                    percentage: gauge.value.percentage, color: gauge.color, showPercent: showPercent,
-                    design: design, monochrome: gauge.monochrome, textColor: gauge.textColor)
+                child = batteryImage(
+                    values: [(gauge.value.percentage, gauge.color)], textColors: [gauge.textColor], layout: .single,
+                    showPercent: showPercent, design: design, monochrome: gauge.monochrome,
+                    indicators: [gauge.value.indicator])
             }
             return markingMissing(
-                child, slots: gauge.value.percentage == nil ? [NSRect(origin: .zero, size: child.size)] : [])
+                child,
+                slots: gauge.value.percentage == nil && gauge.value.indicator == nil
+                    ? [NSRect(origin: .zero, size: child.size)] : [])
         }
         guard images.count > 1 else { return images[0] }
         let attributes: [NSAttributedString.Key: Any] = [
@@ -151,7 +156,8 @@ enum MenuBarIconRenderer {
 
     private static func batteryImage(
         values: [(Double?, NSColor)], textColors: [NSColor?], layout: BatteryGeometry.Layout,
-        showPercent: Bool, design: MenuBarDesign, monochrome: Bool = false, rightMonochrome: Bool? = nil
+        showPercent: Bool, design: MenuBarDesign, monochrome: Bool = false, rightMonochrome: Bool? = nil,
+        indicators: [QuotaIndicator?] = []
     )
         -> NSImage
     {
@@ -164,19 +170,27 @@ enum MenuBarIconRenderer {
         let image = NSImage(size: size, flipped: false) { _ in
             for index in percentages.indices {
                 let body = layout.body(at: index, design: design)
+                let indicator = indicators.indices.contains(index) ? indicators[index] : nil
+                let value = indicator == nil ? percentages[index] : nil
+                let drawsNumber = showPercent && indicator == nil
                 if design == .classic {
                     drawClassicBattery(
-                        body: body, percentage: percentages[index], color: colors[index],
-                        textColor: textColors[index], showPercent: showPercent,
+                        body: body, percentage: value, color: colors[index],
+                        textColor: textColors[index], showPercent: drawsNumber,
                         isDark: isDark, small: layout == .stacked)
                 } else {
                     drawBattery(
-                        body: body, percentage: percentages[index], color: colors[index],
-                        textColor: textColors[index], showPercent: showPercent,
+                        body: body, percentage: value, color: colors[index],
+                        textColor: textColors[index], showPercent: drawsNumber,
                         isDark: isDark, highContrast: highContrast,
                         cutoutText: textColors[index] == nil
                             && (index == 1 ? (rightMonochrome ?? monochrome) : monochrome)
                             && !highContrast && !reduceTransparency)
+                }
+                if let indicator {
+                    drawIndicator(
+                        indicator, at: CGPoint(x: body.midX, y: body.midY),
+                        fontSize: layout == .stacked ? 6 : BatteryGeometry.fontSize)
                 }
             }
             return true
@@ -289,7 +303,9 @@ enum MenuBarIconRenderer {
         ringImage(values: [(outerPercent, outerColor), (innerPercent, innerColor)], design: design)
     }
 
-    private static func ringImage(values: [(Double?, NSColor)], design: MenuBarDesign) -> NSImage {
+    private static func ringImage(
+        values: [(Double?, NSColor)], design: MenuBarDesign, indicators: [QuotaIndicator?] = []
+    ) -> NSImage {
         let foreground: NSColor = isDarkAppearance ? .white : .black
         let contrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
         let isDark = isDarkAppearance
@@ -303,21 +319,39 @@ enum MenuBarIconRenderer {
         let image = NSImage(size: size, flipped: false) { _ in
             NSGraphicsContext.saveGraphicsState()
             if classic { classicShadow(isDark: isDark, radius: 1.5, opacity: 0.8).set() }
+            let center = CGPoint(x: size.width / 2, y: size.height / 2)
             for index in percentages.indices {
+                let indicator = indicators.indices.contains(index) ? indicators[index] : nil
+                let radius =
+                    classic
+                    ? (index == 0 ? (concentric ? 7.75 : 6.75) : 4.5)
+                    : (index == 0 ? RingGeometry.outerRadius : RingGeometry.innerRadius)
                 drawRing(
-                    percentage: percentages[index], color: colors[index], track: track,
-                    radius: classic
-                        ? (index == 0 ? (concentric ? 7.75 : 6.75) : 4.5)
-                        : (index == 0 ? RingGeometry.outerRadius : RingGeometry.innerRadius),
+                    percentage: indicator == nil ? percentages[index] : nil, color: colors[index], track: track,
+                    radius: radius,
                     stroke: classic
                         ? (index == 0 ? 2.5 : 2) : (index == 0 ? RingGeometry.outerStroke : RingGeometry.innerStroke),
-                    center: NSPoint(x: size.width / 2, y: size.height / 2))
+                    center: center)
+                if let indicator {
+                    let marker = concentric ? CGPoint(x: center.x + radius, y: center.y) : center
+                    drawIndicator(indicator, at: marker, fontSize: concentric ? 6 : 10)
+                }
             }
             NSGraphicsContext.restoreGraphicsState()
             return true
         }
         image.isTemplate = false
         return image
+    }
+
+    private nonisolated static func drawIndicator(_ indicator: QuotaIndicator, at center: CGPoint, fontSize: CGFloat) {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: fontSize, weight: .bold),
+            .foregroundColor: indicator == .exhausted ? NSColor.systemRed : .secondaryLabelColor,
+        ]
+        let glyph = indicator.glyph as NSString
+        let size = glyph.size(withAttributes: attributes)
+        glyph.draw(at: CGPoint(x: center.x - size.width / 2, y: center.y - size.height / 2), withAttributes: attributes)
     }
 
     private nonisolated static func drawRing(

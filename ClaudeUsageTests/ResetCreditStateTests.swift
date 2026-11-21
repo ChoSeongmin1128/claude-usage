@@ -11,8 +11,8 @@ final class ResetCreditStateTests: XCTestCase {
 
     private func summary(_ count: Int, ids: [String] = [], complete: Bool = false) -> ResetCreditSummary {
         ResetCreditSummary(
-            items: ids.map { .init(id: $0, serverTitle: nil, scope: .all, expiresAt: nil) },
-            availableCount: count, atLimit: false, identityDetailsComplete: complete)
+            items: ids.map { .init(id: $0, serverTitle: nil, scope: .fiveHourAndWeekly, expiresAt: nil) },
+            availableCount: count, identityDetailsComplete: complete)
     }
 
     func testCountDecreaseAndLateDetailsAreNotNewButIncreaseIs() throws {

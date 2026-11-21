@@ -545,3 +545,30 @@ struct RuntimeProviderActivationState: Sendable {
     let enabled: Bool
     let hasCredential: Bool
 }
+
+extension RuntimeProviderSnapshot {
+    func quotaAvailability(now: Date = Date()) -> QuotaAvailability {
+        let isPreviousReading = StaleDataPolicy.showsPreviousValue(afterConsecutiveFailures: consecutiveFailures)
+        let current = !isPreviousReading && !hasAuthError && hasCredential && error?.isDefinitiveAuthFailure != true
+        switch displayPayload {
+        case .claude(let usage):
+            let paid =
+                !claudeOverageIsStale
+                && claudeOverage.map { overage in
+                    overage.isEnabled && !overage.outOfCredits
+                        && overage.monthlyCreditLimitCents.map { $0 > overage.usedCreditsCents } == true
+                } == true
+            return QuotaAvailability(
+                limits: UsageLimitCatalog.claude(usage), isCurrent: current,
+                paidCoverage: paid ? .shared : nil, now: now)
+        case .codex(let usage):
+            let paid = usage.credits.map { $0.unlimited || ($0.hasCredits && ($0.balance ?? 0) > 0) } == true
+            return QuotaAvailability(
+                limits: UsageLimitCatalog.codex(usage), isCurrent: current,
+                accountRestriction: usage.workspaceLimitNotice,
+                paidCoverage: paid ? .baseGroup : nil, now: now)
+        case nil:
+            return .empty
+        }
+    }
+}

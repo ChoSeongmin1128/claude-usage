@@ -221,12 +221,19 @@ enum MenuBarStatusComposer {
         icon: NSImage?,
         systemStatus: ProviderSystemStatus? = nil,
         renderImages: Bool = true,
-        appearance: NSAppearance? = nil
+        appearance: NSAppearance? = nil,
+        availability: QuotaAvailability? = nil
     ) -> MenuBarProviderSnapshot {
+        let limits = usage.map(UsageLimitCatalog.claude) ?? []
+        let quota =
+            availability
+            ?? QuotaAvailability(
+                limits: limits, isCurrent: !isStale && !hasAuthError && hasCredential)
         let resolvedProjection = MenuBarQuotaProjection(
-            config: config, limits: usage.map(UsageLimitCatalog.claude) ?? [])
+            config: config, limits: limits, availability: quota)
         let projection: MenuBarQuotaProjection? =
-            config.quotaSelection != nil || config.gaugeSelection != nil ? resolvedProjection : nil
+            config.quotaSelection != nil || config.gaugeSelection != nil || resolvedProjection.hasSelectedIndicators
+            ? resolvedProjection : nil
         let status = MenuBarProviderStatusPolicy.claude(
             config: config,
             projection: resolvedProjection,
@@ -301,12 +308,20 @@ enum MenuBarStatusComposer {
         icon: NSImage?,
         systemStatus: ProviderSystemStatus? = nil,
         renderImages: Bool = true,
-        appearance: NSAppearance? = nil
+        appearance: NSAppearance? = nil,
+        availability: QuotaAvailability? = nil
     ) -> MenuBarProviderSnapshot {
+        let limits = usage.map(UsageLimitCatalog.codex) ?? []
+        let quota =
+            availability
+            ?? QuotaAvailability(
+                limits: limits, isCurrent: !isStale && !hasAuthError && isAuthenticated,
+                accountRestriction: usage?.workspaceLimitNotice)
         let resolvedProjection = MenuBarQuotaProjection(
-            config: config, limits: usage.map(UsageLimitCatalog.codex) ?? [], codexUsage: usage)
+            config: config, limits: limits, codexUsage: usage, availability: quota)
         let projection: MenuBarQuotaProjection? =
-            config.quotaSelection != nil || config.gaugeSelection != nil ? resolvedProjection : nil
+            config.quotaSelection != nil || config.gaugeSelection != nil || resolvedProjection.hasSelectedIndicators
+            ? resolvedProjection : nil
         let status = MenuBarProviderStatusPolicy.codex(
             config: config,
             projection: resolvedProjection,
@@ -630,9 +645,7 @@ enum MenuBarStatusComposer {
         secondaryColor: NSColor = .secondaryLabelColor
     ) -> [MenuBarQuotaRenderedUnit] {
         let items = arrangement.resolved(selection: projection.selection).orderedIDs.map { id in
-            let value = MenuBarGaugeValue(
-                id: id, title: projection.limit(id)?.shortTitle ?? projection.selection.titles[id] ?? "한도",
-                usedPercentage: projection.limit(id)?.usedPercentage, basis: projection.basis)
+            let value = projection.gaugeValue(for: id)
             return MenuBarQuotaRenderItem(
                 id: id, title: projection.limit(id)?.title ?? projection.selection.titles[id] ?? "한도",
                 gauge: MenuBarIconRenderer.Gauge(
@@ -640,7 +653,7 @@ enum MenuBarStatusComposer {
                     color: MenuBarProviderStatusPolicy.gaugeColor(for: value.usedPercentage, config: config),
                     monochrome: usesCutoutBatteryText(used: value.usedPercentage, mode: config.colorMode),
                     textColor: batteryNumberColor(used: value.usedPercentage, mode: config.colorMode)),
-                percentageText: projection.percentageText(for: id), resetText: projection.resetText(for: id))
+                percentageText: projection.displayedPercentage(for: id), resetText: projection.resetText(for: id))
         }
         return quotaUnits(
             items: items, selection: projection.selection, arrangement: arrangement, shape: config.style,
@@ -943,7 +956,8 @@ enum MenuBarStatusComposer {
     {
         guard !projection.selection.gaugeIDs.isEmpty else { return nil }
         let primary = projection.primary?.usedPercentage
-        if let layout = config.gaugeSelection?.layout {
+        if config.gaugeSelection != nil || projection.hasSelectedIndicators {
+            let layout = config.gaugeSelection?.layout ?? MenuBarGaugeLayout.legacy(config.style)
             let gauges = projection.gauges.map { value in
                 MenuBarIconRenderer.Gauge(
                     value: value,
@@ -1025,22 +1039,17 @@ enum MenuBarStatusComposer {
             return nil
         }
 
-        switch presentation.style {
-        case .none:
-            return nil
-        case .batteryBar:
-            return MenuBarIconRenderer.batteryIcon(
-                percentage: percentage,
-                color: color,
-                showPercent: presentation.showsGaugePercentage, design: design,
-                monochrome: cutoutText, textColor: textColor
-            )
-        case .circular:
-            return MenuBarIconRenderer.circularRingIcon(
-                percentage: percentage,
-                color: color, design: design
-            )
-        }
+        let gauge = MenuBarIconRenderer.Gauge(
+            value: MenuBarGaugeValue(
+                id: presentation.selectedLaneID?.rawValue ?? "", title: "", usedPercentage: percentage,
+                basis: .used, indicator: presentation.selectedIndicator),
+            color: color, monochrome: cutoutText, textColor: textColor)
+        return MenuBarIconRenderer.gaugeListIcon(
+            [gauge],
+            shape: presentation.style == .none
+                ? .none
+                : presentation.style == .circular ? .circular : .batteryBar,
+            layout: .horizontal, showPercent: presentation.showsGaugePercentage, design: design)
     }
 
     private static func antigravityColor(

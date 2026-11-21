@@ -86,13 +86,13 @@ final class MenuBarStatusComposerTests: XCTestCase {
         let fiveHour = claudeResetSnapshot(usage: usage, resetDisplay: .fiveHour)
         let weekly = claudeResetSnapshot(usage: usage, resetDisplay: .weekly)
 
-        XCTAssertEqual(fiveHour.text, "100%")
+        XCTAssertEqual(fiveHour.text, "!")
         XCTAssertNil(fiveHour.resetText)
         XCTAssertNil(fiveHour.renderKey.resetText)
         XCTAssertNotNil(weekly.resetText)
         XCTAssertNotEqual(fiveHour.renderKey, weekly.renderKey)
-        XCTAssertTrue(fiveHour.tooltip.contains("5시간 100%"))
-        XCTAssertTrue(fiveHour.tooltip.contains("주간 82%"))
+        XCTAssertTrue(fiveHour.tooltip.contains("5시간: 100%"))
+        XCTAssertTrue(fiveHour.tooltip.contains("주간: 82%"))
     }
 
     func testClaudeFiveHourResetStaysAbsentWithWeeklyOnlyUsageWithoutChangingNumberFallback() {
@@ -118,7 +118,7 @@ final class MenuBarStatusComposerTests: XCTestCase {
     func testClaudeResetSelectionIsIndependentOfGaugeAndPercentageMetrics() throws {
         let fiveReset = "2030-01-02T14:22:00Z"
         let usage = ClaudeUsageResponse(
-            fiveHour: .init(utilization: 100, resetsAt: fiveReset),
+            fiveHour: .init(utilization: 42, resetsAt: fiveReset),
             sevenDay: .init(utilization: 82, resetsAt: "2030-01-04T18:39:00Z"))
         let fiveHour = claudeResetSnapshot(
             usage: usage, resetDisplay: .fiveHour, percentageDisplay: .weekly, iconMetric: .weekly)
@@ -133,12 +133,12 @@ final class MenuBarStatusComposerTests: XCTestCase {
         XCTAssertEqual(fiveHour.text, "82%")
         XCTAssertEqual(fiveHour.resetText, expected)
         XCTAssertEqual(fiveHour.renderKey.resetText, expected)
-        XCTAssertEqual(weekly.text, "100%")
+        XCTAssertEqual(weekly.text, "42%")
         XCTAssertNotEqual(fiveHour.resetText, weekly.resetText)
         XCTAssertNotEqual(fiveHour.renderKey, weekly.renderKey)
         let invalid = claudeResetSnapshot(
             usage: ClaudeUsageResponse(
-                fiveHour: .init(utilization: 100, resetsAt: "invalid-fixture-reset"), sevenDay: usage.sevenDay),
+                fiveHour: .init(utilization: 42, resetsAt: "invalid-fixture-reset"), sevenDay: usage.sevenDay),
             resetDisplay: .fiveHour)
         XCTAssertNil(invalid.resetText)
     }

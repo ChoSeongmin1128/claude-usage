@@ -14,6 +14,7 @@ struct CompactUsageRow: View {
     var accessibilityValue: String? = nil
     var basis: UsageValueBasis = .used
     var pace: UsagePaceWindow? = nil
+    var quota: QuotaAvailability.Row? = nil
     @Environment(\.usagePaceMarkerVisible) private var paceMarkerVisible
 
     var body: some View {
@@ -23,19 +24,28 @@ struct CompactUsageRow: View {
         } middle: {
             ProgressBarView(
                 percentage: percentage, height: PopoverLayoutMetrics.compactProgressBarHeight,
-                color: color, basis: basis, cornerRadius: PopoverLayoutMetrics.compactProgressBarCornerRadius,
+                color: quota?.displayColor ?? color, basis: basis,
+                cornerRadius: PopoverLayoutMetrics.compactProgressBarCornerRadius,
                 elapsedPercentage: marker?.elapsedPercentage)
         } value: {
             UsagePercentageLabel(
                 percentage: percentage, basis: basis, compact: true,
-                percentageText: percentageText, color: color)
+                percentageText: percentageText, color: quota?.displayColor ?? color)
         } detail: {
             EmptyView()
         }
-        .help(marker.appending(toTooltip: tooltip ?? [label, defaultAccessibilityValue].joined(separator: ", ")))
+        .help(
+            marker.appending(
+                toTooltip: withQuotaDetail(tooltip ?? [label, defaultAccessibilityValue].joined(separator: ", ")))
+        )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel ?? label)
-        .accessibilityValue(marker.appending(toAccessibilityValue: accessibilityValue ?? defaultAccessibilityValue))
+        .accessibilityValue(
+            marker.appending(toAccessibilityValue: withQuotaDetail(accessibilityValue ?? defaultAccessibilityValue)))
+    }
+
+    private func withQuotaDetail(_ text: String) -> String {
+        [text, quota?.status.detail(timeFormat: timeFormatStyle)].compactMap { $0 }.joined(separator: ", ")
     }
 
     private var defaultAccessibilityValue: String {
@@ -67,7 +77,7 @@ struct CompactUsageRow: View {
     }
 
     private var labelText: some View {
-        Text(label)
+        Text(label + (quota?.titleSuffix ?? ""))
             .font(AppDesign.Typography.caption.weight(.medium))
             .foregroundStyle(AppDesign.Text.label)
             .lineLimit(1)
@@ -82,4 +92,8 @@ struct CompactUsageRow: View {
         return TimeFormatter.formatCompactUsageReset(
             from: resetAt, isWeekly: isWeekly, style: timeFormatStyle)
     }
+}
+
+extension QuotaAvailability.Row {
+    var displayColor: Color { isExhausted ? .red : AppDesign.Text.secondary }
 }

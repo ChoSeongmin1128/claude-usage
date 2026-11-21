@@ -73,7 +73,7 @@ enum MenuBarProviderStatusPolicy {
             return MenuBarProviderStatus(text: "…", color: secondaryColor, tooltip: "로딩 중")
         }
 
-        if config.quotaSelection != nil {
+        if config.quotaSelection != nil || projection.hasSelectedIndicators {
             return MenuBarProviderStatus(
                 text: projection.percentageText,
                 color: gaugeColor(for: projection.primary?.usedPercentage, config: config),
@@ -122,12 +122,19 @@ enum MenuBarProviderStatusPolicy {
             return MenuBarProviderStatus(text: "…", color: secondaryColor, tooltip: "로딩 중")
         }
 
-        if config.quotaSelection != nil {
+        if let restriction = projection.availability.accountRestriction, projection.limits.isEmpty {
+            let showsQuota =
+                config.style != .none || config.percentageDisplay != .none
+                || config.resetTimeDisplay != .none || projection.selection.hasPercentageIntent
+                || projection.selection.hasResetIntent
+            return MenuBarProviderStatus(text: showsQuota ? "!" : "", color: .systemRed, tooltip: restriction)
+        }
+
+        if config.quotaSelection != nil || projection.hasSelectedIndicators {
             return MenuBarProviderStatus(
                 text: projection.percentageText,
                 color: gaugeColor(for: projection.primary?.usedPercentage, config: config),
-                tooltip: projection.tooltip + (usage.workspaceLimitNotice.map { "\n\($0)" } ?? "")
-                    + staleNote(error: error, hasAuthError: hasAuthError, isStale: isStale))
+                tooltip: projection.tooltip + staleNote(error: error, hasAuthError: hasAuthError, isStale: isStale))
         }
 
         let hasPrimary = usage.hasSessionWindow
@@ -144,7 +151,7 @@ enum MenuBarProviderStatusPolicy {
                 ? projection.tooltip
                 : MenuBarQuotaProjection.legacyTooltip(
                     session: hasPrimary ? primary : nil, weekly: weekly, basis: config.usageValueBasis))
-                + (usage.workspaceLimitNotice.map { " · \($0)" } ?? "")
+                + (projection.availability.accountRestriction.map { " · \($0)" } ?? "")
                 + staleNote(error: error, hasAuthError: hasAuthError, isStale: isStale)
         )
     }

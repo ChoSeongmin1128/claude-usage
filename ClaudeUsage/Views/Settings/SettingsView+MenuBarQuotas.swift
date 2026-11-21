@@ -131,9 +131,11 @@ extension SettingsView {
         var selected = model.selection
         selected.arrangement = arrangement
         config = config.settingQuotaSelection(selected)
+        let limits = providerUsageLimits(model.provider)
+        let codex = model.provider == .codex ? codexLastUsage?() : nil
         let projection = MenuBarQuotaProjection(
-            config: config, limits: providerUsageLimits(model.provider),
-            codexUsage: model.provider == .codex ? codexLastUsage?() : nil)
+            config: config, limits: limits, codexUsage: codex,
+            availability: QuotaAvailability(limits: limits, accountRestriction: codex?.workspaceLimitNotice))
         let units = MenuBarStatusComposer.quotaUnits(
             projection: projection, arrangement: arrangement, config: config,
             highlightedID: highlightedID, appearance: appearance, secondaryColor: secondaryColor)

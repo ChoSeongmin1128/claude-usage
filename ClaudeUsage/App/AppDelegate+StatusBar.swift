@@ -674,7 +674,7 @@ extension AppDelegate {
                 ) : nil,
                 systemStatus: providerSystemStatus(for: .claude),
                 renderImages: renderImages,
-                appearance: appearance
+                appearance: appearance, availability: runtimeSnapshot.quotaAvailability()
             ).withResetCreditBadge(resetCreditBadge(for: .claude))
         case .codex:
             let runtimeSnapshot = runtimeProviderSnapshot(for: service)
@@ -696,7 +696,7 @@ extension AppDelegate {
                 ) : nil,
                 systemStatus: providerSystemStatus(for: .codex),
                 renderImages: renderImages,
-                appearance: appearance
+                appearance: appearance, availability: runtimeSnapshot.quotaAvailability()
             ).withResetCreditBadge(resetCreditBadge(for: .codex))
         case .antigravity:
             guard case .content(let presentation) =

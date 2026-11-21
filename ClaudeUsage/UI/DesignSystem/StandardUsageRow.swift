@@ -17,13 +17,15 @@ struct StandardUsageRow: View {
     var accessibilityValue: String? = nil
     var basis: UsageValueBasis = .used
     var pace: UsagePaceWindow? = nil
+    var quota: QuotaAvailability.Row? = nil
+    var timeFormatStyle: TimeFormatStyle = .h24
     @Environment(\.usagePaceMarkerVisible) private var paceMarkerVisible
 
     var body: some View {
         let marker = percentage == nil ? nil : pace?.visibleMarker(isEnabled: paceMarkerVisible, basis: basis)
         VStack(alignment: .leading, spacing: PopoverLayoutMetrics.standardUsageRowSpacing) {
             HStack(alignment: .firstTextBaseline, spacing: AppDesign.Space.label) {
-                Text(title)
+                Text(title + (quota?.titleSuffix ?? ""))
                     .font(AppDesign.Typography.subheadline.weight(.medium))
                     .foregroundStyle(AppDesign.Text.label)
                     .lineLimit(1)
@@ -32,7 +34,8 @@ struct StandardUsageRow: View {
                 if let percentage {
                     UsagePercentageLabel(
                         percentage: percentage, basis: basis, compact: false,
-                        percentageText: percentageText, color: color, font: AppDesign.Typography.usageValue
+                        percentageText: percentageText, color: quota?.displayColor ?? color,
+                        font: AppDesign.Typography.usageValue
                     )
                     .fixedSize(horizontal: true, vertical: false)
                 } else {
@@ -45,23 +48,29 @@ struct StandardUsageRow: View {
             }
             if let percentage {
                 ProgressBarView(
-                    percentage: percentage, height: PopoverLayoutMetrics.standardUsageRowBarHeight, color: color,
+                    percentage: percentage, height: PopoverLayoutMetrics.standardUsageRowBarHeight,
+                    color: quota?.displayColor ?? color,
                     basis: basis, elapsedPercentage: marker?.elapsedPercentage)
             } else {
                 Color.clear.frame(height: PopoverLayoutMetrics.standardUsageRowBarHeight)
             }
-            if let detailText {
-                detailLabel(detailText)
+            if let detail = quota?.status.detail(timeFormat: timeFormatStyle) ?? detailText {
+                detailLabel(detail.components(separatedBy: "\n").joined(separator: " / "))
                     .font(AppDesign.Typography.caption)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
         }
         .frame(height: PopoverLayoutMetrics.standardUsageRowHeight, alignment: .top)
-        .help(marker.appending(toTooltip: tooltip ?? defaultTooltip))
+        .help(marker.appending(toTooltip: withQuotaDetail(tooltip ?? defaultTooltip)))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel ?? title)
-        .accessibilityValue(marker.appending(toAccessibilityValue: accessibilityValue ?? defaultAccessibilityValue))
+        .accessibilityValue(
+            marker.appending(toAccessibilityValue: withQuotaDetail(accessibilityValue ?? defaultAccessibilityValue)))
+    }
+
+    private func withQuotaDetail(_ text: String) -> String {
+        [text, quota?.status.detail(timeFormat: timeFormatStyle)].compactMap { $0 }.joined(separator: ", ")
     }
 
     private func detailLabel(_ text: String) -> Text {

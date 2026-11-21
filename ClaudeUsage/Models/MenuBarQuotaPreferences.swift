@@ -172,6 +172,7 @@ nonisolated struct MenuBarGaugeValue: Equatable, Sendable {
     let title: String
     let usedPercentage: Double?
     let basis: UsageValueBasis
+    var indicator: QuotaIndicator? = nil
 
     var percentage: Double? { basis.percentage(fromUsed: usedPercentage) }
 }

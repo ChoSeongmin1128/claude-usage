@@ -8,6 +8,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         basisOverride: UsageValueBasis? = nil,
         context requestedContext:
             AntigravityQuotaPresentationContext? = nil,
+        hasCurrentQuotaReading: Bool = true,
         now: Date = Date(),
         locale: Locale = Locale(identifier: "ko_KR"),
         timeZone: TimeZone = .autoupdatingCurrent
@@ -19,8 +20,12 @@ nonisolated enum AntigravityQuotaPresentationMapper {
                 snapshot.decodeIssues.count
             )
         )
+        let isCurrent: Bool
+        if case .stale = context.phase { isCurrent = false } else { isCurrent = true }
+        let availability = QuotaAvailability(
+            limits: UsageLimitCatalog.antigravity(snapshot), isCurrent: isCurrent && hasCurrentQuotaReading, now: now)
         let allGroups = makeGroups(
-            from: snapshot.lanes,
+            from: snapshot.lanes, availability: availability,
             basis: basisOverride ?? .antigravity(settings.menuBar),
             timeFormat: settings.menuBar.timeFormat,
             now: now,
@@ -139,12 +144,19 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             return .unavailable(state)
         }
 
+        let isRefreshingPreviousReading: Bool
+        if case .refreshing = state {
+            isRefreshingPreviousReading = marksStale
+        } else {
+            isRefreshingPreviousReading = false
+        }
         return .content(
             map(
                 snapshot: snapshot,
                 settings: settings,
                 basisOverride: basisOverride,
                 context: context,
+                hasCurrentQuotaReading: !isRefreshingPreviousReading,
                 now: now,
                 locale: locale,
                 timeZone: timeZone
@@ -154,6 +166,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
 
     private static func makeGroups(
         from lanes: [AntigravityQuotaLane],
+        availability: QuotaAvailability,
         basis: UsageValueBasis,
         timeFormat: AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat,
         now: Date,
@@ -166,7 +179,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
                 .sorted(by: lanePrecedes)
                 .map {
                     lanePresentation(
-                        from: $0,
+                        from: $0, quota: availability.row(legacyKey: $0.id.rawValue),
                         basis: basis,
                         timeFormat: timeFormat,
                         now: now,
@@ -184,7 +197,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
     }
 
     private static func lanePresentation(
-        from lane: AntigravityQuotaLane,
+        from lane: AntigravityQuotaLane, quota: QuotaAvailability.Row?,
         basis: UsageValueBasis,
         timeFormat: AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat,
         now: Date,
@@ -233,7 +246,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             accessibilityLabel: "\(scopeTitle), \(cadenceTitle) 한도",
             accessibilityValue: accessibilityValue,
             basis: basis,
-            pace: UsagePaceWindow(resetAt: lane.resetAt, lengthSeconds: lane.cadence.lengthSeconds)
+            pace: UsagePaceWindow(resetAt: lane.resetAt, lengthSeconds: lane.cadence.lengthSeconds), quota: quota
         )
     }
 
@@ -486,7 +499,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
                     isWeekly: lane.cadence == .weekly,
                     timeFormatStyle: timeFormat,
                     basis: lane.basis,
-                    pace: lane.pace
+                    pace: lane.pace, quota: lane.quota
             )
         }
         guard !metrics.isEmpty else {
@@ -508,10 +521,10 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         locale: Locale,
         timeZone: TimeZone
     ) -> AntigravityMenuBarQuotaPresentation {
-        let tooltip = menuBarTooltip(
-            groups: groups,
-            identityRail: identityRail
-        )
+        let quotaNotice = QuotaAvailability.detail(
+            for: availableLanes.compactMap { $0.quota?.status }, timeFormat: settings.menuBar.timeFormat, now: now)
+        let tooltip = [menuBarTooltip(groups: groups, identityRail: identityRail), quotaNotice]
+            .compactMap { $0 }.joined(separator: "\n")
         let selectedLane = selectedLanes.first
         let legacy = settings.menuBar.percentageLaneIDs == nil && settings.menuBar.resetLaneIDs == nil
         if legacy && selectedLane?.percentageText == nil && settings.menuBar.gaugeLaneIDs == nil {
@@ -549,13 +562,25 @@ nonisolated enum AntigravityQuotaPresentationMapper {
                 let index = textIDs.firstIndex(of: id) ?? 0
                 return AntigravityDisplaySettings.MenuBarPresentationIntent.missingTextTitle(at: index) + " 데이터 없음"
             }
+            let hasGauge =
+                settings.menuBar.style != .none
+                && (settings.menuBar.gaugeLaneIDs?.contains(id) ?? (selectedLane?.id == id))
+            let marker = lane.quota?.status.indicator
+            let number =
+                marker == nil
+                ? (lane.percentageText ?? summaryText(for: lane.value))
+                : hasGauge ? nil : marker?.glyph
+            let displayedNumber = numbers.contains(id) ? number : nil
             var values = withLabel ? [lane.menuLabel] : []
-            if numbers.contains(id) { values.append(lane.percentageText ?? summaryText(for: lane.value)) }
-            if times.contains(id), withLabel || !numbers.contains(id) || lane.percentageText == nil {
-                values.append(
-                    menuBarResetText(
-                        lane, timeFormat: settings.menuBar.timeFormat, now: now, locale: locale, timeZone: timeZone))
+            if let displayedNumber { values.append(displayedNumber) }
+            if times.contains(id), withLabel || displayedNumber == nil || lane.percentageText == nil,
+                let reset = menuBarResetText(
+                    lane, timeFormat: settings.menuBar.timeFormat, now: now, locale: locale, timeZone: timeZone,
+                    indicatorAlreadyVisible: hasGauge || displayedNumber != nil)
+            {
+                values.append(reset)
             }
+            if values.count == 1 && withLabel && marker != nil { return nil }
             return values.isEmpty ? nil : values.joined(separator: " ")
         }
         let regularText = ids.compactMap { components($0, withLabel: true) }
@@ -567,7 +592,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
                     id: id.rawValue,
                     title: lane?.menuLabel ?? settings.menuBar.gaugeTitles?[id.rawValue] ?? "선택한 한도",
                     usedPercentage: lane?.value.usedPercentage,
-                    basis: lane?.basis ?? .antigravity(settings.menuBar)),
+                    basis: lane?.basis ?? .antigravity(settings.menuBar), indicator: lane?.quota?.status.indicator),
                 tone: lane?.tone ?? .neutral)
         }
         var describedIDs = ids
@@ -611,12 +636,15 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             accessibilityValue: [
                 descriptions.joined(separator: "; "),
                 identityRail.accessibilityValue,
-            ].joined(separator: ", "),
+                quotaNotice,
+            ].compactMap { $0 }.joined(separator: ", "),
+            selectedIndicator: selectedLane?.quota?.status.indicator,
             selectedVisualValues: visualIDs.map { id in
                 availableLanes.first { $0.id == id }?.value.usedPercentage ?? -1
             },
             selectedVisualConfiguration: visualIDs.map { id in
-                id.rawValue + ":" + (availableLanes.first { $0.id == id }?.tone.rawValue ?? "neutral")
+                let lane = availableLanes.first { $0.id == id }
+                return id.rawValue + ":" + (lane?.quota?.status.indicator?.rawValue ?? lane?.tone.rawValue ?? "neutral")
             }
         )
     }
@@ -781,10 +809,21 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat,
         now: Date,
         locale: Locale,
-        timeZone: TimeZone
-    ) -> String {
-        guard let resetAt = lane.resetAt else {
-            return "갱신 시각 알 수 없음"
+        timeZone: TimeZone,
+        indicatorAlreadyVisible: Bool = false
+    ) -> String? {
+        let resetAt: Date
+        let cadence: AntigravityQuotaCadence
+        if let status = lane.quota?.status {
+            guard let recovery = status.automaticRecovery, let date = recovery.resetAt else {
+                return indicatorAlreadyVisible ? nil : status.indicator?.glyph
+            }
+            resetAt = date
+            cadence = (recovery.periodSeconds ?? 0) >= 86_400 ? .weekly : .fiveHour
+        } else {
+            guard let date = lane.resetAt else { return "갱신 시각 알 수 없음" }
+            resetAt = date
+            cadence = lane.cadence
         }
         switch timeFormat {
         case .remaining:
@@ -792,11 +831,11 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             if resetAt.timeIntervalSince(now) <= 0 { return "곧 초기화" }
             return TimeFormatter.formatRemaining(
                 until: resetAt, now: now,
-                isWeekly: lane.cadence != .fiveHour && resetAt.timeIntervalSince(now) > 86400)
+                isWeekly: cadence != .fiveHour && resetAt.timeIntervalSince(now) > 86400)
         case .h24:
             return formattedMenuBarResetDate(
                 resetAt,
-                cadence: lane.cadence,
+                cadence: cadence,
                 usesTwelveHourClock: false,
                 locale: locale,
                 timeZone: timeZone
@@ -804,7 +843,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         case .h12:
             return formattedMenuBarResetDate(
                 resetAt,
-                cadence: lane.cadence,
+                cadence: cadence,
                 usesTwelveHourClock: true,
                 locale: locale,
                 timeZone: timeZone

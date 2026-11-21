@@ -10,12 +10,14 @@ nonisolated struct ClaudeResetGrants: Decodable, Sendable, Equatable {
         let endsAt: Date?
         let clears: [String]
         let paused: Bool
+        var givesBackWeekly = false
 
         private enum CodingKeys: String, CodingKey {
             case id, label, clears, paused
             case resetsLeft = "resets_left"
             case startsAt = "starts_at"
             case endsAt = "ends_at"
+            case givesBackWeekly = "gives_back_weekly"
         }
 
         init(
@@ -47,22 +49,20 @@ nonisolated struct ClaudeResetGrants: Decodable, Sendable, Equatable {
             endsAt = date(.endsAt)
             clears = (try? container.decode([String].self, forKey: .clears)) ?? []
             paused = (try? container.decode(Bool.self, forKey: .paused)) ?? false
+            givesBackWeekly = (try? container.decode(Bool.self, forKey: .givesBackWeekly)) == true
         }
     }
 
     let eligible: Bool
-    let atLimit: Bool
     let grants: [Grant]
     let exhaustedCount: Int
 
     private enum CodingKeys: String, CodingKey {
         case eligible, grants, exhausted
-        case atLimit = "at_limit"
     }
 
-    init(eligible: Bool, atLimit: Bool, grants: [Grant], exhaustedCount: Int = 0) {
+    init(eligible: Bool, grants: [Grant], exhaustedCount: Int = 0) {
         self.eligible = eligible
-        self.atLimit = atLimit
         self.grants = grants
         self.exhaustedCount = exhaustedCount
     }
@@ -70,7 +70,6 @@ nonisolated struct ClaudeResetGrants: Decodable, Sendable, Equatable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         eligible = (try? container.decode(Bool.self, forKey: .eligible)) ?? false
-        atLimit = (try? container.decode(Bool.self, forKey: .atLimit)) ?? false
         var grants: [Grant] = []
         if var array = try? container.nestedUnkeyedContainer(forKey: .grants) {
             while !array.isAtEnd {
@@ -89,17 +88,26 @@ nonisolated struct ClaudeResetGrants: Decodable, Sendable, Equatable {
         exhaustedCount = exhausted
     }
 
-    func availableCount(at now: Date = Date()) -> Int? {
+    func availableCount(at now: Date = Date()) -> Int? { inventory(at: now)?.count }
+
+    func inventory(at now: Date) -> (grants: [Grant], count: Int)? {
         guard eligible, !grants.isEmpty || exhaustedCount > 0 else { return nil }
+        var active: [Grant] = []
+        var byID: [String: Grant] = [:]
         var total = 0
-        for grant in grants {
-            guard grant.isActive(at: now) else { continue }
+        for grant in grants where grant.isActive(at: now) {
+            if let previous = byID[grant.id] {
+                guard previous == grant else { return nil }
+                continue
+            }
+            byID[grant.id] = grant
             guard let count = grant.resetsLeft else { return nil }
             let (next, overflow) = total.addingReportingOverflow(count)
             guard !overflow else { return nil }
             total = next
+            if count > 0 { active.append(grant) }
         }
-        return total
+        return (active, total)
     }
 }
 
@@ -109,21 +117,56 @@ private nonisolated struct ResetCreditDecodingSink: Decodable {
 
 /// 서비스와 무관하게 팝오버와 메뉴바가 쓰는 초기화권 요약.
 nonisolated struct ResetCreditSummary: Equatable, Sendable {
-    enum Scope: Sendable, Equatable {
-        case all, fiveHourOnly, unknown
+    enum Window: Hashable, Sendable {
+        case fiveHour, weekly
 
-        var title: String {
+        var periodSeconds: Int {
             switch self {
-            case .all: "전체 한도"
-            case .fiveHourOnly: "5시간 한도만"
-            case .unknown: "범위 확인 안 됨"
+            case .fiveHour: UsageWindowLength.fiveHour
+            case .weekly: UsageWindowLength.weekly
             }
         }
+    }
 
-        /// 서버가 지우는 범위를 주지 않으면 짐작하지 않는다.
-        static func claude(clears: [String]) -> Self {
-            if clears.isEmpty { return .unknown }
-            return clears.contains(where: { $0.hasPrefix("seven_day") }) ? .all : .fiveHourOnly
+    enum Effect: Hashable, Sendable {
+        case refill(Window)
+        case returnWeeklyModelUsage(String)
+    }
+
+    struct Scope: Hashable, Sendable {
+        let effects: Set<Effect>
+        var hasUnknownEffects = false
+
+        static let fiveHourAndWeekly = Self(effects: [.refill(.fiveHour), .refill(.weekly)])
+        static let unknown = Self(effects: [], hasUnknownEffects: true)
+
+        static func claude(_ grant: ClaudeResetGrants.Grant, hasSessionWindow: Bool?) -> Self {
+            let clears = Set(grant.clears)
+            var effects: Set<Effect> = []
+            if clears.contains("five_hour"), hasSessionWindow != false { effects.insert(.refill(.fiveHour)) }
+            if clears.contains("seven_day"), !grant.givesBackWeekly { effects.insert(.refill(.weekly)) }
+
+            // The observed Fable offer identifies the model in the label; a
+            // weekly credit adjustment alone does not identify a model.
+            let namesFable =
+                grant.label?.range(of: #"\bfable\b"#, options: [.regularExpression, .caseInsensitive]) != nil
+            let returnsFableUsage = grant.givesBackWeekly && namesFable
+            if returnsFableUsage {
+                effects.insert(.returnWeeklyModelUsage("Fable"))
+            }
+            let knownKeys: Set<String> = ["five_hour", "seven_day", "seven_day_overage_included"]
+            return Self(
+                effects: effects,
+                hasUnknownEffects: effects.isEmpty || !clears.isSubset(of: knownKeys)
+                    || (grant.givesBackWeekly && !returnsFableUsage)
+                    || (clears.contains("seven_day_overage_included") && !clears.contains("seven_day")
+                        && !returnsFableUsage)
+            )
+        }
+
+        static func codex(_ type: String?, hasSessionWindow: Bool) -> Self {
+            guard type == "codexRateLimits" || type == "codex_rate_limits" else { return .unknown }
+            return hasSessionWindow ? .fiveHourAndWeekly : Self(effects: [.refill(.weekly)])
         }
     }
 
@@ -133,12 +176,12 @@ nonisolated struct ResetCreditSummary: Equatable, Sendable {
         let scope: Scope
         let expiresAt: Date?
         var doesNotExpire = false
+        var count = 1
     }
 
     /// 만료가 빠른 순
     let items: [Item]
     let availableCount: Int
-    let atLimit: Bool
     var identityDetailsComplete = true
     var detailMetadata: CodexResetCreditMetadata? = nil
 
@@ -160,7 +203,8 @@ nonisolated struct ResetCreditSummary: Equatable, Sendable {
     }
 
     var hasCompleteExpirationDetails: Bool {
-        items.count >= availableCount && items.allSatisfy { $0.expiresAt != nil || $0.doesNotExpire }
+        items.reduce(0) { $0 + $1.count } >= availableCount
+            && items.allSatisfy { $0.expiresAt != nil || $0.doesNotExpire }
     }
 
     func expirationDescription(now: Date = Date()) -> String {
@@ -175,24 +219,24 @@ nonisolated struct ResetCreditSummary: Equatable, Sendable {
         return "만료 정보 없음"
     }
 
-    var scopeText: String {
-        let scope = items.first?.scope.title ?? Scope.all.title
-        return availableCount > 1 ? "\(scope) 외 \(availableCount - 1)개" : scope
+    static func claude(_ usage: ClaudeUsageResponse?, now: Date = Date()) -> ResetCreditSummary? {
+        claude(
+            usage?.resetGrants,
+            hasSessionWindow: usage?.hasMalformedSessionWindow == true ? nil : usage?.hasSessionWindow, now: now)
     }
 
-    static func claude(_ grants: ClaudeResetGrants?, now: Date = Date()) -> ResetCreditSummary? {
-        guard let grants, let count = grants.availableCount(at: now) else { return nil }
-        let usable = grants.grants.filter { grant in
-            grant.isActive(at: now) && grant.resetsLeft.map({ $0 > 0 }) == true
-        }
-        let items = usable.map { grant in
+    static func claude(
+        _ grants: ClaudeResetGrants?, hasSessionWindow: Bool? = nil, now: Date = Date()
+    ) -> ResetCreditSummary? {
+        guard let inventory = grants?.inventory(at: now) else { return nil }
+        let items = inventory.grants.map { grant in
             Item(
                 id: grant.id, serverTitle: grant.label?.isEmpty == false ? grant.label : nil,
-                scope: .claude(clears: grant.clears),
-                expiresAt: grant.endsAt)
+                scope: .claude(grant, hasSessionWindow: hasSessionWindow),
+                expiresAt: grant.endsAt, count: grant.resetsLeft ?? 0)
         }
         return ResetCreditSummary(
-            items: sorted(items), availableCount: count, atLimit: grants.atLimit)
+            items: sorted(items), availableCount: inventory.count)
     }
 
     static func codex(_ usage: CodexUsageResponse?, now: Date = Date()) -> ResetCreditSummary? {
@@ -201,12 +245,12 @@ nonisolated struct ResetCreditSummary: Equatable, Sendable {
         guard count > 0 else { return nil }
         let items = credits.availableCredits(at: now).map { credit in
             Item(
-                id: credit.id, serverTitle: credit.title, scope: .all,
+                id: credit.id, serverTitle: credit.title,
+                scope: .codex(credit.resetType, hasSessionWindow: usage.hasSessionWindow),
                 expiresAt: credit.expiresDate, doesNotExpire: credit.doesNotExpire)
         }
-        let atLimit = [usage.primaryPercentage, usage.secondaryPercentage].contains { $0 >= 100 }
         return ResetCreditSummary(
-            items: sorted(items), availableCount: count, atLimit: atLimit,
+            items: sorted(items), availableCount: count,
             identityDetailsComplete: usage.resetCreditMetadata?.isCurrent != false
                 && Set(items.compactMap(\.id)).count >= count,
             detailMetadata: usage.resetCreditMetadata)

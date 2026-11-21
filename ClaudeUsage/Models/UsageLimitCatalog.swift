@@ -30,6 +30,7 @@ nonisolated struct UsageLimit: Identifiable, Equatable, Sendable {
     let isIdentifiable: Bool
     let legacyKey: String?
     var windowSlot: String? = nil
+    var coverage: QuotaCoverage = .isolated
 
     var isModelScoped: Bool { scope.hasPrefix("model:") || scope.hasPrefix("model-name:") }
 
@@ -40,7 +41,7 @@ nonisolated struct UsageLimit: Identifiable, Equatable, Sendable {
             id: id, provider: provider, title: title, shortTitle: shortTitle, scope: scope,
             periodSeconds: periodSeconds,
             usedPercentage: nil, resetAt: resetAt, isIdentifiable: isIdentifiable, legacyKey: legacyKey,
-            windowSlot: windowSlot)
+            windowSlot: windowSlot, coverage: coverage)
     }
 }
 
@@ -52,13 +53,14 @@ nonisolated enum UsageLimitCatalog {
                 make(
                     provider: .claude, scope: "five_hour", period: UsageWindowLength.fiveHour,
                     title: "5시간", used: fiveHour.utilization,
-                    reset: date(fiveHour.resetsAt), legacy: "fiveHour"))
+                    reset: date(fiveHour.resetsAt), legacy: "fiveHour", coverage: .shared))
         }
         if let weekly = usage.sevenDay {
             result.append(
                 make(
                     provider: .claude, scope: "seven_day", period: UsageWindowLength.weekly,
-                    title: "주간", used: weekly.utilization, reset: date(weekly.resetsAt), legacy: "weekly"))
+                    title: "주간", used: weekly.utilization, reset: date(weekly.resetsAt), legacy: "weekly",
+                    coverage: .shared))
         }
         let models = usage.modelWeeklyWindows
         let names = Dictionary(grouping: models, by: { canonicalModelName($0.modelName) })
@@ -77,13 +79,15 @@ nonisolated enum UsageLimitCatalog {
     }
 
     static func codex(_ usage: CodexUsageResponse) -> [UsageLimit] {
-        var result = codexWindows(usage.rateLimit, scope: "general", title: nil, identifiable: true, legacy: "base")
+        var result = codexWindows(
+            usage.rateLimit, scope: "general", title: nil, identifiable: true, legacy: "base", coverage: .baseGroup)
         for limit in usage.additionalRateLimits {
             let sourceID = nonempty(limit.meteredFeature)
             let name = nonempty(limit.limitName) ?? sourceID ?? "추가 한도"
             result += codexWindows(
                 limit.rateLimit, scope: "model:\(sourceID ?? name)", title: name,
-                identifiable: sourceID != nil, legacy: nil)
+                identifiable: sourceID != nil, legacy: nil,
+                coverage: sourceID.map { .group($0) } ?? .isolated)
         }
         return checked(result)
     }
@@ -92,10 +96,17 @@ nonisolated enum UsageLimitCatalog {
         checked(
             snapshot.lanes.map { lane in
                 let scope: String
+                let coverage: QuotaCoverage
                 switch lane.scope {
-                case .gemini: scope = "Gemini"
-                case .thirdPartyModels: scope = "Claude·GPT"
-                case .unknown(let id, let label): scope = label ?? id
+                case .gemini:
+                    scope = "Gemini"
+                    coverage = .group("gemini")
+                case .thirdPartyModels:
+                    scope = "Claude·GPT"
+                    coverage = .group("thirdParty")
+                case .unknown(let id, let label):
+                    scope = label ?? id
+                    coverage = .isolated
                 }
                 let period = lane.cadence.lengthSeconds
                 let cadence: String
@@ -111,7 +122,8 @@ nonisolated enum UsageLimitCatalog {
                 return make(
                     provider: .antigravity, scope: lane.id.rawValue, period: period,
                     title: "\(scope) · \(cadence)", used: used, reset: lane.resetAt,
-                    identifiable: lane.id.hasStableDisplayIdentifierShape, legacy: lane.id.rawValue)
+                    identifiable: lane.id.hasStableDisplayIdentifierShape, legacy: lane.id.rawValue,
+                    coverage: period == nil || lane.availability != .available ? .isolated : coverage)
             })
     }
 
@@ -142,7 +154,7 @@ nonisolated enum UsageLimitCatalog {
 
     private static func codexWindows(
         _ limit: CodexRateLimit?, scope: String, title: String?,
-        identifiable: Bool, legacy: String?
+        identifiable: Bool, legacy: String?, coverage: QuotaCoverage
     ) -> [UsageLimit] {
         [("primary", limit?.primaryWindow), ("secondary", limit?.secondaryWindow)].compactMap { slot, window in
             guard let window else { return nil }
@@ -154,7 +166,7 @@ nonisolated enum UsageLimitCatalog {
                 title: [title, period].compactMap { $0 }.joined(separator: " · "),
                 used: window.usedPercent, reset: window.resetAt.map(Date.init(timeIntervalSince1970:)),
                 identifiable: identifiable && (window.limitWindowSeconds == nil || duration != nil), legacy: legacy,
-                slot: slot)
+                slot: slot, coverage: coverage)
         }
     }
 
@@ -169,7 +181,7 @@ nonisolated enum UsageLimitCatalog {
     private static func make(
         provider: PopoverService, scope: String, period: Int?, unknownPeriodKey: String = "unknown",
         title: String, shortTitle: String? = nil, used: Double?, reset: Date?, identifiable: Bool = true,
-        legacy: String? = nil, slot: String? = nil
+        legacy: String? = nil, slot: String? = nil, coverage: QuotaCoverage = .isolated
     ) -> UsageLimit {
         let id = encodedIdentifier(["quota-v1", provider.rawValue, scope, period.map(String.init) ?? unknownPeriodKey])
         return UsageLimit(
@@ -177,7 +189,7 @@ nonisolated enum UsageLimitCatalog {
             periodSeconds: period,
             usedPercentage: used.flatMap { $0.isFinite && $0 >= 0 ? min(100, $0) : nil },
             resetAt: reset.flatMap { $0.timeIntervalSince1970.isFinite ? $0 : nil },
-            isIdentifiable: identifiable, legacyKey: legacy, windowSlot: slot)
+            isIdentifiable: identifiable, legacyKey: legacy, windowSlot: slot, coverage: coverage)
     }
 
     /// Conflicting upstream IDs cannot share a persisted selection or alert history.

@@ -245,7 +245,7 @@ nonisolated enum AntigravityMenuBarQuotaEditorAdapter {
         let gauge = MenuBarIconRenderer.Gauge(
             value: MenuBarGaugeValue(
                 id: id, title: lane?.menuLabel ?? title, usedPercentage: lane?.value.usedPercentage,
-                basis: lane?.basis ?? .antigravity(intent)),
+                basis: lane?.basis ?? .antigravity(intent), indicator: lane?.quota?.status.indicator),
             color: monochrome || colorMode == .statusNumber ? .labelColor : status,
             monochrome: monochrome, textColor: colorMode == .statusNumber ? status : nil)
         guard let lane else {
@@ -255,19 +255,26 @@ nonisolated enum AntigravityMenuBarQuotaEditorAdapter {
                 percentageText: selection.percentageIDs.contains(id) ? text : nil,
                 resetText: selection.resetIDs.contains(id) && !selection.percentageIDs.contains(id) ? text : nil)
         }
-        let number = lane.percentageText ?? unavailableText(lane.value)
+        let hasGauge = intent.style != .none && selection.gaugeIDs.contains(id)
+        let number: String?
+        if let marker = lane.quota?.status.indicator {
+            number = hasGauge ? nil : marker.glyph
+        } else {
+            number = lane.percentageText ?? unavailableText(lane.value)
+        }
         let hasNumber = selection.percentageIDs.contains(id)
         let hasTime = selection.resetIDs.contains(id)
         let reset =
             hasTime
             ? AntigravityQuotaPresentationMapper.menuBarResetText(
-                lane, timeFormat: intent.timeFormat, now: now, locale: locale, timeZone: timeZone) : nil
+                lane, timeFormat: intent.timeFormat, now: now, locale: locale, timeZone: timeZone,
+                indicatorAlreadyVisible: hasGauge || (hasNumber && number != nil)) : nil
         return MenuBarQuotaRenderItem(
             id: id, title: title, gauge: gauge,
-            percentageText: hasNumber ? "\(lane.menuLabel) \(number)" : nil,
+            percentageText: hasNumber ? number.map { "\(lane.menuLabel) \($0)" } : nil,
             condensedPercentageText: hasNumber ? number : nil,
-            resetText: reset.map { hasNumber ? $0 : "\(lane.menuLabel) \($0)" },
-            condensedResetText: hasNumber && lane.percentageText != nil ? "" : reset)
+            resetText: reset.map { hasNumber && number != nil ? $0 : "\(lane.menuLabel) \($0)" },
+            condensedResetText: hasNumber && number != nil && lane.percentageText != nil ? "" : reset)
     }
 
     private static func unavailableText(_ value: AntigravityQuotaValuePresentation) -> String {

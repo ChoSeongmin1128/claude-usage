@@ -84,7 +84,8 @@ struct ServiceStatusPanelContent: Equatable {
                 let meaning = item.value.hasSuffix("%") ? " " + provider.basis.label : ""
                 return item.title + " " + item.value + meaning + (item.detail.map { ", " + $0 } ?? "")
             }
-            return ([provider.kind.displayName] + rows + [provider.stateText].compactMap { $0 }).joined(separator: ", ")
+            return ([provider.kind.displayName] + rows + [provider.stateText, provider.quotaNotice].compactMap { $0 })
+                .joined(separator: ", ")
         }
         let usageSummary = usageBlocks.isEmpty ? nil : "사용량: " + usageBlocks.joined(separator: ". ")
         return [usageSummary, statusSummary].compactMap { $0 }.joined(separator: ". ")

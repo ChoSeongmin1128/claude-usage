@@ -115,7 +115,7 @@ struct PopoverDisplaySectionView: View {
                     isWeekly: usage.isWeekly,
                     timeFormatStyle: usage.timeFormatStyle,
                     basis: usage.basis,
-                    pace: usage.pace
+                    pace: usage.pace, quota: usage.quota
                 )
             } else {
                 UsageSectionView(
@@ -125,7 +125,7 @@ struct PopoverDisplaySectionView: View {
                     isWeekly: usage.isWeekly,
                     timeFormatStyle: usage.timeFormatStyle,
                     basis: usage.basis,
-                    pace: usage.pace
+                    pace: usage.pace, quota: usage.quota
                 )
             }
         case .credits(let credits):
@@ -135,13 +135,7 @@ struct PopoverDisplaySectionView: View {
                 CodexCreditsView(credits: credits.credits, rateCardURL: credits.rateCardURL)
             }
         case .resetCredits(let resetCredits):
-            if density.isCompact {
-                CompactResetCreditsRow(data: resetCredits)
-                    .modifier(ResetCreditRowVisibility(compact: true, receipt: resetCredits.receipt))
-            } else {
-                ResetCreditsView(data: resetCredits)
-                    .modifier(ResetCreditRowVisibility(compact: false, receipt: resetCredits.receipt))
-            }
+            ResetCreditsView(data: resetCredits, density: density)
         case .overage(let overage):
             if density.isCompact {
                 CompactOverageRow(overage: overage.overage, updatedAt: overage.updatedAt, isStale: overage.isStale)
@@ -432,119 +426,60 @@ struct CompactCodexCreditsRow: View {
 
 struct ResetCreditsView: View {
     let data: PopoverResetCreditsSectionData
+    var density: PopoverDensity = .standard
 
     var body: some View {
-        let summary = data.summary
-        let expiring = summary.isExpiringSoon()
-        PopoverMetricRow(density: .standard, rowHeight: PopoverLayoutMetrics.standardSecondaryUsageRowHeight) {
-            Text("초기화권")
-                .font(AppDesign.Typography.subheadline.weight(.semibold))
+        let rows = data.rows
+        VStack(
+            spacing: density.isCompact
+                ? PopoverLayoutMetrics.compactSectionSpacing : PopoverLayoutMetrics.standardLaneSpacing
+        ) {
+            ForEach(rows.indices, id: \.self) { index in
+                row(
+                    rows[index], isNew: rows.count == 1 && data.isNew,
+                    announcesNewInventory: rows.count > 1 && index == 0 && data.isNew
+                )
+                .modifier(ResetCreditRowVisibility(compact: density.isCompact, receipt: data.receipt))
+            }
+        }
+    }
+
+    private func row(_ row: ResetCreditRows.Row, isNew: Bool, announcesNewInventory: Bool) -> some View {
+        let caption = isNew ? "신규" : "남음"
+        let compact = density.isCompact
+        let info = [
+            "\(row.count)개", isNew ? caption : nil, row.expiryText, row.details,
+            announcesNewInventory ? "초기화권 목록에 신규 항목 있음" : nil,
+        ].compactMap { $0 }.joined(separator: ", ")
+        return PopoverMetricRow(
+            density: density,
+            rowHeight: compact
+                ? PopoverLayoutMetrics.compactCreditsRowHeight : PopoverLayoutMetrics.standardSecondaryUsageRowHeight
+        ) {
+            Text(row.title)
+                .font((compact ? AppDesign.Typography.caption : AppDesign.Typography.subheadline).weight(.semibold))
                 .lineLimit(1)
+                .minimumScaleFactor(0.85)
         } middle: {
-            ResetCreditScopeText(data: data)
+            if compact, let expiry = row.expiryText { expiryLabel(expiry, isExpiring: row.isExpiring) }
         } value: {
-            ResetCreditCountText(summary: summary, expiring: expiring, compact: false, isNew: data.isNew)
+            PopoverMetricValue(
+                text: "\(row.count)개", caption: caption, compact: compact,
+                color: row.isExpiring ? .red : isNew ? .blue : .primary)
         } detail: {
-            if summary.availableCount > 0 {
-                Text(summary.expirationDescription())
-                    .font(AppDesign.Typography.caption)
-                    .appStatusTextColor(expiring ? Color.red : AppDesign.Text.secondary)
-                    .lineLimit(1)
-            }
+            if !compact, let expiry = row.expiryText { expiryLabel(expiry, isExpiring: row.isExpiring) }
         }
-        .help(ResetCreditDisplayDescription.tooltip(data))
+        .help([row.title, info].joined(separator: "\n"))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("초기화권")
-        .accessibilityValue(ResetCreditDisplayDescription.value(data))
+        .accessibilityLabel(row.title)
+        .accessibilityValue(info)
     }
-}
 
-struct CompactResetCreditsRow: View {
-    let data: PopoverResetCreditsSectionData
-
-    var body: some View {
-        let summary = data.summary
-        let expiring = summary.isExpiringSoon()
-        PopoverMetricRow(density: .compact, rowHeight: PopoverLayoutMetrics.compactCreditsRowHeight) {
-            HStack(alignment: .firstTextBaseline, spacing: AppDesign.Space.tight) {
-                Text("초기화권")
-                    .font(AppDesign.Typography.caption.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-                    .truncationMode(.tail)
-                if summary.availableCount > 0 {
-                    let expiry = summary.expirationDescription().replacingOccurrences(of: " 뒤 만료", with: "")
-                    Text("· " + expiry)
-                        .font(AppDesign.Typography.metadata)
-                        .appStatusTextColor(expiring ? Color.red : AppDesign.Text.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-            }
-        } middle: {
-            ResetCreditScopeText(data: data)
-        } value: {
-            ResetCreditCountText(summary: summary, expiring: expiring, compact: true, isNew: data.isNew)
-        } detail: {
-            EmptyView()
-        }
-        .help(ResetCreditDisplayDescription.tooltip(data))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("초기화권")
-        .accessibilityValue(ResetCreditDisplayDescription.value(data))
-    }
-}
-
-private struct ResetCreditScopeText: View {
-    let data: PopoverResetCreditsSectionData
-
-    var body: some View {
+    private func expiryLabel(_ text: String, isExpiring: Bool) -> some View {
         Text(text)
-            .font(AppDesign.Typography.caption2)
-            .foregroundStyle(AppDesign.Text.secondary)
+            .font(density.isCompact ? AppDesign.Typography.metadata : AppDesign.Typography.caption)
+            .appStatusTextColor(isExpiring ? .red : AppDesign.Text.secondary)
             .lineLimit(1)
-            .minimumScaleFactor(0.85)
-    }
-
-    private var text: String {
-        guard data.summary.availableCount > 0 else { return "" }
-        let scope = data.summary.items.first?.scope.title ?? ResetCreditSummary.Scope.all.title
-        return data.isNew ? "\(scope) 신규" : scope
-    }
-}
-
-private enum ResetCreditDisplayDescription {
-    static func value(_ data: PopoverResetCreditsSectionData) -> String {
-        let summary = data.summary
-        var parts = ["\(summary.availableCount)개"]
-        if summary.availableCount > 0 {
-            parts.append(summary.scopeText)
-            if data.isNew { parts.append("신규") }
-            if summary.isExpiringSoon() { parts.append("곧 만료") }
-            parts.append(summary.expirationDescription())
-            if summary.atLimit { parts.append("쓰면 한도가 다시 채워집니다") }
-        }
-        return parts.joined(separator: ", ")
-    }
-
-    static func tooltip(_ data: PopoverResetCreditsSectionData) -> String {
-        [data.summary.items.first?.serverTitle, value(data)].compactMap { $0 }.joined(separator: "\n")
-    }
-}
-
-private struct ResetCreditCountText: View {
-    let summary: ResetCreditSummary
-    let expiring: Bool
-    let compact: Bool
-    let isNew: Bool
-
-    var body: some View {
-        PopoverMetricValue(
-            text: "\(summary.availableCount)개", caption: "남음", compact: compact,
-            color: expiring ? .red : isNew && summary.availableCount > 0 ? .blue : .primary
-        )
-        .accessibilityLabel("초기화권 \(summary.availableCount)개 남음")
     }
 }
 

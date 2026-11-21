@@ -36,6 +36,7 @@ struct MenuBarHoverUsageView: View {
                         if let state = provider.stateText {
                             Text(state).font(AppDesign.Typography.metadata).foregroundStyle(AppDesign.Text.secondary)
                         }
+                        quotaNotice(provider.quotaNotice)
                     }
                     .hoverPositionID("usage.\(provider.kind.rawValue)")
                 }
@@ -53,6 +54,7 @@ struct MenuBarHoverUsageView: View {
                                 .foregroundStyle(AppDesign.Text.secondary)
                         }
                         .hoverPositionID("usage.\(provider.kind.rawValue)")
+                        quotaNotice(provider.quotaNotice)
                         ForEach(provider.items) { item in
                             VStack(alignment: .leading, spacing: AppDesign.Hover.rowGap) {
                                 HStack(alignment: .firstTextBaseline, spacing: AppDesign.Space.row) {
@@ -75,6 +77,15 @@ struct MenuBarHoverUsageView: View {
             }
         }
     }
+    @ViewBuilder
+    private func quotaNotice(_ text: String?) -> some View {
+        if let text {
+            Text(text).font(AppDesign.Typography.metadata)
+                .foregroundStyle(AppDesign.Text.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     private func serviceHeading(_ provider: MenuBarHoverUsageContent.Provider) -> some View {
         HStack(spacing: AppDesign.Space.tight) {
             ProviderBrandIconView(

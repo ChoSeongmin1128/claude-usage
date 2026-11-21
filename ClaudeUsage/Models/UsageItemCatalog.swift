@@ -17,6 +17,7 @@ struct UsageItemContext {
     var claudeOverageIsStale = false
     var resetCreditNewness: [PopoverService: Bool] = [:]
     var resetCreditReceipts: [PopoverService: ResetCreditSeenReceipt] = [:]
+    var quotaAvailability: QuotaAvailability = .empty
 
     func resetCreditsSection(id: String, service: PopoverService, summary: ResetCreditSummary?)
         -> PopoverDisplaySection?
@@ -26,7 +27,9 @@ struct UsageItemContext {
             id: id, kind: .resetCredits, importance: .primary,
             payload: .resetCredits(
                 PopoverResetCreditsSectionData(
-                    summary: summary, isNew: resetCreditNewness[service] ?? false, receipt: resetCreditReceipts[service]
+                    summary: summary, isNew: resetCreditNewness[service] ?? false,
+                    receipt: resetCreditReceipts[service],
+                    availability: quotaAvailability
                 )))
     }
 }
@@ -176,7 +179,8 @@ struct ClaudeItemCatalog: UsageItemCatalog {
                         isWeekly: false,
                         timeFormatStyle: context.settings.timeFormat,
                         basis: context.settings.usageValueBasis(for: .claude),
-                        pace: UsagePaceWindow(resetAtISO: fiveHour.resetsAt, lengthSeconds: UsageWindowLength.fiveHour)
+                        pace: UsagePaceWindow(resetAtISO: fiveHour.resetsAt, lengthSeconds: UsageWindowLength.fiveHour),
+                        quota: context.quotaAvailability.row(legacyKey: "fiveHour")
                     )
                 )
             )
@@ -196,7 +200,8 @@ struct ClaudeItemCatalog: UsageItemCatalog {
                         isWeekly: true,
                         timeFormatStyle: context.settings.timeFormat,
                         basis: context.settings.usageValueBasis(for: .claude),
-                        pace: UsagePaceWindow(resetAtISO: sevenDay.resetsAt, lengthSeconds: UsageWindowLength.weekly)
+                        pace: UsagePaceWindow(resetAtISO: sevenDay.resetsAt, lengthSeconds: UsageWindowLength.weekly),
+                        quota: context.quotaAvailability.row(legacyKey: "weekly")
                     )
                 )
             )
@@ -207,7 +212,7 @@ struct ClaudeItemCatalog: UsageItemCatalog {
 
         case "claudeResetCredits":
             return context.resetCreditsSection(
-                id: itemID, service: .claude, summary: ResetCreditSummary.claude(context.claudeUsage?.resetGrants))
+                id: itemID, service: .claude, summary: ResetCreditSummary.claude(context.claudeUsage))
 
         case "overageUsage":
             guard let overage = context.claudeOverage, overage.isEnabled else { return nil }
@@ -241,7 +246,8 @@ struct ClaudeItemCatalog: UsageItemCatalog {
                             title: limit.shortTitle, compactLabel: limit.shortTitle, percentage: percentage,
                             resetAt: limit.resetAt.map { ISO8601DateFormatter().string(from: $0) },
                             isWeekly: true, timeFormatStyle: context.settings.timeFormat,
-                            basis: context.settings.usageValueBasis(for: .claude), pace: limit.paceWindow)))
+                            basis: context.settings.usageValueBasis(for: .claude), pace: limit.paceWindow,
+                            quota: context.quotaAvailability.row(for: limit.id))))
             }
 
         default:
@@ -322,7 +328,8 @@ struct CodexItemCatalog: UsageItemCatalog {
                             resetAt: limit.resetAt.map { ISO8601DateFormatter().string(from: $0) },
                             isWeekly: (limit.periodSeconds ?? 0) >= 86_400,
                             timeFormatStyle: context.settings.codexTimeFormat,
-                            basis: context.settings.usageValueBasis(for: .codex), pace: limit.paceWindow)))
+                            basis: context.settings.usageValueBasis(for: .codex), pace: limit.paceWindow,
+                            quota: context.quotaAvailability.row(for: limit.id))))
             }
 
         default:
@@ -338,7 +345,8 @@ struct CodexItemCatalog: UsageItemCatalog {
         case "codexPrimary":
             // 위치(primary/secondary)가 아니라 창 길이로 분류한다 —
             // 2026-07 개편으로 주간 창이 primary 자리에 오기 때문.
-            if let window = context.codexUsage?.sessionWindow {
+            if let measurement = context.codexUsage?.sessionWindowWithSourceSlot {
+                let window = measurement.window
                 return PopoverDisplaySection(
                     id: "codexPrimary",
                     kind: .usage,
@@ -352,7 +360,8 @@ struct CodexItemCatalog: UsageItemCatalog {
                             isWeekly: false,
                             timeFormatStyle: context.settings.codexTimeFormat,
                             basis: context.settings.usageValueBasis(for: .codex),
-                            pace: window.paceWindow
+                            pace: window.paceWindow,
+                            quota: context.quotaAvailability.row(legacyKey: "base", slot: measurement.slot)
                         )
                     )
                 )
@@ -369,7 +378,8 @@ struct CodexItemCatalog: UsageItemCatalog {
             }
 
         case "codexSecondary":
-            if let window = context.codexUsage?.weeklyWindow {
+            if let measurement = context.codexUsage?.weeklyWindowWithSourceSlot {
+                let window = measurement.window
                 return PopoverDisplaySection(
                     id: "codexSecondary",
                     kind: .usage,
@@ -383,7 +393,8 @@ struct CodexItemCatalog: UsageItemCatalog {
                             isWeekly: true,
                             timeFormatStyle: context.settings.codexTimeFormat,
                             basis: context.settings.usageValueBasis(for: .codex),
-                            pace: window.paceWindow
+                            pace: window.paceWindow,
+                            quota: context.quotaAvailability.row(legacyKey: "base", slot: measurement.slot)
                         )
                     )
                 )

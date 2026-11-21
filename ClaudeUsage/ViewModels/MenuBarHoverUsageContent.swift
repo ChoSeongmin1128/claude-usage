@@ -16,6 +16,7 @@ struct MenuBarHoverUsageContent: Equatable {
         let basis: UsageValueBasis
         let items: [Item]
         var stateText: String? = nil
+        var quotaNotice: String? = nil
         var serviceTone: ServiceStatusPanelContent.Tone? = nil
         var id: AppProviderKind { kind }
     }
@@ -48,12 +49,13 @@ struct MenuBarHoverUsageContent: Equatable {
         guard let catalog = UsageItemCatalogRegistry.catalog(for: snapshot.service) else { return nil }
         let selected = settings.displayItems(for: snapshot.service, surface: .hover).filter(\.visible)
         guard !selected.isEmpty else { return nil }
+        let quota = snapshot.quotaAvailability()
         let context = UsageItemContext(
             density: .compact, settings: settings,
             claudeUsage: snapshot.claudeUsage, claudeOverage: snapshot.claudeOverage,
             codexUsage: snapshot.codexUsage, codexError: snapshot.error,
             claudeOverageUpdatedAt: snapshot.claudeOverageUpdatedAt,
-            claudeOverageIsStale: snapshot.claudeOverageIsStale)
+            claudeOverageIsStale: snapshot.claudeOverageIsStale, quotaAvailability: quota)
         let items = selected.flatMap { config -> [Item] in
             let sections = catalog.expandedSections(for: config.id, context: context)
             if !sections.isEmpty { return sections.compactMap(item) }
@@ -78,7 +80,11 @@ struct MenuBarHoverUsageContent: Equatable {
         }
         return Provider(
             kind: snapshot.kind, basis: settings.usageValueBasis(for: snapshot.service),
-            items: items, stateText: state)
+            items: items,
+            stateText: state,
+            quotaNotice: quota.detail(
+                timeFormat: snapshot.service == .codex
+                    ? settings.codexTimeFormat : settings.timeFormat))
     }
 
     static func antigravityProvider(snapshot: AntigravityRuntimeSnapshot, basis: UsageValueBasis?) -> Provider? {
@@ -113,7 +119,10 @@ struct MenuBarHoverUsageContent: Equatable {
         case .disabled: state = "확인 전"
         }
         if items.isEmpty, !(settings.hover.selection == nil && presentation == nil) { return nil }
-        return Provider(kind: .antigravity, basis: valueBasis, items: items, stateText: state)
+        return Provider(
+            kind: .antigravity, basis: valueBasis, items: items, stateText: state,
+            quotaNotice: QuotaAvailability.detail(
+                for: lanes.compactMap { $0.quota?.status }, timeFormat: settings.display.menuBar.timeFormat))
     }
 
     private static func item(_ section: PopoverDisplaySection) -> Item? {

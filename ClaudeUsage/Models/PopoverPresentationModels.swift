@@ -129,6 +129,7 @@ struct PopoverUsageSectionData {
     let timeFormatStyle: TimeFormatStyle
     var basis: UsageValueBasis = .used
     var pace: UsagePaceWindow? = nil
+    var quota: QuotaAvailability.Row? = nil
 }
 
 struct PopoverCreditsSectionData {
@@ -139,7 +140,18 @@ struct PopoverCreditsSectionData {
 struct PopoverResetCreditsSectionData {
     let summary: ResetCreditSummary
     let isNew: Bool
-    var receipt: ResetCreditSeenReceipt? = nil
+    let receipt: ResetCreditSeenReceipt?
+    let rows: [ResetCreditRows.Row]
+
+    init(
+        summary: ResetCreditSummary, isNew: Bool, receipt: ResetCreditSeenReceipt? = nil,
+        availability: QuotaAvailability = .empty
+    ) {
+        self.summary = summary
+        self.isNew = isNew
+        self.receipt = receipt
+        rows = ResetCreditRows.make(summary: summary, availability: availability)
+    }
 }
 
 struct PopoverOverageSectionData {
@@ -190,6 +202,11 @@ enum PopoverDisplayPayload {
 }
 
 struct PopoverDisplaySection: Identifiable {
+    var displayRowCount: Int {
+        if case .resetCredits(let data) = payload { return data.rows.count }
+        return 1
+    }
+
     let id: String
     let kind: PopoverDisplaySectionKind
     let importance: PopoverSectionImportance

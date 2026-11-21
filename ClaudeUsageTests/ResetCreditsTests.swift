@@ -31,7 +31,7 @@ final class ResetCreditsTests: XCTestCase {
 
         XCTAssertEqual(summary.availableCount, 1)
         XCTAssertEqual(summary.items.map(\.id), ["launch"])
-        XCTAssertEqual(summary.items.first?.scope, .all)
+        XCTAssertEqual(summary.items.first?.scope, .fiveHourAndWeekly)
         XCTAssertEqual(summary.items.first?.serverTitle, "A long promotional sentence")
         XCTAssertTrue(summary.isExpiringSoon(now: now))
     }
@@ -50,7 +50,6 @@ final class ResetCreditsTests: XCTestCase {
                     .resetGrants,
                 now: now))
         XCTAssertEqual(usedUp.availableCount, 0)
-        XCTAssertTrue(usedUp.atLimit)
         XCTAssertNil(MenuBarResetCreditBadge.resolve(summary: usedUp, isNew: true, mode: .always, now: now))
     }
 
@@ -58,7 +57,7 @@ final class ResetCreditsTests: XCTestCase {
         let usage = try claudeUsage(
             #"{ "eligible": true, "grants": [{ "id": "g", "resets_left": 2, "clears": ["five_hour"] }] }"#)
         let summary = try XCTUnwrap(ResetCreditSummary.claude(usage.resetGrants, now: now))
-        XCTAssertEqual(summary.items.first?.scope.title, "5시간 한도만")
+        XCTAssertEqual(summary.items.first?.scope.title, "5시간 초기화권")
         XCTAssertEqual(summary.availableCount, 2)
     }
 
@@ -66,7 +65,7 @@ final class ResetCreditsTests: XCTestCase {
         let usage = try claudeUsage(#"{ "eligible": true, "grants": [{ "id": "g", "resets_left": 1 }] }"#)
         let summary = try XCTUnwrap(ResetCreditSummary.claude(usage.resetGrants, now: now))
         XCTAssertEqual(summary.items.first?.scope, .unknown)
-        XCTAssertEqual(summary.scopeText, "범위 확인 안 됨")
+        XCTAssertEqual(ResetCreditRows.make(summary: summary, now: now).first?.title, "범위 확인 안 됨")
     }
 
     func testMalformedClaudeGrantCountRemainsUnknownAndPreservesBaseUsage() throws {
@@ -162,7 +161,7 @@ final class ResetCreditsTests: XCTestCase {
                 startsAt: nil, endsAt: now, clears: [], paused: false),
         ]
         for grant in inactive {
-            let grants = ClaudeResetGrants(eligible: true, atLimit: false, grants: [active, grant])
+            let grants = ClaudeResetGrants(eligible: true, grants: [active, grant])
             XCTAssertEqual(grants.availableCount(at: now), 2)
             XCTAssertEqual(ResetCreditSummary.claude(grants, now: now)?.items.map(\.id), ["active"])
         }
@@ -191,11 +190,13 @@ final class ResetCreditsTests: XCTestCase {
 
     func testBadgeTonePrefersExpiryOverNewAndRespectsMode() {
         let item = ResetCreditSummary.Item(
-            id: "g", serverTitle: nil, scope: .all, expiresAt: now.addingTimeInterval(86_400 * 10))
-        let summary = ResetCreditSummary(items: [item], availableCount: 1, atLimit: false)
+            id: "g", serverTitle: nil, scope: .fiveHourAndWeekly, expiresAt: now.addingTimeInterval(86_400 * 10))
+        let summary = ResetCreditSummary(items: [item], availableCount: 1)
         let expiring = ResetCreditSummary(
-            items: [.init(id: "g", serverTitle: nil, scope: .all, expiresAt: now.addingTimeInterval(3600))],
-            availableCount: 1, atLimit: false)
+            items: [
+                .init(id: "g", serverTitle: nil, scope: .fiveHourAndWeekly, expiresAt: now.addingTimeInterval(3600))
+            ],
+            availableCount: 1)
 
         XCTAssertEqual(
             MenuBarResetCreditBadge.resolve(summary: summary, isNew: true, mode: .always, now: now)?.tone, .new)
@@ -210,12 +211,83 @@ final class ResetCreditsTests: XCTestCase {
             MenuBarResetCreditBadge.resolve(summary: summary, isNew: true, mode: .always, now: now)?.text, "↺1")
     }
 
+    func testFableAndWeeklyRightsGetDistinctRowsWithPerGrantCounts() throws {
+        let usage = try claudeUsage(
+            """
+            {"eligible":true,"grants":[
+              {"id":"fable","label":"New model launch: one Fable reset","gives_back_weekly":true,
+                "resets_left":2,"clears":["five_hour","seven_day_overage_included"],"ends_at":"\(iso(3600))"},
+              {"id":"weekly","resets_left":1,"clears":["seven_day"],"ends_at":"\(iso(700000))"},
+              {"id":"other","resets_left":1,"clears":["seven_day_overage_included"]}
+            ]}
+            """)
+        let summary = try XCTUnwrap(ResetCreditSummary.claude(usage, now: now))
+        let availability = QuotaAvailability(
+            limits: [
+                .init(
+                    id: "weekly", provider: .claude, title: "주간", shortTitle: "주간", scope: "seven_day",
+                    periodSeconds: UsageWindowLength.weekly, usedPercentage: 100, resetAt: nil,
+                    isIdentifiable: true, legacyKey: "weekly", coverage: .shared)
+            ], now: now)
+        let rows = ResetCreditRows.make(summary: summary, availability: availability, now: now)
+        XCTAssertEqual(summary.availableCount, 4)
+        XCTAssertEqual(rows.map(\.title), ["주간 초기화권", "Fable 초기화권", "범위 확인 안 됨"])
+        XCTAssertEqual(rows.map(\.count), [1, 2, 1])
+        XCTAssertEqual(rows.map(\.helpsCurrentLimit), [true, false, false])
+        let fable = try XCTUnwrap(summary.items.first)
+        XCTAssertEqual(fable.scope.effects, [.returnWeeklyModelUsage("Fable"), .refill(.fiveHour)])
+        XCTAssertEqual(fable.count, 2)
+    }
+
+    func testFableWithoutSessionAndUnconfirmedWeeklyAdjustment() throws {
+        let usage = try claudeUsage(
+            """
+            {"eligible":true,"grants":[
+              {"id":"fable","label":"Fable reset","gives_back_weekly":true,"resets_left":1,
+                "clears":["five_hour","seven_day","seven_day_overage_included"]},
+              {"id":"unconfirmed","label":"Fable promotion","resets_left":1,
+                "clears":["seven_day_overage_included"]}
+            ]}
+            """)
+        let summary = try XCTUnwrap(
+            ResetCreditSummary.claude(usage.resetGrants, hasSessionWindow: false, now: now))
+        XCTAssertEqual(summary.items.first { $0.id == "fable" }?.scope.effects, [.returnWeeklyModelUsage("Fable")])
+        XCTAssertEqual(summary.items.first { $0.id == "unconfirmed" }?.scope, .unknown)
+    }
+
+    func testCodexIncompleteDetailsPreserveCountWithoutInferringScope() throws {
+        var usage = try JSONDecoder().decode(
+            CodexUsageResponse.self,
+            from: Data(
+                #"{ "rate_limit": { "primary_window": { "used_percent": 10, "limit_window_seconds": 604800 } } }"#.utf8)
+        )
+        usage.resetCredits = .init(
+            credits: [.init(id: "a", resetType: "codexRateLimits", status: "available", doesNotExpire: true)],
+            availableCountField: 2)
+        let summary = try XCTUnwrap(ResetCreditSummary.codex(usage, now: now))
+        let rows = ResetCreditRows.make(summary: summary, now: now)
+        XCTAssertEqual(rows.map(\.count), [1, 1])
+        XCTAssertEqual(rows.map(\.title), ["주간 초기화권", "초기화권 상세 미확인"])
+        XCTAssertEqual(rows.first?.expiryText, "만료 없음")
+    }
+
+    func testDuplicateClaudeGrantDoesNotInflateCountsAndConflictingCopiesStayUnknown() throws {
+        let copies = try claudeUsage(
+            #"{"eligible":true,"grants":[{"id":"same","resets_left":2},{"id":"same","resets_left":2}]}"#)
+        let conflicting = try claudeUsage(
+            #"{"eligible":true,"grants":[{"id":"same","resets_left":1},{"id":"same","resets_left":2}]}"#)
+        let summary = try XCTUnwrap(ResetCreditSummary.claude(copies, now: now))
+        XCTAssertEqual(summary.availableCount, 2)
+        XCTAssertEqual(summary.items.count, 1)
+        XCTAssertNil(ResetCreditSummary.claude(conflicting, now: now))
+    }
+
     func testSeenStoreKeepsCurrentIDsPerService() throws {
         let suite = "ResetCreditsTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let summary = ResetCreditSummary(
-            items: [.init(id: "g", serverTitle: nil, scope: .all, expiresAt: nil)], availableCount: 1, atLimit: false)
+            items: [.init(id: "g", serverTitle: nil, scope: .fiveHourAndWeekly, expiresAt: nil)], availableCount: 1)
 
         ResetCreditSeenStore.observe(summary: summary, count: 1, accountKey: "claude/a", defaults: defaults)
         XCTAssertFalse(ResetCreditSeenStore.isNew(accountKey: "claude/a", defaults: defaults))

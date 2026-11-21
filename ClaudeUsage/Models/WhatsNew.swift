@@ -79,6 +79,12 @@ nonisolated enum WhatsNewCatalog {
             body:
                 "팝오버의 사용량 막대에 한도 기간 중 지난 시간의 위치를 눈금으로 표시합니다. 사용한 양 기준에서는 채움이 눈금을 넘으면, 남은 양 기준에서는 채움이 눈금에 못 미치면 시간보다 빨리 쓰고 있다는 뜻입니다. 표시 설정의 팝오버에서 끌 수 있습니다.",
             action: .openSettings(.display), actionTitle: "표시 설정 열기"),
+        WhatsNewPage(
+            version: "2.10.11", symbol: "exclamationmark.circle", title: "메뉴바에서 한도 소진 확인",
+            body: "선택한 한도에 여유가 있어도 함께 적용되는 한도가 소진되면 게이지에 !가 표시됩니다. 마우스를 올려 막힌 한도와 초기화 시각을 확인할 수 있습니다."),
+        WhatsNewPage(
+            version: "2.10.11", symbol: "arrow.counterclockwise.circle", title: "종류별 초기화권",
+            body: "Claude와 Codex 초기화권을 종류별로 나누어 개수와 다음 만료일을 보여줍니다. 행에 마우스를 올리면 복구 범위를 확인할 수 있습니다."),
     ]
 
     static func notesText(_ note: UpdateNotesQueue.Note) -> (version: String, title: String, text: String) {

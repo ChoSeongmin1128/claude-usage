@@ -31,7 +31,7 @@ extension PopoverViewModel {
             }
         } else {
             rowCount = phase == .content
-                ? sections.count
+                ? sections.reduce(0) { $0 + $1.displayRowCount }
                 : 0
         }
         let spec = PopoverLayoutMetrics.layoutSpec(
@@ -246,9 +246,15 @@ extension PopoverViewModel {
             return []
         }
         let visibleItems = settings.effectivePopoverItems(for: service, density: density).filter(\.visible)
-        let context = makeContext(density: density, settings: settings)
+        let context = makeContext(for: service, density: density, settings: settings)
 
         var sections: [PopoverDisplaySection] = []
+        if let restriction = context.quotaAvailability.accountRestriction {
+            sections.append(
+                PopoverDisplaySection(
+                    id: "quota-account-restriction", kind: .status, importance: .primary,
+                    payload: .status(PopoverStatusSectionData(title: restriction, error: nil, statusText: "한도 도달"))))
+        }
         for item in visibleItems {
             sections.append(contentsOf: catalog.expandedSections(for: item.id, context: context))
         }
@@ -271,7 +277,9 @@ extension PopoverViewModel {
             metadata: metadata, storedAccounts: usageHealthSnapshot?.accounts ?? [])
     }
 
-    private func makeContext(density: PopoverDensity, settings: AppSettings) -> UsageItemContext {
+    private func makeContext(
+        for service: PopoverService, density: PopoverDensity, settings: AppSettings
+    ) -> UsageItemContext {
         return UsageItemContext(
             density: density,
             settings: settings,
@@ -283,7 +291,8 @@ extension PopoverViewModel {
             claudeOverageUpdatedAt: snapshot(for: .claude)?.claudeOverageUpdatedAt,
             claudeOverageIsStale: snapshot(for: .claude)?.claudeOverageIsStale ?? false,
             resetCreditNewness: resetCreditNewness,
-            resetCreditReceipts: resetCreditReceipts
+            resetCreditReceipts: resetCreditReceipts,
+            quotaAvailability: snapshot(for: service)?.quotaAvailability() ?? .empty
         )
     }
 }

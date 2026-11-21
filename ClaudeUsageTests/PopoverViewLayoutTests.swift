@@ -895,7 +895,7 @@ extension PopoverViewLayoutTests {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(["확인 중", "정상", "일부 정보 없음", "이전 확인 정보"][index]).font(.caption)
                         let data = PopoverResetCreditsSectionData(summary: summary, isNew: false)
-                        if compact { CompactResetCreditsRow(data: data) } else { ResetCreditsView(data: data) }
+                        ResetCreditsView(data: data, density: compact ? .compact : .standard)
                     }
                 }
             }

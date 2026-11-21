@@ -27,7 +27,8 @@ final class PlanFixtureTests: XCTestCase {
             ]
             if let extra = usage.extraUsage, extra.isEnabled { actual["extraUsage"] = extra.formattedUsageLimitSummary }
             if let credits = ResetCreditSummary.claude(usage.resetGrants) {
-                actual["resetCredits"] = "\(credits.availableCount) \(credits.scopeText)"
+                actual["resetCredits"] = ResetCreditRows.make(summary: credits).map { "\($0.count) \($0.title)" }
+                    .joined(separator: ", ")
             }
             actual = actual.filter { fixture.expected[$0.key] != nil }
             XCTAssertEqual(NSDictionary(dictionary: actual), NSDictionary(dictionary: fixture.expected), fixture.name)

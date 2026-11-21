@@ -711,7 +711,7 @@ final class PopoverResizeTests: XCTestCase {
                     },
                     resetGrants: resetGrant
                         ? .init(
-                            eligible: true, atLimit: false,
+                            eligible: true,
                             grants: [
                                 .init(
                                     id: "fixture-grant", label: nil, resetsLeft: 1, startsAt: nil,

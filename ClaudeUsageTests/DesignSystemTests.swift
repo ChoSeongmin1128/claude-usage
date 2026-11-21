@@ -380,7 +380,7 @@ final class DesignSystemTests: XCTestCase {
                     fiveHour: .init(utilization: 8, resetsAt: sessionReset),
                     sevenDay: .init(utilization: 37, resetsAt: weeklyReset),
                     sevenDaySonnet: .init(utilization: 30, resetsAt: weeklyReset),
-                    resetGrants: .init(eligible: true, atLimit: false, grants: [grant]))
+                    resetGrants: .init(eligible: true, grants: [grant]))
                 var codex = try JSONDecoder().decode(
                     CodexUsageResponse.self,
                     from: Data(
@@ -443,16 +443,15 @@ final class DesignSystemTests: XCTestCase {
 
     func testResetCreditStateGalleryKeepsFixedRowHeights() throws {
         let now = Date()
-        let states: [(String, Int, ResetCreditSummary.Scope, TimeInterval?, Bool, Bool)] = [
-            ("normal", 1, .all, 22 * 86400, false, false),
-            ("new", 1, .all, 22 * 86400, true, false),
-            ("expiring", 2, .fiveHourOnly, 12 * 3600, true, false),
-            ("zero", 0, .all, nil, false, false),
-            ("unknown-expiry", 1, .fiveHourOnly, nil, false, false),
-            ("at-limit", 1, .all, 22 * 86400, false, true),
-            ("long-expiry", 1, .all, 22 * 86400 + 23 * 3600, false, false),
+        let states: [(String, Int, ResetCreditSummary.Scope, TimeInterval?, Bool)] = [
+            ("normal", 1, .fiveHourAndWeekly, 22 * 86400, false),
+            ("new", 1, .fiveHourAndWeekly, 22 * 86400, true),
+            ("expiring", 2, .init(effects: [.refill(.fiveHour)]), 12 * 3600, true),
+            ("zero", 0, .fiveHourAndWeekly, nil, false),
+            ("unknown-expiry", 1, .init(effects: [.refill(.fiveHour)]), nil, false),
+            ("long-expiry", 1, .fiveHourAndWeekly, 22 * 86400 + 23 * 3600, false),
         ]
-        let sections = states.map { name, count, scope, remaining, isNew, atLimit in
+        let sections = states.map { name, count, scope, remaining, isNew in
             PopoverDisplaySection(
                 id: name, kind: .resetCredits, importance: .primary,
                 payload: .resetCredits(
@@ -462,9 +461,10 @@ final class DesignSystemTests: XCTestCase {
                                 ? [
                                     .init(
                                         id: name, serverTitle: "Fixture server title for \(name)",
-                                        scope: scope, expiresAt: remaining.map { now.addingTimeInterval($0) })
+                                        scope: scope, expiresAt: remaining.map { now.addingTimeInterval($0) },
+                                        count: count)
                                 ] : [],
-                            availableCount: count, atLimit: atLimit),
+                            availableCount: count),
                         isNew: isNew)))
         }
         let quotaSection = PopoverDisplaySection(
@@ -627,10 +627,10 @@ final class DesignSystemTests: XCTestCase {
                             summary: .init(
                                 items: [
                                     .init(
-                                        id: "fixture-reset", serverTitle: nil, scope: .all,
-                                        expiresAt: now.addingTimeInterval(17 * 86400 + 3 * 3600))
+                                        id: "fixture-reset", serverTitle: nil, scope: .fiveHourAndWeekly,
+                                        expiresAt: now.addingTimeInterval(17 * 86400 + 3 * 3600), count: count)
                                 ],
-                                availableCount: count, atLimit: false), isNew: false))))
+                                availableCount: count), isNew: false))))
         }
         for limit in [Double?(2000), nil] {
             sections.append(
